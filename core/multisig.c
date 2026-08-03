@@ -37,13 +37,10 @@ uint8_t os_ms_record_sig(const os_multisig *m, const uint8_t fp[4],
                          bool seen[OS_MS_MAX_COSIGNERS])
 {
 	uint8_t idx = os_ms_find(m, fp);
-	uint8_t count = 0;
-	if (idx != 0xFF)
-		seen[idx] = true;
-	for (uint8_t i = 0; i < m->total_n; i++)
-		if (seen[i])
-			count++;
-	return count;
+	if (idx == 0xFF)
+		return 0xFF;              /* unknown cosigner — caller must notice */
+	seen[idx] = true;
+	return idx;
 }
 
 bool os_ms_quorum(const os_multisig *m, const bool seen[OS_MS_MAX_COSIGNERS])

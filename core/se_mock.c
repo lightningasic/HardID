@@ -21,6 +21,7 @@ static uint32_t mock_counter;
 static uint32_t mock_rng_seq;
 static uint8_t  mock_pin[8];
 static size_t   mock_pin_len;
+static bool     mock_unlocked;   /* session unlocked by a successful PIN verify */
 
 static int mock_init(void) { return SE_OK; }
 
@@ -55,6 +56,11 @@ static int mock_sign_digest(const uint32_t *path, size_t path_len,
 	/* NOT real ECDSA — deterministic stand-in for plumbing tests only. */
 	if (!mock_seed_stored)
 		return SE_ERR_STATE;
+	/* SECURITY INVARIANT: signing requires the session to be unlocked by a
+	 * successful verify_pin. A real SE backend must enforce this in hardware
+	 * so the key can never sign without PIN authorization. */
+	if (!mock_unlocked)
+		return SE_ERR_AUTH;
 	(void)path; (void)path_len;
 	for (int i = 0; i < 64; i++)
 		sig64[i] = digest32[i % 32] ^ mock_seed[i % 32] ^ (uint8_t)i;
@@ -81,8 +87,10 @@ static int mock_verify_pin(const uint8_t *pin, size_t len,
 	if (len == 0 || mock_pin_len == 0)
 		return SE_ERR_AUTH;
 	/* constant-time comparison; real SE backend must do this in hardware */
-	if (len == mock_pin_len && os_consttime_eq(pin, mock_pin, len))
+	if (len == mock_pin_len && os_consttime_eq(pin, mock_pin, len)) {
+		mock_unlocked = true;   /* successful verify unlocks the session */
 		return SE_OK;
+	}
 	return SE_ERR_AUTH;
 }
 
@@ -130,6 +138,7 @@ void se_mock_reset(void)
 	mock_counter = 0;
 	mock_rng_seq = 1;
 	mock_pin_len = 0;
+	mock_unlocked = false;
 }
 
 const se_driver_t *se_active(void)

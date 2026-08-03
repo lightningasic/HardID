@@ -30,20 +30,26 @@ int main(void)
 	if (memcmp(a, b, 16) == 0) { printf("FAIL t2 rng stagnant\n"); return 1; }
 	printf("PASS t2 TRNG advances\n");
 
-	/* 3 sign requires init; deterministic given same seed */
+	/* 3 signing requires the session to be unlocked by verify_pin first */
 	uint8_t digest[32]; memset(digest, 0x22, 32);
 	uint8_t sig1[64], sig2[64];
+	/* locked: must be refused */
+	if (se->sign_digest(NULL, 0, digest, sig1, NULL) != SE_ERR_AUTH) {
+		printf("FAIL t3 sign while locked not refused\n"); return 1; }
+	printf("PASS t3a sign while locked refused\n");
+	/* unlock, then sign */
+	uint8_t pin[4] = {'1','2','3','4'};
+	se_mock_set_pin(pin, 4);
+	if (se->verify_pin(pin, 4, NULL, NULL) != SE_OK) { printf("FAIL t3 unlock\n"); return 1; }
 	if (se->sign_digest(NULL, 0, digest, sig1, NULL) != SE_OK) { printf("FAIL t3 sign\n"); return 1; }
 	if (se->sign_digest(NULL, 0, digest, sig2, NULL) != SE_OK) { printf("FAIL t3 sign2\n"); return 1; }
 	if (memcmp(sig1, sig2, 64) != 0) { printf("FAIL t3 determinism\n"); return 1; }
-	printf("PASS t3 sign determinism\n");
+	printf("PASS t3 sign determinism after unlock\n");
 
-	/* 4 PIN verify */
-	uint8_t pin[4] = {'1','2','3','4'};
-	se_mock_set_pin(pin, 4);
-	if (se->verify_pin(pin, 4, NULL, NULL) != SE_OK) { printf("FAIL t4 pin\n"); return 1; }
+	/* 4 PIN verify (already set above) */
 	uint8_t wrong[4] = {'9','9','9','9'};
 	if (se->verify_pin(wrong, 4, NULL, NULL) != SE_ERR_AUTH) { printf("FAIL t4 wrong pin\n"); return 1; }
+	if (se->verify_pin(pin, 4, NULL, NULL) != SE_OK) { printf("FAIL t4 pin\n"); return 1; }
 	printf("PASS t4 PIN verify\n");
 
 	/* 5 monotonic counter */

@@ -5,6 +5,8 @@
 #include <stdbool.h>
 #include "../core/psbt.h"
 
+#include "../core/hkdf.c"
+#include "../core/base58.c"
 #include "../core/psbt.c"
 
 /* ---- builders ---- */

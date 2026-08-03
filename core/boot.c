@@ -11,7 +11,7 @@
 #include "se_driver.h"
 
 /* Firmware override of the RNG fail-safe: show why the device died. */
-void os_rng_fatal(void)
+void __attribute__((noreturn)) os_rng_fatal(void)
 {
 	os_board_display_error("RNG hardware", "failure. Do not use.");
 	os_board_halt();

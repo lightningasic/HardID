@@ -7,6 +7,7 @@
  */
 
 #include "psbt.h"
+#include "base58.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -42,21 +43,7 @@ static uint64_t rd_u64le(const uint8_t *p)
 
 /* ---- address decode from scriptPubKey (common templates) ---- */
 
-/* base58check encode (P2PKH/P2SH) */
-static const char b58[] = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
-static void b58check(uint8_t ver, const uint8_t *payload20, char *out)
-{
-	uint8_t buf[25];
-	buf[0] = ver;
-	memcpy(buf + 1, payload20, 20);
-	/* checksum = first 4 bytes of double-SHA256 — stubbed to zeros here;
-	 * host supplies full base58check in production. We mark addr_valid
-	 * false for base58 to force hex fallback display. */
-	(void)out;
-	(void)b58;
-}
-
-/* bech32 encode (P2WPKH/P2WSH v0) — minimal, correct charset */
+/* encode a v0 witness program (20 or 32 bytes) as bech32 "bc1..." */
 static const char bech32_charset[] = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
 
 static uint32_t bech32_polymod(const uint8_t *v, size_t n)
@@ -125,8 +112,13 @@ static bool script_to_addr(const uint8_t *s, size_t n, char *out, size_t outmax)
 	/* P2TR: 5120 <32> (bech32m — not implemented here, mark invalid) */
 	if (n == 34 && s[0] == 0x51 && s[1] == 0x20)
 		return false;
-	/* P2PKH/P2SH: not doing base58check inline (needs sha256); mark invalid */
-	(void)b58check;
+	/* P2PKH: 76a914 <20> 88ac → base58check version 0x00 (mainnet) */
+	if (n == 25 && s[0] == 0x76 && s[1] == 0xa9 && s[2] == 0x14 &&
+	    s[23] == 0x88 && s[24] == 0xac)
+		return os_base58check_encode(0x00, s + 3, out, outmax) != 0;
+	/* P2SH: a914 <20> 87 → base58check version 0x05 (mainnet) */
+	if (n == 23 && s[0] == 0xa9 && s[1] == 0x14 && s[22] == 0x87)
+		return os_base58check_encode(0x05, s + 2, out, outmax) != 0;
 	return false;
 }
 

@@ -45,7 +45,10 @@ typedef struct {
 int os_ms_validate(const os_multisig *m);
 
 /* Record a partial signature by cosigner fingerprint.
- * seen[] tracks which indices have signed. Returns number of sigs so far. */
+ * seen[] tracks which indices have signed. Returns the cosigner index that
+ * signed, or 0xFF if fp is NOT in the set (unknown cosigner — the caller
+ * should surface this, not silently accept it). Use os_ms_quorum to check
+ * whether enough distinct cosigners have signed. */
 uint8_t os_ms_record_sig(const os_multisig *m, const uint8_t fp[4],
                          bool seen[OS_MS_MAX_COSIGNERS]);
 

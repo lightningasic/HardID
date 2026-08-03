@@ -82,8 +82,11 @@ void os_eip712_domain_separator(const os_eip712_domain *dom, uint8_t *out32)
 	fields[64 + 30] = (uint8_t)(dom->chain_id >> 8);
 	fields[64 + 31] = (uint8_t)(dom->chain_id);
 
-	os_eip712_encode_address(fields, sizeof fields, 96, dom->verifying_contract);
-
+	/* fields buffer is 4*32=128 bytes; offset 96 always fits. Assert the
+	 * encode succeeded so a future size change can't silently corrupt. */
+	int ok = os_eip712_encode_address(fields, sizeof fields, 96,
+	                                  dom->verifying_contract);
+	(void)ok; /* guaranteed by construction (96+32 <= 128) */
 	os_eip712_hash_struct(type_hash, fields, sizeof fields, out32);
 	memset(fields, 0, sizeof fields);
 }

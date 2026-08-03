@@ -14,12 +14,15 @@
 
 /* Weak default: a platform MUST override this to read the SE's TRNG.
  * Default fails closed (seed generation refuses to run without SE entropy),
- * so linking core/ alone never silently produces a single-source seed. */
+ * so linking core/ alone never silently produces a single-source seed.
+ * Tests providing their own implementation define OS_SEED_NO_DEFAULT_HOOK. */
+#ifndef OS_SEED_NO_DEFAULT_HOOK
 __attribute__((weak)) int os_seed_se_trng(uint8_t *buf, size_t len)
 {
 	(void)buf; (void)len;
 	return -1;
 }
+#endif
 
 int os_seed_generate(const uint8_t *host_entropy, size_t host_len,
                      uint8_t *seed_out32)

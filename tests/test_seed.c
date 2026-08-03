@@ -22,6 +22,7 @@ int os_seed_se_trng(uint8_t *buf, size_t len)
 #define OS_RNG_NO_DEFAULT_FATAL
 #include "../core/rng.c"
 #include "../core/hkdf.c"
+#define OS_SEED_NO_DEFAULT_HOOK
 #include "../core/seed.c"
 
 int main(void)

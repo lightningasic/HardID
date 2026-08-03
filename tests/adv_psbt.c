@@ -5,6 +5,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "../core/psbt.h"
+#include "../core/hkdf.c"
+#include "../core/base58.c"
 #include "../core/psbt.c"
 
 static size_t put_varint(uint8_t *o, uint64_t v){ if(v<0xfd){o[0]=v;return 1;} if(v<0x10000){o[0]=0xfd;o[1]=v;o[2]=v>>8;return 3;} o[0]=0xfe;o[1]=v;o[2]=v>>8;o[3]=v>>16;o[4]=v>>24;return 5; }

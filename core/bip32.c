@@ -203,6 +203,24 @@ int os_bip32_ckd(const os_hdnode *parent, uint32_t index, os_hdnode *child)
 	static const uint8_t NBE[32] = {
 		0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFE,
 		0xBA,0xAE,0xDC,0xE6,0xAF,0x48,0xA0,0x3B,0xBF,0xD2,0x5E,0x8C,0xD0,0x36,0x41,0x41 };
+	/* BIP32 spec: if IL == 0 or IL >= n, the child key is invalid — caller
+	 * must proceed to the next index. Reject here (probability ~2^-127 but
+	 * required for spec correctness). */
+	{
+		int il_zero = 1, il_ge_n = 0, decided = 0;
+		for (int i = 0; i < 32; i++) {
+			if (I[i] != 0) il_zero = 0;
+			/* big-endian compare: the FIRST differing byte decides */
+			if (!decided && I[i] != NBE[i]) {
+				il_ge_n = I[i] > NBE[i];
+				decided = 1;
+			}
+		}
+		if (il_zero || il_ge_n) {
+			os_secure_bzero(I, 64);
+			return -1;
+		}
+	}
 	uint16_t carry = 0;
 	uint8_t sum[32];
 	for (int i = 31; i >= 0; i--) {

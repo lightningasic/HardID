@@ -4,3 +4,7 @@
 tests/test_*
 !tests/test_*.c
 __pycache__/
+fuzz_parsers
+fuzz/fuzz_parsers
+tests/adv_*
+!tests/adv_*.c

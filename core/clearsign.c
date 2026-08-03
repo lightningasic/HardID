@@ -11,6 +11,7 @@
  */
 
 #include "clearsign.h"
+#include "keccak.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -78,33 +79,8 @@ static uint64_t rlp_u64(const rlp_item *it)
 
 static void to_hex0x(const uint8_t *addr20, char *out /*>=43*/)
 {
-	static const char *hex = "0123456789abcdef";
-	out[0] = '0'; out[1] = 'x';
-	for (int i = 0; i < 20; i++) {
-		out[2 + i*2]   = hex[addr20[i] >> 4];
-		out[2 + i*2+1] = hex[addr20[i] & 0xf];
-	}
-	out[42] = 0;
-}
-
-/* simple djb2-based 32-byte "hash" placeholder for data fingerprint.
- * NOTE: replace with keccak256 in production; this is a UI fingerprint only,
- * never a security decision input. */
-static void fingerprint(const uint8_t *d, size_t n, uint8_t out[32])
-{
-	uint32_t h0 = 5381, h1 = 52711, h2 = 33, h3 = 823;
-	for (size_t i = 0; i < n; i++) {
-		h0 = h0 * 33 + d[i];
-		h1 = h1 * 31 + d[i];
-		h2 = h2 * 29 + d[i];
-		h3 = h3 * 27 + d[i];
-	}
-	for (int i = 0; i < 8; i++) {
-		out[i]      = (uint8_t)(h0 >> ((i % 4) * 8));
-		out[8 + i]  = (uint8_t)(h1 >> ((i % 4) * 8));
-		out[16 + i] = (uint8_t)(h2 >> ((i % 4) * 8));
-		out[24 + i] = (uint8_t)(h3 >> ((i % 4) * 8));
-	}
+	/* EIP-55 mixed-case checksum address (keccak-based). */
+	os_eth_address_checksum(addr20, out);
 }
 
 /* 4-byte selectors we can name */
@@ -136,7 +112,7 @@ static void decode_erc20(const uint8_t *data, size_t dlen, os_tx_intent *o)
 	if (!m || dlen < 4 + 32 + 32) {
 		o->kind = OS_INTENT_UNKNOWN;
 		o->risk = OS_RISK_HIGH;
-		fingerprint(data, dlen, o->data_hash);
+		os_keccak256(data, dlen, o->data_hash);
 		return;
 	}
 	/* args: [32-byte addr][32-byte amount] */
@@ -159,8 +135,8 @@ static void decode_erc20(const uint8_t *data, size_t dlen, os_tx_intent *o)
 	}
 	to_hex0x(addr, o->to);        /* token recipient/spender */
 	snprintf(o->method, sizeof o->method, "%s", m);
-	/* token amount formatting is UI's job; keep raw fingerprint for now */
-	fingerprint(amt, 32, o->data_hash);
+	/* token amount: UI formats; hash raw 32-byte word for audit */
+	os_keccak256(amt, 32, o->data_hash);
 }
 
 int os_clearsign_parse_evm(const uint8_t *raw, size_t len, os_tx_intent *o)

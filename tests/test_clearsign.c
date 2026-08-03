@@ -43,6 +43,7 @@ static size_t build_legacy(uint8_t *out, uint64_t gasPrice, uint64_t gasLimit,
 	return h + o;
 }
 
+#include "../core/keccak.c"
 #include "../core/clearsign.c"
 
 int main(void)

@@ -173,6 +173,15 @@ void os_hmac_sha256_final(os_hmac_sha256_ctx_storage *ctx, uint8_t *out32)
 	memset(inner, 0, 32);
 }
 
+void os_hmac_sha256(const uint8_t *key, size_t key_len,
+                    const uint8_t *data, size_t len, uint8_t *out32)
+{
+	os_hmac_sha256_ctx_storage h;
+	os_hmac_sha256_init(&h, key, key_len);
+	os_hmac_sha256_update(&h, data, len);
+	os_hmac_sha256_final(&h, out32);
+}
+
 /* ---- HKDF (RFC 5869) ---- */
 
 void os_hkdf_expand32(const uint8_t *prk32,

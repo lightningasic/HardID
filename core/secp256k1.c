@@ -312,3 +312,251 @@ int os_secp256k1_pubkey(const uint8_t *priv32, uint8_t *pub33)
 	pt_serialize_compressed(&r, pub33);
 	return 0;
 }
+
+/* ---- scalar arithmetic mod n (big-endian 32-byte) ---- */
+
+static void be_to_limbs(const uint8_t *be, uint64_t *limbs4)
+{
+	for (int i = 0; i < 4; i++) {
+		uint64_t v = 0;
+		for (int j = 0; j < 8; j++)
+			v = (v << 8) | be[(3 - i) * 8 + j];
+		limbs4[i] = v;
+	}
+}
+static void limbs_to_be(const uint64_t *limbs4, uint8_t *be)
+{
+	for (int i = 0; i < 4; i++)
+		for (int j = 0; j < 8; j++)
+			be[(3 - i) * 8 + j] = (uint8_t)(limbs4[i] >> ((7 - j) * 8));
+}
+
+/* reduce a 512-bit product mod n by folding high limbs with the identity
+ * 2^256 ≡ (2^256 - n) (mod n), then conditional-subtracting. */
+static void scalar_reduce(uint64_t *t8, uint8_t *out_be)
+{
+	uint64_t rem[9] = {0};
+	memcpy(rem, t8, 64); /* 512-bit value in rem[0..7] */
+	rem[8] = 0;
+	static const uint64_t NM1[5] = {  /* 2^256 - n, 5 limbs LE */
+		0x402DA1732FC9BEBFULL, 0x4551231950B75FC4ULL, 0x1ULL, 0ULL, 0ULL
+	};
+	/* fold high limbs (4..7) into low by repeated multiply-by-(2^256-n) */
+	for (int i = 7; i >= 4; i--) {
+		if (rem[i] == 0) continue;
+		uint64_t h = rem[i];
+		rem[i] = 0;
+		/* h * 2^(64*(i-4)) * (2^256 - n) added to rem */
+		uint64_t carry = 0;
+		for (int j = 0; j < 5; j++) {
+			int idx = (i - 4) + j;
+			if (idx > 8) break;
+			u128 cur = (u128)h * NM1[j] + rem[idx] + carry;
+			rem[idx] = (uint64_t)cur;
+			carry = (uint64_t)(cur >> 64);
+		}
+		int idx = (i - 4) + 5;
+		while (carry && idx <= 8) {
+			u128 cur = (u128)rem[idx] + carry;
+			rem[idx] = (uint64_t)cur;
+			carry = (uint64_t)(cur >> 64);
+			idx++;
+		}
+	}
+	/* now rem[0..8] is ~260 bits; subtract n until < n */
+	for (;;) {
+		/* compare rem[0..3] (+rem[4] overflow) with n */
+		if (rem[4] == 0 && rem[5] == 0 && rem[6] == 0 && rem[7] == 0 && rem[8] == 0) {
+			int cmp = 0;
+			for (int i = 3; i >= 0; i--) {
+				if (rem[i] != N[i]) { cmp = rem[i] < N[i] ? -1 : 1; break; }
+			}
+			if (cmp < 0) break;
+		}
+		uint64_t borrow = 0;
+		for (int i = 0; i < 4; i++) {
+			uint64_t ai = rem[i], bi = N[i] + borrow;
+			uint64_t nb = (bi < borrow);
+			uint64_t di = ai - bi;
+			borrow = (ai < bi) | nb;
+			rem[i] = di;
+		}
+		int i = 4;
+		while (borrow && i <= 8) {
+			uint64_t ai = rem[i];
+			rem[i] = ai - borrow;
+			borrow = (ai < borrow);
+			i++;
+		}
+	}
+	limbs_to_be(rem, out_be);
+}
+
+void os_secp256k1_scalar_mul(uint8_t *r, const uint8_t *a, const uint8_t *b)
+{
+	uint64_t al[4], bl[4], t[8] = {0};
+	be_to_limbs(a, al);
+	be_to_limbs(b, bl);
+	for (int i = 0; i < 4; i++) {
+		uint64_t carry = 0;
+		for (int j = 0; j < 4; j++) {
+			u128 cur = (u128)al[i] * bl[j] + t[i + j] + carry;
+			t[i + j] = (uint64_t)cur;
+			carry = (uint64_t)(cur >> 64);
+		}
+		t[i + 4] = carry;
+	}
+	scalar_reduce(t, r);
+}
+
+void os_secp256k1_scalar_add(uint8_t *r, const uint8_t *a, const uint8_t *b)
+{
+	uint64_t al[4], bl[4], s[4];
+	be_to_limbs(a, al);
+	be_to_limbs(b, bl);
+	uint64_t carry = 0;
+	for (int i = 0; i < 4; i++) {
+		u128 cur = (u128)al[i] + bl[i] + carry;
+		s[i] = (uint64_t)cur;
+		carry = (uint64_t)(cur >> 64);
+	}
+	/* if carry or s >= n, subtract n */
+	if (carry || fe_cmp_raw(s, N) >= 0)
+		sub256(s, s, N);
+	limbs_to_be(s, r);
+}
+
+int os_secp256k1_scalar_inv(uint8_t *r, const uint8_t *a)
+{
+	/* a^(n-2) mod n via square-and-multiply (reuses scalar_mul) */
+	int nonzero = 0;
+	for (int i = 0; i < 32; i++) if (a[i]) nonzero = 1;
+	if (!nonzero) return -1;
+
+	uint8_t res[32] = {0}, base[32];
+	res[31] = 1;
+	memcpy(base, a, 32);
+	/* exponent n-2 */
+	uint8_t e[32];
+	static const uint8_t NBE[32] = {
+		0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFE,
+		0xBA,0xAE,0xDC,0xE6,0xAF,0x48,0xA0,0x3B,0xBF,0xD2,0x5E,0x8C,0xD0,0x36,0x41,0x41 };
+	/* e = n - 2 */
+	int borrow = 0;
+	for (int i = 31; i >= 0; i--) {
+		int d = NBE[i] - (i == 31 ? 2 : 0) - borrow;
+		if (d < 0) { d += 256; borrow = 1; } else borrow = 0;
+		e[i] = (uint8_t)d;
+	}
+	for (int i = 0; i < 32; i++) {
+		for (int b = 7; b >= 0; b--) {
+			uint8_t t[32];
+			os_secp256k1_scalar_mul(t, res, res);
+			memcpy(res, t, 32);
+			if ((e[i] >> b) & 1) {
+				os_secp256k1_scalar_mul(t, res, base);
+				memcpy(res, t, 32);
+			}
+		}
+	}
+	memcpy(r, res, 32);
+	return 0;
+}
+
+/* ---- point parse/mul/add for ECDSA verify ---- */
+
+int os_secp256k1_parse_pubkey(const uint8_t *pub33, void *point_out)
+{
+	point *p = (point *)point_out;
+	if (pub33[0] != 0x02 && pub33[0] != 0x03)
+		return -1;
+	/* x */
+	for (int i = 0; i < 4; i++) {
+		uint64_t v = 0;
+		for (int j = 0; j < 8; j++)
+			v = (v << 8) | pub33[1 + (3 - i) * 8 + j];
+		p->x.v[i] = v;
+	}
+	if (fe_cmp_raw(p->x.v, P) >= 0)
+		return -1;
+	/* y = sqrt(x^3 + 7); p ≡ 3 (mod 4) so sqrt = a^((p+1)/4) */
+	fe x3, t;
+	fe_sqr(&x3, &p->x);
+	fe_mul(&x3, &x3, &p->x);
+	fe seven = {{7,0,0,0}};
+	fe_add(&x3, &x3, &seven);
+	/* exponent (p+1)/4 */
+	uint64_t e[4];
+	{
+		/* e = (p + 1) / 4 */
+		uint64_t pe[4];
+		uint64_t carry = 1;
+		for (int i = 0; i < 4; i++) {
+			u128 s = (u128)P[i] + (i == 0 ? 1 : 0) + 0;
+			pe[i] = (uint64_t)s;
+			carry = (uint64_t)(s >> 64);
+			(void)carry;
+		}
+		/* pe might overflow; but p+1 < 2^256 since p = 2^256 - c */
+		for (int i = 0; i < 4; i++)
+			e[i] = (pe[i] >> 2) | (i < 3 ? pe[i + 1] << 62 : 0);
+	}
+	fe_zero(&t);
+	t.v[0] = 1;
+	fe base = x3, res = t;
+	for (int i = 3; i >= 0; i--)
+		for (int b = 63; b >= 0; b--) {
+			fe_sqr(&res, &res);
+			if ((e[i] >> b) & 1)
+				fe_mul(&res, &res, &base);
+		}
+	/* verify res^2 == x3 */
+	fe check;
+	fe_sqr(&check, &res);
+	if (fe_cmp_raw(check.v, x3.v) != 0)
+		return -1;
+	/* choose y with correct parity */
+	int want_odd = pub33[0] == 0x03;
+	if ((int)(res.v[0] & 1) != want_odd)
+		fe_sub(&p->y, (const fe *)(&(fe){ .v = {P[0],P[1],P[2],P[3]} }), &res);
+	else
+		p->y = res;
+	fe_zero(&p->z);
+	p->z.v[0] = 1;
+	return 0;
+}
+
+static void pt_mul(point *r, const point *g, const uint8_t *k32)
+{
+	point acc;
+	pt_set_infinity(&acc);
+	for (int i = 0; i < 32; i++)
+		for (int b = 7; b >= 0; b--) {
+			pt_double(&acc, &acc);
+			if ((k32[i] >> b) & 1) {
+				point t = acc;
+				pt_add(&acc, &t, g);
+			}
+		}
+	*r = acc;
+}
+
+int os_secp256k1_point_mul(const void *point_in, const uint8_t *k32, uint8_t *pub33)
+{
+	point r;
+	pt_mul(&r, (const point *)point_in, k32);
+	if (pt_is_infinity(&r))
+		return -1;
+	pt_serialize_compressed(&r, pub33);
+	return 0;
+}
+
+int os_secp256k1_point_add(const void *a, const void *b, uint8_t *pub33)
+{
+	point r;
+	pt_add(&r, (const point *)a, (const point *)b);
+	if (pt_is_infinity(&r))
+		return -1;
+	pt_serialize_compressed(&r, pub33);
+	return 0;
+}

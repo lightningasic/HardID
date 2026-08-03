@@ -48,6 +48,10 @@ void os_hmac_sha256_update(os_hmac_sha256_ctx_storage *ctx,
                            const uint8_t *data, size_t len);
 void os_hmac_sha256_final(os_hmac_sha256_ctx_storage *ctx, uint8_t *out32);
 
+/* one-shot convenience */
+void os_hmac_sha256(const uint8_t *key, size_t key_len,
+                    const uint8_t *data, size_t len, uint8_t *out32);
+
 /* Expand a PRK into a single 32-byte block: HMAC(PRK, info || 0x01). */
 void os_hkdf_expand32(const uint8_t *prk32,
                       const uint8_t *info, size_t info_len,

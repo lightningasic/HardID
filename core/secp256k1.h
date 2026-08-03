@@ -22,8 +22,22 @@ extern "C" {
 /* Compressed pubkey (33 bytes) from 32-byte privkey. 0 ok, -1 invalid. */
 int os_secp256k1_pubkey(const uint8_t *priv32, uint8_t *pub33);
 
-/* Point add/double exposed for ECDSA verify later (affine, Jacobian-free). */
-/* (Kept minimal for now.) */
+/* ---- scalar arithmetic mod n (for ECDSA) ---- */
+/* r = (a * b) mod n */
+void os_secp256k1_scalar_mul(uint8_t *r, const uint8_t *a, const uint8_t *b);
+/* r = (a + b) mod n */
+void os_secp256k1_scalar_add(uint8_t *r, const uint8_t *a, const uint8_t *b);
+/* r = a^(-1) mod n; returns 0 ok, -1 if a == 0 */
+int os_secp256k1_scalar_inv(uint8_t *r, const uint8_t *a);
+
+/* Decompress a 33-byte pubkey to Jacobian; returns 0 ok, -1 if invalid. */
+int os_secp256k1_parse_pubkey(const uint8_t *pub33, void *point_out);
+/* Scalar multiply an arbitrary parsed point; result serialized compressed. */
+int os_secp256k1_point_mul(const void *point, const uint8_t *k32, uint8_t *pub33);
+/* Add two parsed points; result serialized compressed. */
+int os_secp256k1_point_add(const void *a, const void *b, uint8_t *pub33);
+/* Size of the opaque point object for caller allocation. */
+#define OS_SECP256K1_POINT_SIZE 96
 
 #ifdef __cplusplus
 }

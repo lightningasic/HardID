@@ -8,6 +8,7 @@
 
 #include "hkdf.h"
 #include "sha256.h"
+#include "secure_zero.h"
 #include <string.h>
 
 /* ---- minimal self-contained SHA-256 ---- */
@@ -152,7 +153,7 @@ void os_hmac_sha256_init(os_hmac_sha256_ctx_storage *ctx,
 	sha256_update(&h->outer, k_opad, 64);
 	memset(k_ipad, 0, 64);
 	memset(k_opad, 0, 64);
-	memset(key32, 0, 32);
+	os_secure_bzero(key32, 32);
 }
 
 void os_hmac_sha256_update(os_hmac_sha256_ctx_storage *ctx,
@@ -170,7 +171,7 @@ void os_hmac_sha256_final(os_hmac_sha256_ctx_storage *ctx, uint8_t *out32)
 	sha256_final(&h->inner, inner);
 	sha256_update(&outer, inner, 32);
 	sha256_final(&outer, out32);
-	memset(inner, 0, 32);
+	os_secure_bzero(inner, 32);
 }
 
 void os_hmac_sha256(const uint8_t *key, size_t key_len,
@@ -209,5 +210,5 @@ void os_hkdf_sha256(const uint8_t *salt, size_t salt_len,
 	os_hmac_sha256_final(&h, prk);
 	/* Expand (single block) */
 	os_hkdf_expand32(prk, info, info_len, out32);
-	memset(prk, 0, 32);
+	os_secure_bzero(prk, 32);
 }

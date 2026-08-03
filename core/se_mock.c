@@ -11,6 +11,7 @@
  */
 
 #include "se_driver.h"
+#include "secure_zero.h"
 #include <string.h>
 
 /* ---- mock backend state (host tests / emulator only) ---- */
@@ -76,7 +77,8 @@ static int mock_verify_pin(const uint8_t *pin, size_t len,
                            uint32_t *wait, bool *is_duress)
 {
 	(void)wait; (void)is_duress;
-	if (len == mock_pin_len && memcmp(pin, mock_pin, len) == 0)
+	/* constant-time comparison; real SE backend must do this in hardware */
+	if (len == mock_pin_len && os_consttime_eq(pin, mock_pin, len))
 		return SE_OK;
 	return SE_ERR_AUTH;
 }

@@ -7,6 +7,7 @@
  */
 
 #include "sha512.h"
+#include "secure_zero.h"
 #include <string.h>
 
 static const uint64_t K512[80] = {
@@ -146,7 +147,7 @@ void os_hmac_sha512_init(os_hmac_sha512_ctx *ctx, const uint8_t *key, size_t kle
 	os_sha512_update(&h->outer, k_opad, 128);
 	memset(k_ipad, 0, 128);
 	memset(k_opad, 0, 128);
-	memset(key64, 0, 64);
+	os_secure_bzero(key64, 64);
 }
 
 void os_hmac_sha512_update(os_hmac_sha512_ctx *ctx, const uint8_t *data, size_t len)
@@ -162,7 +163,7 @@ void os_hmac_sha512_final(os_hmac_sha512_ctx *ctx, uint8_t *out64)
 	os_sha512_final(&h->inner, inner);
 	os_sha512_update(&outer, inner, 64);
 	os_sha512_final(&outer, out64);
-	memset(inner, 0, 64);
+	os_secure_bzero(inner, 64);
 }
 
 void os_hmac_sha512(const uint8_t *key, size_t klen,
@@ -206,6 +207,6 @@ void os_pbkdf2_sha512(const uint8_t *password, size_t plen,
 		produced += take;
 		blk++;
 	}
-	memset(block, 0, 64);
-	memset(u, 0, 64);
+	os_secure_bzero(block, 64);
+	os_secure_bzero(u, 64);
 }

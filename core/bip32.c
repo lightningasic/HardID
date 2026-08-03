@@ -11,6 +11,7 @@
 #include "sha512.h"
 #include "sha256.h"
 #include "base58.h"
+#include "secure_zero.h"
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -152,7 +153,7 @@ int os_bip32_from_seed(const uint8_t *seed, size_t seed_len, os_hdnode *node)
 	node->fingerprint = 0;
 	node->child_num = 0;
 	node->has_priv = true;
-	memset(I, 0, sizeof I);
+	os_secure_bzero(I, sizeof I);
 	if (os_secp256k1_pubkey(node->priv, node->pub) != 0)
 		return -1;
 	return 0;
@@ -179,7 +180,7 @@ int os_bip32_ckd(const os_hdnode *parent, uint32_t index, os_hdnode *child)
 
 	if (index & 0x80000000u) {
 		/* hardened: 0x00 || priv || index */
-		if (!parent->has_priv) { memset(I,0,64); return -1; }
+		if (!parent->has_priv) { os_secure_bzero(I, 64); return -1; }
 		uint8_t z = 0;
 		os_hmac_sha512_update(&h, &z, 1);
 		os_hmac_sha512_update(&h, parent->priv, 32);
@@ -194,7 +195,7 @@ int os_bip32_ckd(const os_hdnode *parent, uint32_t index, os_hdnode *child)
 	/* Public-only CKD (point add) not implemented: OpenShield derives on
 	 * the SE which always holds privkey. Require private parent. */
 	if (!parent->has_priv) {
-		memset(I, 0, 64);
+		os_secure_bzero(I, 64);
 		return -1;
 	}
 
@@ -228,9 +229,11 @@ int os_bip32_ckd(const os_hdnode *parent, uint32_t index, os_hdnode *child)
 		}
 	}
 	memcpy(child->priv, sum, 32);
+	os_secure_bzero(sum, sizeof sum);
 	child->has_priv = true;
 	if (os_secp256k1_pubkey(child->priv, child->pub) != 0) {
-		memset(I, 0, 64);
+		os_secure_bzero(I, 64);
+		os_secure_bzero(child->priv, 32);
 		return -1;
 	}
 
@@ -238,7 +241,7 @@ int os_bip32_ckd(const os_hdnode *parent, uint32_t index, os_hdnode *child)
 	child->depth = parent->depth + 1;
 	child->fingerprint = os_bip32_fingerprint(parent);
 	child->child_num = index;
-	memset(I, 0, sizeof I);
+	os_secure_bzero(I, sizeof I);
 	return 0;
 }
 

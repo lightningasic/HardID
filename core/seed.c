@@ -9,6 +9,7 @@
 #include "seed.h"
 #include "rng.h"
 #include "hkdf.h"
+#include "secure_zero.h"
 #include <string.h>
 
 int os_seed_generate(const uint8_t *host_entropy, size_t host_len,
@@ -35,8 +36,8 @@ int os_seed_generate(const uint8_t *host_entropy, size_t host_len,
 	/* Expand (single 32-byte block) */
 	os_hkdf_expand32(prk, info, sizeof(info) - 1, seed_out32);
 
-	memset(se, 0, sizeof se);
-	memset(mcu, 0, sizeof mcu);
-	memset(prk, 0, sizeof prk);
+	os_secure_bzero(se, sizeof se);
+	os_secure_bzero(mcu, sizeof mcu);
+	os_secure_bzero(prk, sizeof prk);
 	return 0;
 }

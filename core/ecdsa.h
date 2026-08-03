@@ -7,8 +7,10 @@
  *
  * Sign uses RFC 6979 deterministic nonces. Verify uses Jacobian point math.
  * NOTE: reference implementation for host/emulator and signature VERIFY on
- * device. On-device SIGNING should use the SE's hardware ECDSA; this exists
- * for testing the protocol and for verify.
+ * device. On-device SIGNING must use the SE's hardware ECDSA — the scalar
+ * inverse and scalar multiplication here are NOT constant-time and are
+ * side-channel unsafe for live private keys on an MCU. Verification and
+ * public-key derivation are safe to use anywhere.
  */
 
 #ifndef OPENSHIELD_ECDSA_H

@@ -8,6 +8,7 @@
 
 #include "rfc6979.h"
 #include "hkdf.h"
+#include "secure_zero.h"
 #include <string.h>
 
 /* secp256k1 group order n, big-endian */
@@ -87,7 +88,9 @@ int os_rfc6979_nonce(const uint8_t priv32[32], const uint8_t hash32[32],
 		if (k_is_valid(V)) {
 			if (retry == 0) {
 				memcpy(k_out32, V, 32);
-				memset(K, 0, 32);
+				os_secure_bzero(K, 32);
+				os_secure_bzero(V, 32);
+				os_secure_bzero(bx, 64);
 				return 0;
 			}
 			retry--;

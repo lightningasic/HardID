@@ -61,7 +61,14 @@ uint32_t os_pin_attempt(const uint8_t *pin, size_t len, bool *is_duress)
 
 	/* failure: increment and arm next backoff, persist immediately */
 	st.fail_count++;
-	st.lock_until = now + os_pin_backoff_seconds(st.fail_count);
+	/* failure: increment and arm next backoff, persist immediately.
+	 * Saturate lock_until to avoid uint32 wraparound bypassing backoff. */
+	{
+		uint32_t backoff = os_pin_backoff_seconds(st.fail_count);
+		uint32_t max_future = 0xFFFFFFFFu - now;
+		st.lock_until = (backoff > max_future) ? 0xFFFFFFFFu
+		                                      : now + backoff;
+	}
 	os_pin_save_state(&st);
 	return st.lock_until - now;
 }

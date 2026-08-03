@@ -9,6 +9,7 @@
 #include "ecdsa.h"
 #include "secp256k1.h"
 #include "rfc6979.h"
+#include "secure_zero.h"
 #include <string.h>
 
 static const uint8_t EC_NBE[32] = {
@@ -111,6 +112,10 @@ int os_ecdsa_sign(const uint8_t priv32[32], const uint8_t hash32[32],
 
 	memcpy(sig64, r, 32);
 	memcpy(sig64 + 32, s, 32);
+	os_secure_bzero(z, 32);
+	os_secure_bzero(k, 32);
+	os_secure_bzero(tmp, 32);
+	os_secure_bzero(s, 32);
 	return 0;
 }
 
@@ -174,5 +179,11 @@ int os_ecdsa_verify(const uint8_t pub33[33], const uint8_t hash32[32],
 			tmp[i] = (uint8_t)d;
 		}
 	}
-	return memcmp(tmp, r, 32) == 0 ? 1 : 0;
+	int valid = os_consttime_eq(tmp, r, 32) ? 1 : 0;
+	os_secure_bzero(z, 32);
+	os_secure_bzero(w, 32);
+	os_secure_bzero(u1, 32);
+	os_secure_bzero(u2, 32);
+	os_secure_bzero(tmp, 32);
+	return valid;
 }

@@ -28,7 +28,11 @@ bool os_policy_authorize(os_policy *p, uint64_t amount)
 
 	if (amount > p->per_tx_limit)
 		return false;
-	if (p->window_spent + amount > p->window_limit)
+	/* overflow-safe window check. Guard spent<=limit so a corrupted or
+	 * out-of-range persisted state fails closed instead of wrapping. */
+	if (p->window_spent > p->window_limit)
+		return false;
+	if (amount > p->window_limit - p->window_spent)
 		return false;
 
 	p->window_spent += amount;

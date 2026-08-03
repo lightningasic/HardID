@@ -141,7 +141,7 @@ typedef struct {
 } reader;
 
 static int tx_outputs(const uint8_t *tx, size_t txn, os_psbt_summary *o,
-                      bool (*chg)(const uint8_t *, size_t))
+                      bool (*chg)(const uint8_t *, size_t), uint32_t *nin_out)
 {
 	reader r = { tx, txn };
 	if (r.n < 4) return -1;
@@ -153,6 +153,8 @@ static int tx_outputs(const uint8_t *tx, size_t txn, os_psbt_summary *o,
 	}
 	uint64_t nin;
 	if (rd_varint(&r.p, &r.n, &nin) != 0) return -1;
+	if (nin > OS_PSBT_MAX_INPUTS) return -1;
+	*nin_out = (uint32_t)nin;
 	/* skip inputs: prev(36) + scriptSig(var) + seq(4) */
 	for (uint64_t i = 0; i < nin; i++) {
 		if (r.n < 36) return -1;
@@ -231,12 +233,16 @@ int os_psbt_parse(const uint8_t *psbt, size_t len,
 	if (!unsigned_tx)
 		return -1;
 
-	if (tx_outputs(unsigned_tx, unsigned_tx_len, o, change_check) != 0)
+	uint32_t nin = 0;
+	if (tx_outputs(unsigned_tx, unsigned_tx_len, o, change_check, &nin) != 0)
 		return -1;
 
-	/* input maps: sum witness_utxo (key 0x01) amounts */
-	for (uint32_t i = 0; i < OS_PSBT_MAX_INPUTS && n > 0; i++) {
-		bool more = false;
+	/* input maps: exactly nin maps follow the global map (BIP174 order).
+	 * Reading beyond nin would misparse OUTPUT maps as input maps — and
+	 * output key 0x01 (witness_script) collides with input key 0x01
+	 * (witness_utxo), corrupting total_in / fee. */
+	for (uint32_t i = 0; i < nin; i++) {
+		if (n == 0) return -1;
 		const uint8_t *mp = p;
 		size_t mn = n;
 		size_t consumed = 0;
@@ -254,13 +260,11 @@ int os_psbt_parse(const uint8_t *psbt, size_t len,
 				o->total_in += rd_u64le(mp);
 			}
 			mp += vlen; mn -= vlen;
-			more = true;
 		}
 		/* advance outer reader past this map */
 		size_t used = (size_t)(mp - p);
 		p += used; n -= used;
 		(void)consumed;
-		if (!more && n == 0) break;
 		o->input_count++;
 	}
 

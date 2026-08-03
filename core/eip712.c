@@ -16,18 +16,28 @@ void os_eip712_type_hash(const char *type_string, uint8_t *out32)
 	os_keccak256((const uint8_t *)type_string, strlen(type_string), out32);
 }
 
-void os_eip712_encode_address(uint8_t *buf, size_t offset, const uint8_t addr20[20])
+static int encode_word(uint8_t *buf, size_t cap, size_t offset,
+                       const uint8_t *src, size_t pad_left, size_t len)
 {
-	memset(buf + offset, 0, 12);
-	memcpy(buf + offset + 12, addr20, 20);
+	/* bounds-checked 32-byte word write; pad_left bytes are zeroed first */
+	if (offset > cap || 32 > cap - offset)
+		return 0;
+	memset(buf + offset, 0, 32);
+	memcpy(buf + offset + pad_left, src, len);
+	return 1;
 }
-void os_eip712_encode_uint256(uint8_t *buf, size_t offset, const uint8_t val32[32])
+
+int os_eip712_encode_address(uint8_t *buf, size_t cap, size_t offset, const uint8_t addr20[20])
 {
-	memcpy(buf + offset, val32, 32);
+	return encode_word(buf, cap, offset, addr20, 12, 20);
 }
-void os_eip712_encode_bytes32(uint8_t *buf, size_t offset, const uint8_t val32[32])
+int os_eip712_encode_uint256(uint8_t *buf, size_t cap, size_t offset, const uint8_t val32[32])
 {
-	memcpy(buf + offset, val32, 32);
+	return encode_word(buf, cap, offset, val32, 0, 32);
+}
+int os_eip712_encode_bytes32(uint8_t *buf, size_t cap, size_t offset, const uint8_t val32[32])
+{
+	return encode_word(buf, cap, offset, val32, 0, 32);
 }
 
 void os_eip712_hash_struct(const uint8_t type_hash32[32],
@@ -72,7 +82,7 @@ void os_eip712_domain_separator(const os_eip712_domain *dom, uint8_t *out32)
 	fields[64 + 30] = (uint8_t)(dom->chain_id >> 8);
 	fields[64 + 31] = (uint8_t)(dom->chain_id);
 
-	os_eip712_encode_address(fields, 96, dom->verifying_contract);
+	os_eip712_encode_address(fields, sizeof fields, 96, dom->verifying_contract);
 
 	os_eip712_hash_struct(type_hash, fields, sizeof fields, out32);
 	memset(fields, 0, sizeof fields);

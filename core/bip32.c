@@ -257,6 +257,9 @@ int os_bip32_derive_path(os_hdnode *node, const char *path)
 		char *end;
 		unsigned long v = strtoul(p, &end, 10);
 		if (end == p) return -1;
+		/* BIP32: each component must be < 2^31; 2^31.. is the hardened flag.
+		 * Reject overflow / out-of-range instead of silently truncating. */
+		if (v > 0x7FFFFFFFUL) return -1;
 		uint32_t idx = (uint32_t)v;
 		if (*end == '\'') { idx |= 0x80000000u; end++; }
 		os_hdnode child;

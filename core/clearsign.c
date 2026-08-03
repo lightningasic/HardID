@@ -14,6 +14,7 @@
 #include "keccak.h"
 #include <string.h>
 #include <stdio.h>
+#include <stdint.h>
 
 /* ---- tiny RLP reader ---- */
 typedef struct {
@@ -174,11 +175,9 @@ int os_clearsign_parse_evm(const uint8_t *raw, size_t len, os_tx_intent *o)
 
 	/* Field order (legacy): nonce, gasPrice, gasLimit, to, value, data, ...
 	 * Field order (1559):  chainId, nonce, maxPrio, maxFee, gasLimit, to, value, data, accessList,... */
-	int idx_to, idx_value, idx_data;
 	uint64_t maxfee = 0, gaslimit = 0;
 
 	if (typed == 2) {
-		idx_to = 5; idx_value = 6; idx_data = 7;
 		/* skip chainId(0), nonce(1), maxPrio(2), capture maxFee(3), gasLimit(4) */
 		rlp_item f;
 		for (int i = 0; i <= 4; i++) {
@@ -187,7 +186,6 @@ int os_clearsign_parse_evm(const uint8_t *raw, size_t len, os_tx_intent *o)
 			if (i == 4) gaslimit = rlp_u64(&f);
 		}
 	} else {
-		idx_to = 3; idx_value = 4; idx_data = 5;
 		rlp_item f;
 		for (int i = 0; i <= 2; i++) { /* nonce, gasPrice, gasLimit */
 			if (rlp_read(&body, &f) != 0) return -1;
@@ -195,14 +193,18 @@ int os_clearsign_parse_evm(const uint8_t *raw, size_t len, os_tx_intent *o)
 			if (i == 2) gaslimit = rlp_u64(&f);
 		}
 	}
-	o->fee_limit = maxfee * gaslimit;
+	/* fee_limit = maxfee * gaslimit, saturated: a malicious huge maxFee must
+	 * not wrap into a small displayed fee. Clamp to UINT64_MAX on overflow. */
+	if (gaslimit != 0 && maxfee > UINT64_MAX / gaslimit)
+		o->fee_limit = UINT64_MAX;
+	else
+		o->fee_limit = maxfee * gaslimit;
 
 	/* to */
 	rlp_item to, val, dat;
 	if (rlp_read(&body, &to) != 0) return -1;
 	if (rlp_read(&body, &val) != 0) return -1;
 	if (rlp_read(&body, &dat) != 0) return -1;
-	(void)idx_to; (void)idx_value; (void)idx_data;
 
 	o->amount = rlp_u64(&val);
 

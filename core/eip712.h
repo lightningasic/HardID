@@ -51,10 +51,12 @@ void os_eip712_digest(const uint8_t domain_sep32[32],
 void os_eip712_type_hash(const char *type_string, uint8_t *out32);
 
 /* Encode one 32-byte word field (address left-padded / uint256 big-endian)
- * into the running struct hash buffer at offset (offset must be < 32*16). */
-void os_eip712_encode_address(uint8_t *buf, size_t offset, const uint8_t addr20[20]);
-void os_eip712_encode_uint256(uint8_t *buf, size_t offset, const uint8_t val32[32]);
-void os_eip712_encode_bytes32(uint8_t *buf, size_t offset, const uint8_t val32[32]);
+ * into the running struct hash buffer at offset. cap is the buffer capacity
+ * in bytes; the write is clamped and 0 is returned on overflow (caller must
+ * size the buffer to the struct's field count * 32). Returns 1 on success. */
+int os_eip712_encode_address(uint8_t *buf, size_t cap, size_t offset, const uint8_t addr20[20]);
+int os_eip712_encode_uint256(uint8_t *buf, size_t cap, size_t offset, const uint8_t val32[32]);
+int os_eip712_encode_bytes32(uint8_t *buf, size_t cap, size_t offset, const uint8_t val32[32]);
 
 /* hashStruct = keccak256(typeHash || encodeData(fields...)). fields is the
  * buffer built by the encode_* helpers, fields_len its length. */

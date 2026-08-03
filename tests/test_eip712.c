@@ -82,10 +82,10 @@ int main(void)
 	uint8_t fields[64];
 	uint8_t addr[20];
 	unhex("1111111111111111111111111111111111111111", addr);
-	os_eip712_encode_address(fields, 0, addr);
+	os_eip712_encode_address(fields, sizeof fields, 0, addr);
 	if (fields[11] != 0 || fields[12] != 0x11 || fields[31] != 0x11) { printf("FAIL t5 addr\n"); return 1; }
 	uint8_t val[32]; val[31] = 0x2a;
-	os_eip712_encode_uint256(fields, 32, val);
+	os_eip712_encode_uint256(fields, sizeof fields, 32, val);
 	if (fields[63] != 0x2a) { printf("FAIL t5 uint\n"); return 1; }
 	printf("PASS t5 encode helpers\n");
 

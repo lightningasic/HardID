@@ -12,6 +12,15 @@
 #include "secure_zero.h"
 #include <string.h>
 
+/* Weak default: a platform MUST override this to read the SE's TRNG.
+ * Default fails closed (seed generation refuses to run without SE entropy),
+ * so linking core/ alone never silently produces a single-source seed. */
+__attribute__((weak)) int os_seed_se_trng(uint8_t *buf, size_t len)
+{
+	(void)buf; (void)len;
+	return -1;
+}
+
 int os_seed_generate(const uint8_t *host_entropy, size_t host_len,
                      uint8_t *seed_out32)
 {
@@ -21,8 +30,13 @@ int os_seed_generate(const uint8_t *host_entropy, size_t host_len,
 	uint8_t prk[32];
 	os_hmac_sha256_ctx_storage h;
 
-	if (os_seed_se_trng(se, sizeof se) != 0)
+	if (os_seed_se_trng(se, sizeof se) != 0) {
+		/* wipe any partially-filled entropy before bailing out */
+		os_secure_bzero(se, sizeof se);
+		os_secure_bzero(mcu, sizeof mcu);
+		os_secure_bzero(prk, sizeof prk);
 		return -1;
+	}
 	os_rng_fill(mcu, sizeof mcu);
 
 	/* Extract: PRK = HMAC(salt, se || mcu || host) */

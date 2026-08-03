@@ -7,6 +7,7 @@
  */
 
 #include "hkdf.h"
+#include "sha256.h"
 #include <string.h>
 
 /* ---- minimal self-contained SHA-256 ---- */
@@ -106,6 +107,15 @@ static void sha256_final(sha256_ctx *c, uint8_t *out)
 		out[i*4+2] = (uint8_t)(c->state[i] >> 8);
 		out[i*4+3] = (uint8_t)(c->state[i]);
 	}
+}
+
+/* public one-shot SHA-256 for modules that only need the hash */
+void os_sha256(const uint8_t *data, size_t len, uint8_t *out32)
+{
+	sha256_ctx c;
+	sha256_init(&c);
+	sha256_update(&c, data, len);
+	sha256_final(&c, out32);
 }
 
 /* ---- HMAC-SHA256 context storing both pad states ---- */

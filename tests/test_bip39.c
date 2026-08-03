@@ -28,7 +28,7 @@ static size_t unhex(const char *s, uint8_t *out)
 int main(void)
 {
 	char m[OS_BIP39_MNEMONIC_MAX];
-	uint8_t ent[32], seed[64], hbuf[64];
+	uint8_t seed[64], hbuf[64];
 	char hx[129];
 
 	/* Vector 1: entropy 00000000000000000000000000000000 ->

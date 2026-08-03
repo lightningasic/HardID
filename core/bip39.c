@@ -83,6 +83,11 @@ size_t os_bip39_mnemonic_to_entropy(const char *mnemonic,
 		if (wi < 0) return 0;
 		idx[words++] = (uint16_t)wi;
 	}
+	/* reject trailing garbage: after collecting words there must be only
+	 * spaces left, never a 25th word silently ignored */
+	while (*p == ' ') p++;
+	if (*p != 0)
+		return 0;
 	if (words != 12 && words != 15 && words != 18 && words != 21 && words != 24)
 		return 0;
 

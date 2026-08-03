@@ -35,6 +35,9 @@ uint32_t os_pin_attempt(const uint8_t *pin, size_t len, bool *is_duress)
 	uint32_t now = os_pin_now();
 	uint32_t wait;
 	bool duress = false;
+	/* only in-range PINs may reach the SE verifier; out-of-range is an
+	 * automatic failure counted like a wrong PIN */
+	bool length_ok = (len >= OS_PIN_MIN_LEN && len <= OS_PIN_MAX_LEN);
 
 	os_pin_load_state(&st);
 
@@ -49,7 +52,7 @@ uint32_t os_pin_attempt(const uint8_t *pin, size_t len, bool *is_duress)
 		os_pin_save_state(&st);
 	}
 
-	if (os_pin_hw_verify(pin, len, &duress)) {
+	if (length_ok && os_pin_hw_verify(pin, len, &duress)) {
 		if (st.fail_count != 0) {
 			st.fail_count = 0;
 			os_pin_save_state(&st);
@@ -59,10 +62,9 @@ uint32_t os_pin_attempt(const uint8_t *pin, size_t len, bool *is_duress)
 		return 0;
 	}
 
-	/* failure: increment and arm next backoff, persist immediately */
-	st.fail_count++;
 	/* failure: increment and arm next backoff, persist immediately.
 	 * Saturate lock_until to avoid uint32 wraparound bypassing backoff. */
+	st.fail_count++;
 	{
 		uint32_t backoff = os_pin_backoff_seconds(st.fail_count);
 		uint32_t max_future = 0xFFFFFFFFu - now;

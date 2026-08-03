@@ -108,6 +108,13 @@ bool os_clearsign_is_unlimited_amount(const uint8_t a[32])
 /* decode calldata for ERC20 transfer/approve to fill intent */
 static void decode_erc20(const uint8_t *data, size_t dlen, os_tx_intent *o)
 {
+	/* must have at least the 4-byte selector before any memcmp */
+	if (dlen < 4) {
+		o->kind = OS_INTENT_UNKNOWN;
+		o->risk = OS_RISK_HIGH;
+		os_keccak256(data, dlen, o->data_hash);
+		return;
+	}
 	const char *m = os_clearsign_method_name(data);
 	if (!m || dlen < 4 + 32 + 32) {
 		o->kind = OS_INTENT_UNKNOWN;

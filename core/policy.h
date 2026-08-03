@@ -25,12 +25,18 @@ extern "C" {
 #define OS_POLICY_COOLDOWN_S (24u * 3600u)
 
 typedef struct {
-	uint64_t per_tx_limit;    /* max amount per single tx (base units) */
-	uint64_t window_limit;    /* max total per window */
+	uint64_t per_tx_limit;    /* ACTIVE max amount per single tx */
+	uint64_t window_limit;    /* ACTIVE max total per window */
 	uint32_t window_seconds;  /* rolling window length */
 	uint64_t window_spent;    /* spent in current window (persisted) */
 	uint32_t window_start;    /* epoch of current window start (persisted) */
-	uint32_t activate_after;  /* pending-change activates at this epoch; 0=active */
+	uint32_t activate_after;  /* pending-change activates at this epoch; 0=none */
+	/* Pending limits (take effect only after the cool-down). Kept separate
+	 * from the ACTIVE limits so authorize() enforces the OLD limits until
+	 * activate_after passes — a transient host compromise cannot raise
+	 * limits instantly. */
+	uint64_t pending_per_tx;
+	uint64_t pending_window_limit;
 } os_policy;
 
 /* ---- Time/persistence hooks (implement over SE/RTC) ---- */

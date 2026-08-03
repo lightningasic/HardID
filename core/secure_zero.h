@@ -20,7 +20,7 @@
 extern "C" {
 #endif
 
-static void (*volatile os_secure_bzero_vp)(void *, int, size_t) = memset;
+static void *(*volatile os_secure_bzero_vp)(void *, int, size_t) = memset;
 
 static inline void os_secure_bzero(void *ptr, size_t len)
 {

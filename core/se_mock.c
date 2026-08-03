@@ -77,6 +77,9 @@ static int mock_verify_pin(const uint8_t *pin, size_t len,
                            uint32_t *wait, bool *is_duress)
 {
 	(void)wait; (void)is_duress;
+	/* reject empty/no-PIN-set: zero-length comparison is vacuously true */
+	if (len == 0 || mock_pin_len == 0)
+		return SE_ERR_AUTH;
 	/* constant-time comparison; real SE backend must do this in hardware */
 	if (len == mock_pin_len && os_consttime_eq(pin, mock_pin, len))
 		return SE_OK;

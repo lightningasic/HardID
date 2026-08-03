@@ -135,8 +135,15 @@ static void fuzz_domain(const uint8_t *d, size_t n)
 	size_t nl = n < 63 ? n : 63;
 	memcpy(dom.name, d, nl);
 	dom.name[nl] = 0;
-	if (n > 15) { size_t vl = (n-63) < 15 ? (n-63) : 15; if (n>63) memcpy(dom.version, d+63, vl); }
-	dom.chain_id = n >= 8 ? ((const uint64_t*)d)[0] : 1;
+	if (n > 63) {
+		size_t vl = (n - 63) < 15 ? (n - 63) : 15;
+		memcpy(dom.version, d + 63, vl);
+		dom.version[vl] = 0;   /* keep NUL-terminated for strlen */
+	}
+	if (n >= 8)
+		memcpy(&dom.chain_id, d, 8);   /* memcpy, not unaligned cast */
+	else
+		dom.chain_id = 1;
 	if (n >= 20) memcpy(dom.verifying_contract, d, 20);
 	uint8_t out[32];
 	os_eip712_domain_separator(&dom, out);

@@ -55,9 +55,11 @@ void os_eip712_domain_separator(const os_eip712_domain *dom, uint8_t *out32)
 	uint8_t fields[32 * 4];
 	uint8_t th[32];
 
-	os_keccak256((const uint8_t *)dom->name, strlen(dom->name), th);
+	os_keccak256((const uint8_t *)dom->name,
+	             strnlen(dom->name, sizeof dom->name), th);
 	memcpy(fields + 0, th, 32);
-	os_keccak256((const uint8_t *)dom->version, strlen(dom->version), th);
+	os_keccak256((const uint8_t *)dom->version,
+	             strnlen(dom->version, sizeof dom->version), th);
 	memcpy(fields + 32, th, 32);
 
 	memset(fields + 64, 0, 32);

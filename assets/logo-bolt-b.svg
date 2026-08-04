@@ -1,0 +1,43 @@
+<svg width="480" height="480" viewBox="0 0 480 480" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bolt" x1="120" y1="40" x2="340" y2="440" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#00E5FF"/>
+      <stop offset="0.45" stop-color="#0A84FF"/>
+      <stop offset="1" stop-color="#0047E1"/>
+    </linearGradient>
+    <linearGradient id="bg" x1="200" y1="200" x2="290" y2="330" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#9FE3FF"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="480" height="480" rx="96" fill="#0A0F1E"/>
+
+  <!-- bolt -->
+  <path d="M292 40
+           L128 256
+           L222 256
+           L160 440
+           L356 212
+           L252 212
+           L306 40 Z"
+        fill="url(#bolt)"/>
+
+  <!-- Bitcoin B centered on the bolt waist -->
+  <g transform="translate(242,236) scale(1.18)">
+    <!-- double vertical strokes -->
+    <path d="M-14 -52 L-14 52 M14 -52 L14 52"
+          stroke="url(#bg)" stroke-width="10" stroke-linecap="round"/>
+    <!-- B body -->
+    <path d="M-24 -40
+             L12 -40
+             C34 -40 42 -28 42 -16
+             C42 -6 36 0 30 2
+             C38 4 44 12 44 22
+             C44 36 34 44 14 44
+             L-24 44
+             Z"
+          fill="none" stroke="url(#bg)" stroke-width="10" stroke-linejoin="round"/>
+    <path d="M-24 -2 L30 -2" stroke="url(#bg)" stroke-width="10"/>
+  </g>
+</svg>

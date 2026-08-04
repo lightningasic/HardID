@@ -1,0 +1,15 @@
+<svg width="480" height="480" viewBox="0 0 480 480" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- White single-color HardID bolt+key (key knocked out) for dark surfaces. -->
+  <path fill-rule="evenodd" fill="#FFFFFF" d="
+    M292 40 L128 256 L222 256 L160 440 L356 212 L252 212 L306 40 Z
+
+    M 242 198.5
+    A 37.5 37.5 0 1 1 241.9 198.5 Z
+    M 242 209.5
+    A 26.5 26.5 0 1 0 242.1 209.5 Z
+
+    M 236.5 268 L 247.5 268 L 247.5 320 L 236.5 320 Z
+    M 247.5 290 L 261 290 L 261 301 L 247.5 301 Z
+    M 247.5 306 L 266 306 L 266 317 L 247.5 317 Z
+  "/>
+</svg>

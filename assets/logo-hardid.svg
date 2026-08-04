@@ -1,0 +1,32 @@
+<svg width="480" height="480" viewBox="0 0 480 480" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bolt" x1="120" y1="40" x2="340" y2="440" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#00E5FF"/>
+      <stop offset="0.45" stop-color="#0A84FF"/>
+      <stop offset="1" stop-color="#0047E1"/>
+    </linearGradient>
+    <linearGradient id="keyg" x1="200" y1="200" x2="290" y2="330" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#9FE3FF"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="480" height="480" rx="96" fill="#0A0F1E"/>
+
+  <!-- bolt: bolder waist, sharper tips -->
+  <path d="M292 40
+           L128 256
+           L222 256
+           L160 440
+           L356 212
+           L252 212
+           L306 40 Z"
+        fill="url(#bolt)"/>
+
+  <!-- key: ring + shaft, centered on the bolt waist -->
+  <g transform="translate(242,236)">
+    <circle cx="0" cy="0" r="32" fill="#0A0F1E" stroke="url(#keyg)" stroke-width="11"/>
+    <path d="M0 32 L0 82 M0 62 L17 62 M0 82 L22 82"
+          stroke="url(#keyg)" stroke-width="11" stroke-linecap="round" fill="none"/>
+  </g>
+</svg>

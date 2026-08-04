@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo-hardid.svg" width="180" alt="HardID logo">
+</p>
+
 # HardID Hardware Wallet
 
 **A fully open-source, air-gapped hardware wallet built around two EAL6+ secure elements — designed so your keys never touch an internet-connected chip.**

@@ -7,6 +7,10 @@
 [![host-tests](https://github.com/lightningasic/HardID/actions/workflows/host-tests.yml/badge.svg)](https://github.com/lightningasic/HardID/actions/workflows/host-tests.yml)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
+<p align="center">
+  <img src="assets/architecture.svg" alt="HardID Air-Gapped Architecture" width="760">
+</p>
+
 ---
 
 ## 🎯 HardID 三原则 · The Three Principles
@@ -15,14 +19,14 @@
 > *These three principles are the soul of HardID and override every engineering decision.*
 
 <p align="center">
-  <img src="https://img.shields.io/badge/%E2%91%A0-%E5%AE%8C%E5%85%A8%E5%BC%80%E6%BA%90%20Fully%20Open%20Source-2ea44f?style=for-the-badge&logo=opensourceinitiative&logoColor=white" alt="完全开源">
-  <img src="https://img.shields.io/badge/%E2%91%A1-%E6%9C%80%E7%AE%80%E7%A1%AC%E4%BB%B6%2B%E6%9C%80%E9%AB%98%E9%9A%8F%E6%9C%BA%E6%95%B0%20Minimal%20HW%2BMax%20Entropy-blueviolet?style=for-the-badge&logo=hackaday&logoColor=white" alt="最简硬件最高随机">
-  <img src="https://img.shields.io/badge/%E2%91%A2-%E5%AF%86%E9%92%A5%E4%B8%8D%E5%87%BA%E8%AE%BE%E5%A4%87%20Keys%20Never%20Leave-critical?style=for-the-badge&logo=keycdn&logoColor=white" alt="密钥不出设备">
+  <img src="assets/icon-opensource.svg" width="72" alt="完全开源">&nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="assets/icon-entropy.svg" width="72" alt="最简硬件最高随机">&nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="assets/icon-keys.svg" width="72" alt="密钥不出设备">
 </p>
 
 ---
 
-### <img src="https://img.shields.io/badge/1-2ea44f?style=flat-square" valign="middle"> 完全开源 · Fully Open Source
+### <img src="assets/icon-opensource.svg" width="26" valign="middle"> 完全开源 · Fully Open Source
 
 | 中文 | English |
 |------|---------|
@@ -31,7 +35,7 @@
 | 全部代码 clean-room 重写，零 TREZOR 代码、零 Ms-RSL 合规风险 → [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) | All code is a clean-room rewrite — zero TREZOR code, zero Ms-RSL risk → [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) |
 | Apache 2.0 许可证（含明确专利授权条款） | Apache 2.0 license with an explicit patent grant |
 
-### <img src="https://img.shields.io/badge/2-blueviolet?style=flat-square" valign="middle"> 最简硬件 + 最高随机数要求 · Minimal Hardware, Maximal Entropy
+### <img src="assets/icon-entropy.svg" width="26" valign="middle"> 最简硬件 + 最高随机数要求 · Minimal Hardware, Maximal Entropy
 
 | 中文 | English |
 |------|---------|
@@ -41,7 +45,7 @@
 | **NIST SP 800-90B** 熵源评估 + **启动自检**：熵源不健康，设备拒绝生成任何密钥。 | **NIST SP 800-90B** entropy assessment + **boot-time self-test**: an unhealthy source means no keys are ever generated. |
 | 无射频（ESP32-P4 无 WiFi/蓝牙）= 天生气隙。 | No radio (ESP32-P4 has no WiFi/BT) = air-gapped by design. |
 
-### <img src="https://img.shields.io/badge/3-critical?style=flat-square" valign="middle"> 一切操作在钱包完成，只输出签名结果 · Keys Never Leave the Device
+### <img src="assets/icon-keys.svg" width="26" valign="middle"> 一切操作在钱包完成，只输出签名结果 · Keys Never Leave the Device
 
 | 中文 | English |
 |------|---------|

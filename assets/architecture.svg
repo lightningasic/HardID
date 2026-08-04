@@ -1,0 +1,67 @@
+<svg width="880" height="470" viewBox="0 0 880 470" fill="none" xmlns="http://www.w3.org/2000/svg" font-family="monospace, sans-serif">
+  <defs>
+    <marker id="arr" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#57606a"/>
+    </marker>
+  </defs>
+
+  <!-- title -->
+  <text x="440" y="30" text-anchor="middle" font-size="20" font-weight="bold" fill="#1f2328">HardID — Air-Gapped Architecture 气隙架构</text>
+
+  <!-- Air-gap boundary -->
+  <rect x="298" y="58" width="284" height="356" rx="14" stroke="#cf222e" stroke-width="2.5" stroke-dasharray="8 6" fill="#fff7f7"/>
+  <text x="440" y="82" text-anchor="middle" font-size="14" font-weight="bold" fill="#cf222e">AIR GAP 气隙边界 (no radio 无射频)</text>
+
+  <!-- Host side -->
+  <rect x="20" y="150" width="220" height="170" rx="12" fill="#f6f8fa" stroke="#57606a" stroke-width="2"/>
+  <text x="130" y="178" text-anchor="middle" font-size="15" font-weight="bold" fill="#1f2328">Host 主机 (不可信)</text>
+  <text x="130" y="205" text-anchor="middle" font-size="12" fill="#57606a">Sparrow / Electrum / MetaMask</text>
+  <text x="130" y="228" text-anchor="middle" font-size="12" fill="#57606a">构造交易 PSBT / rawTx</text>
+  <text x="130" y="250" text-anchor="middle" font-size="12" fill="#57606a">广播签名结果</text>
+  <text x="130" y="285" text-anchor="middle" font-size="13" font-weight="bold" fill="#8250df">+ host entropy 主机熵</text>
+
+  <!-- MCU ESP32-P4 -->
+  <rect x="320" y="140" width="240" height="150" rx="12" fill="#eff6ff" stroke="#0969da" stroke-width="2.5"/>
+  <text x="440" y="166" text-anchor="middle" font-size="15" font-weight="bold" fill="#0969da">ESP32-P4 (RISC-V 双核)</text>
+  <text x="440" y="190" text-anchor="middle" font-size="12" fill="#1f2328">Clear Sign 解析 · 渲染</text>
+  <text x="440" y="212" text-anchor="middle" font-size="12" fill="#1f2328">PSBT / EVM ABI / EIP-712</text>
+  <text x="440" y="234" text-anchor="middle" font-size="12" fill="#1f2328">QR 扫码相机 · 大屏 UI</text>
+  <text x="440" y="262" text-anchor="middle" font-size="12" font-weight="bold" fill="#cf222e">flash 零密钥材料</text>
+
+  <!-- SE1 -->
+  <rect x="320" y="320" width="110" height="80" rx="10" fill="#eafaf0" stroke="#2ea44f" stroke-width="2.5"/>
+  <text x="375" y="345" text-anchor="middle" font-size="13" font-weight="bold" fill="#2ea44f">SE1 ACL16</text>
+  <text x="375" y="365" text-anchor="middle" font-size="11" fill="#1f2328">金库 Vault</text>
+  <text x="375" y="383" text-anchor="middle" font-size="11" fill="#1f2328">种子·签名·TRNG#1</text>
+
+  <!-- SE2 -->
+  <rect x="450" y="320" width="110" height="80" rx="10" fill="#eafaf0" stroke="#2ea44f" stroke-width="2.5"/>
+  <text x="505" y="345" text-anchor="middle" font-size="13" font-weight="bold" fill="#2ea44f">SE2 ACL16</text>
+  <text x="505" y="365" text-anchor="middle" font-size="11" fill="#1f2328">守卫 Guard</text>
+  <text x="505" y="383" text-anchor="middle" font-size="11" fill="#1f2328">PIN·策略·TRNG#2</text>
+
+  <!-- Right: outputs -->
+  <rect x="640" y="150" width="220" height="170" rx="12" fill="#f6f8fa" stroke="#57606a" stroke-width="2"/>
+  <text x="750" y="178" text-anchor="middle" font-size="15" font-weight="bold" fill="#1f2328">Only Output 唯一输出</text>
+  <text x="750" y="215" text-anchor="middle" font-size="14" font-weight="bold" fill="#cf222e">签名结果 Signature</text>
+  <text x="750" y="245" text-anchor="middle" font-size="12" fill="#57606a">QR 码显示</text>
+  <text x="750" y="268" text-anchor="middle" font-size="12" fill="#57606a">(私钥永不出 SE)</text>
+
+  <!-- Arrows host->MCU -->
+  <line x1="240" y1="215" x2="318" y2="215" stroke="#57606a" stroke-width="2.5" marker-end="url(#arr)"/>
+  <text x="279" y="205" text-anchor="middle" font-size="11" fill="#57606a">交易 (QR/USB)</text>
+
+  <!-- Arrows MCU->SE -->
+  <line x1="375" y1="290" x2="375" y2="318" stroke="#2ea44f" stroke-width="2.5" marker-end="url(#arr)"/>
+  <line x1="505" y1="290" x2="505" y2="318" stroke="#2ea44f" stroke-width="2.5" marker-end="url(#arr)"/>
+
+  <!-- Arrow SE1->MCU (signed) -->
+  <line x1="430" y1="340" x2="448" y2="300" stroke="#cf222e" stroke-width="2.5" stroke-dasharray="4 3" marker-end="url(#arr)"/>
+
+  <!-- Arrow MCU->Output -->
+  <line x1="560" y1="215" x2="638" y2="215" stroke="#cf222e" stroke-width="2.5" marker-end="url(#arr)"/>
+  <text x="599" y="205" text-anchor="middle" font-size="11" fill="#cf222e">仅签名</text>
+
+  <!-- entropy notes -->
+  <text x="440" y="440" text-anchor="middle" font-size="13" fill="#8250df">熵: SE1_TRNG ∥ SE2_TRNG ∥ host_entropy → HKDF → seed</text>
+</svg>

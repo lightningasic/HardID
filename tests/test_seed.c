@@ -18,6 +18,12 @@ int os_seed_se_trng(uint8_t *buf, size_t len)
 	memcpy(buf, se_bytes, len < 32 ? len : 32);
 	return 0;
 }
+/* second source uses the fake MCU rng (exercises the fallback path) */
+int os_seed_se2_trng(uint8_t *buf, size_t len)
+{
+	os_rng_fill(buf, len);
+	return 0;
+}
 
 #define OS_RNG_NO_DEFAULT_FATAL
 #include "../core/rng.c"

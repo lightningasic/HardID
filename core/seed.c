@@ -24,6 +24,17 @@ __attribute__((weak)) int os_seed_se_trng(uint8_t *buf, size_t len)
 }
 #endif
 
+/* Weak default for the SECOND entropy source: falls back to the main-
+ * controller TRNG (legacy single-SE builds). Dual-SE platforms override
+ * os_seed_se2_trng to read SE2. */
+#ifndef OS_SEED_NO_DEFAULT_HOOK
+__attribute__((weak)) int os_seed_se2_trng(uint8_t *buf, size_t len)
+{
+	os_rng_fill(buf, len);
+	return 0;
+}
+#endif
+
 int os_seed_generate(const uint8_t *host_entropy, size_t host_len,
                      uint8_t *seed_out32)
 {
@@ -33,16 +44,16 @@ int os_seed_generate(const uint8_t *host_entropy, size_t host_len,
 	uint8_t prk[32];
 	os_hmac_sha256_ctx_storage h;
 
-	if (os_seed_se_trng(se, sizeof se) != 0) {
+	if (os_seed_se_trng(se, sizeof se) != 0 ||
+	    os_seed_se2_trng(mcu, sizeof mcu) != 0) {
 		/* wipe any partially-filled entropy before bailing out */
 		os_secure_bzero(se, sizeof se);
 		os_secure_bzero(mcu, sizeof mcu);
 		os_secure_bzero(prk, sizeof prk);
 		return -1;
 	}
-	os_rng_fill(mcu, sizeof mcu);
 
-	/* Extract: PRK = HMAC(salt, se || mcu || host) */
+	/* Extract: PRK = HMAC(salt, se || se2 || host) */
 	os_hmac_sha256_init(&h, salt, sizeof(salt) - 1);
 	os_hmac_sha256_update(&h, se, sizeof se);
 	os_hmac_sha256_update(&h, mcu, sizeof mcu);

@@ -6,6 +6,7 @@
 static uint8_t g_se[32];
 static int g_se_fail = 0;
 int os_seed_se_trng(uint8_t *buf, size_t len){ if(g_se_fail) return -1; memcpy(buf,g_se,len<32?len:32); return 0; }
+int os_seed_se2_trng(uint8_t *buf, size_t len){ os_rng_fill(buf,len); return 0; }
 static uint32_t g_r=99;
 uint32_t os_rng_hw_read_status(void){return 1;}
 uint32_t os_rng_hw_read_data(void){g_r=g_r*1103515245u+12345u;return g_r;}

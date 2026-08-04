@@ -5,11 +5,15 @@
  * Clean-room reimplementation. Not derived from TREZOR code.
  * License: Apache License 2.0
  *
- * Combines three entropy sources via HKDF-SHA256 so that no single
- * compromised/failed source can determine the seed:
- *   IKM = se_trng(32) || mcu_trng(32) || host_entropy(len)
+ * Combines entropy from independent sources via HKDF-SHA256 so that no
+ * single compromised/failed source can determine the seed:
+ *   IKM = se1_trng(32) || se2_trng(32) || host_entropy(len)
  *   PRK = HMAC(salt="OpenShield seed v1", IKM)
  *   seed = HMAC(PRK, "mnemonic" || 0x01)
+ *
+ * Dual-SE hardware (two ACL16): two independent EAL6+ TRNGs + host entropy.
+ * The main-controller TRNG is OUT of the trust chain. For single-SE builds
+ * a second source may come from the MCU TRNG instead (legacy fallback).
  */
 
 #ifndef OPENSHIELD_SEED_H
@@ -26,6 +30,10 @@ extern "C" {
 
 /* Platform hook: read len bytes from the secure element's TRNG. */
 int os_seed_se_trng(uint8_t *buf, size_t len);
+
+/* Platform hook (dual-SE builds): read len bytes from the SECOND SE's TRNG.
+ * Default falls back to the main-controller TRNG when not overridden. */
+int os_seed_se2_trng(uint8_t *buf, size_t len);
 
 /* Generate a 32-byte seed from the three entropy sources.
  * host_entropy may be NULL (len 0). Returns 0 on success, -1 if any

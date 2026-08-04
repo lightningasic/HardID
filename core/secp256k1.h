@@ -1,6 +1,6 @@
 /*
- * OpenShield Hardware Wallet — secp256k1 field + point arithmetic
- * Copyright (C) 2026 LightningASIC / OpenShield contributors
+ * HardID Hardware Wallet — secp256k1 field + point arithmetic
+ * Copyright (C) 2026 LightningASIC / HardID contributors
  *
  * Clean-room reimplementation. Not derived from TREZOR code.
  * License: Apache License 2.0
@@ -9,8 +9,8 @@
  * (5x52 or simpler: use 4x64 with __int128). NOT constant-time.
  */
 
-#ifndef OPENSHIELD_SECP256K1_H
-#define OPENSHIELD_SECP256K1_H
+#ifndef HARDID_SECP256K1_H
+#define HARDID_SECP256K1_H
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -43,4 +43,4 @@ int os_secp256k1_point_add(const void *a, const void *b, uint8_t *pub33);
 }
 #endif
 
-#endif /* OPENSHIELD_SECP256K1_H */
+#endif /* HARDID_SECP256K1_H */

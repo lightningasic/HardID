@@ -1,13 +1,13 @@
 /*
- * OpenShield Hardware Wallet — SHA-512 / HMAC-SHA512 / PBKDF2
- * Copyright (C) 2026 LightningASIC / OpenShield contributors
+ * HardID Hardware Wallet — SHA-512 / HMAC-SHA512 / PBKDF2
+ * Copyright (C) 2026 LightningASIC / HardID contributors
  *
  * Clean-room reimplementation. Not derived from TREZOR code.
  * License: Apache License 2.0
  */
 
-#ifndef OPENSHIELD_SHA512_H
-#define OPENSHIELD_SHA512_H
+#ifndef HARDID_SHA512_H
+#define HARDID_SHA512_H
 
 #include <stdint.h>
 #include <stddef.h>
@@ -50,4 +50,4 @@ void os_pbkdf2_sha512(const uint8_t *password, size_t plen,
 }
 #endif
 
-#endif /* OPENSHIELD_SHA512_H */
+#endif /* HARDID_SHA512_H */

@@ -1,6 +1,6 @@
 /*
- * OpenShield Hardware Wallet — Secure Element driver abstraction
- * Copyright (C) 2026 LightningASIC / OpenShield contributors
+ * HardID Hardware Wallet — Secure Element driver abstraction
+ * Copyright (C) 2026 LightningASIC / HardID contributors
  *
  * Clean-room reimplementation. Not derived from TREZOR code.
  * License: Apache License 2.0
@@ -12,8 +12,8 @@
  * upper layers. All buffers for key material are written BY the SE only.
  */
 
-#ifndef OPENSHIELD_SE_H
-#define OPENSHIELD_SE_H
+#ifndef HARDID_SE_H
+#define HARDID_SE_H
 
 #include <stdint.h>
 #include <stddef.h>
@@ -87,4 +87,4 @@ const se_driver_t *se_active(void);
 }
 #endif
 
-#endif /* OPENSHIELD_SE_H */
+#endif /* HARDID_SE_H */

@@ -1,6 +1,6 @@
 /*
- * OpenShield Hardware Wallet — SHA-512 / HMAC-SHA512 / PBKDF2
- * Copyright (C) 2026 LightningASIC / OpenShield contributors
+ * HardID Hardware Wallet — SHA-512 / HMAC-SHA512 / PBKDF2
+ * Copyright (C) 2026 LightningASIC / HardID contributors
  *
  * Clean-room reimplementation. Not derived from TREZOR code.
  * License: Apache License 2.0

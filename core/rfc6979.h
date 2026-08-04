@@ -1,6 +1,6 @@
 /*
- * OpenShield Hardware Wallet — RFC6979 deterministic nonce (ECDSA)
- * Copyright (C) 2026 LightningASIC / OpenShield contributors
+ * HardID Hardware Wallet — RFC6979 deterministic nonce (ECDSA)
+ * Copyright (C) 2026 LightningASIC / HardID contributors
  *
  * Clean-room reimplementation. Not derived from TREZOR code.
  * License: Apache License 2.0
@@ -11,8 +11,8 @@
  * nonce commitment).
  */
 
-#ifndef OPENSHIELD_RFC6979_H
-#define OPENSHIELD_RFC6979_H
+#ifndef HARDID_RFC6979_H
+#define HARDID_RFC6979_H
 
 #include <stdint.h>
 
@@ -30,4 +30,4 @@ int os_rfc6979_nonce(const uint8_t priv32[32], const uint8_t hash32[32],
 }
 #endif
 
-#endif /* OPENSHIELD_RFC6979_H */
+#endif /* HARDID_RFC6979_H */

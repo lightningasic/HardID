@@ -1,6 +1,6 @@
 /*
- * OpenShield Hardware Wallet — ESP32-P4 firmware entry point
- * Copyright (C) 2026 LightningASIC / OpenShield contributors
+ * HardID Hardware Wallet — ESP32-P4 firmware entry point
+ * Copyright (C) 2026 LightningASIC / HardID contributors
  * License: Apache License 2.0
  */
 
@@ -12,11 +12,11 @@
 #include "se_board.h"
 #include "rng.h"
 
-static const char *TAG = "openshield";
+static const char *TAG = "hardid";
 
 void app_main(void)
 {
-	ESP_LOGI(TAG, "OpenShield booting (ESP32-P4 + dual ACL16)");
+	ESP_LOGI(TAG, "HardID booting (ESP32-P4 + dual ACL16)");
 
 	/* Board + dual-ACL16 bring-up (SPI transport + composite driver) */
 	if (os_board_se_init() != 0) {

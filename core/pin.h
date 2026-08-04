@@ -1,6 +1,6 @@
 /*
- * OpenShield Hardware Wallet — PIN access control
- * Copyright (C) 2026 LightningASIC / OpenShield contributors
+ * HardID Hardware Wallet — PIN access control
+ * Copyright (C) 2026 LightningASIC / HardID contributors
  *
  * Clean-room reimplementation. Not derived from TREZOR code.
  * License: Apache License 2.0
@@ -16,8 +16,8 @@
  * the hooks below. State must persist across power loss.
  */
 
-#ifndef OPENSHIELD_PIN_H
-#define OPENSHIELD_PIN_H
+#ifndef HARDID_PIN_H
+#define HARDID_PIN_H
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -67,4 +67,4 @@ uint32_t os_pin_remaining(const os_pin_state *st, uint32_t now);
 }
 #endif
 
-#endif /* OPENSHIELD_PIN_H */
+#endif /* HARDID_PIN_H */

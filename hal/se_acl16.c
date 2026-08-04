@@ -1,6 +1,6 @@
 /*
- * OpenShield Hardware Wallet — ACL16 secure-element driver (APDU layer)
- * Copyright (C) 2026 LightningASIC / OpenShield contributors
+ * HardID Hardware Wallet — ACL16 secure-element driver (APDU layer)
+ * Copyright (C) 2026 LightningASIC / HardID contributors
  *
  * Clean-room reimplementation. Not derived from TREZOR code.
  * License: Apache License 2.0

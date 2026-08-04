@@ -1,13 +1,13 @@
-# OpenShield — Third-Party Notices & License Provenance
+# HardID — Third-Party Notices & License Provenance
 
 > **日期**: 2026-08-02
-> **目的**: 记录 OpenShield 代码的许可证来源与合规处置
+> **目的**: 记录 HardID 代码的许可证来源与合规处置
 
 ---
 
 ## 1. 结论
 
-OpenShield 的全新代码（`code/` 目录）为 **clean-room 重写**，采用 **Apache License 2.0**。
+HardID 的全新代码（`code/` 目录）为 **clean-room 重写**，采用 **Apache License 2.0**。
 
 经全量审查（2026-08-02），上游 BitExchange-Hardware-Wallet 仓库 **不含任何 Ms-RSL 污染**，其代码基础为 2014 年 **LGPLv3** 时代的 TREZOR One 固件。即便如此，为彻底消除协议传染风险与技术债，核心加密与安全模块已完全重写，不复制任何 TREZOR 代码。
 
@@ -45,7 +45,7 @@ OpenShield 的全新代码（`code/` 目录）为 **clean-room 重写**，采用
 ## 4. 为何仍选择完全重写
 
 1. **技术债**: 2014 代码携带 wallet.fail 演示的全部漏洞（STM32 flash 提取、无 RNG 自检等）
-2. **架构演进**: OpenShield 采用 SE 存钥 + 三源熵 + Clear Sign，与旧架构本质不同
+2. **架构演进**: HardID 采用 SE 存钥 + 三源熵 + Clear Sign，与旧架构本质不同
 3. **协议自由**: Apache 2.0 比 LGPL 更利于商业合作与硬件分发（无静态链接开源义务）
 4. **知识产权干净**: clean-room 重写 = 无衍生作品争议
 
@@ -53,11 +53,11 @@ OpenShield 的全新代码（`code/` 目录）为 **clean-room 重写**，采用
 
 ## 5. 新代码许可证
 
-`code/` 目录下所有 OpenShield 原生代码采用：
+`code/` 目录下所有 HardID 原生代码采用：
 
 ```
 Apache License 2.0
-Copyright (C) 2026 LightningASIC / OpenShield contributors
+Copyright (C) 2026 LightningASIC / HardID contributors
 ```
 
 选择 Apache 2.0 而非 GPLv3 的理由：

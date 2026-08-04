@@ -1,6 +1,6 @@
 /*
- * OpenShield Hardware Wallet — Clear Sign engine
- * Copyright (C) 2026 LightningASIC / OpenShield contributors
+ * HardID Hardware Wallet — Clear Sign engine
+ * Copyright (C) 2026 LightningASIC / HardID contributors
  *
  * Clean-room reimplementation. Not derived from TREZOR code.
  * License: Apache License 2.0
@@ -12,8 +12,8 @@
  * require a long-press confirmation for UNKNOWN, never guess.
  */
 
-#ifndef OPENSHIELD_CLEARSIGN_H
-#define OPENSHIELD_CLEARSIGN_H
+#ifndef HARDID_CLEARSIGN_H
+#define HARDID_CLEARSIGN_H
 
 #include <stdint.h>
 #include <stddef.h>
@@ -76,4 +76,4 @@ bool os_clearsign_is_unlimited_amount(const uint8_t amount32[32]);
 }
 #endif
 
-#endif /* OPENSHIELD_CLEARSIGN_H */
+#endif /* HARDID_CLEARSIGN_H */

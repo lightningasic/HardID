@@ -1,4 +1,4 @@
-/* Host-side verification for OpenShield RNG core.
+/* Host-side verification for HardID RNG core.
  * Scripts the platform hooks to emulate healthy/stuck/error hardware. */
 #include <stdio.h>
 #include <stdint.h>

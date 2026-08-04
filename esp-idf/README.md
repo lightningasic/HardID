@@ -1,4 +1,4 @@
-# OpenShield ESP32-P4 Firmware (ESP-IDF project)
+# HardID ESP32-P4 Firmware (ESP-IDF project)
 
 ESP32-P4 + 双 ACL16 硬件钱包的 ESP-IDF 工程骨架。
 
@@ -12,11 +12,11 @@ esp-idf/
 │   ├── CMakeLists.txt
 │   └── main.c                      # app_main: SE init → RNG 自检 → 主循环占位
 └── components/
-    └── openshield/
+    └── hardid/
         └── CMakeLists.txt          # 引用 ../../core + ../../hal 全部 24 个源文件
 ```
 
-**单一源码事实源**：组件**不复制**代码，直接从仓库根的 `core/` 和 `hal/` 拉取源文件（`OPENSHIELD_ROOT = ../..`）。改 core/hal 任何文件，ESP-IDF 工程自动用最新。
+**单一源码事实源**：组件**不复制**代码，直接从仓库根的 `core/` 和 `hal/` 拉取源文件（`HARDID_ROOT = ../..`）。改 core/hal 任何文件，ESP-IDF 工程自动用最新。
 
 ## 构建
 
@@ -37,7 +37,7 @@ idf.py -p /dev/ttyUSB0 monitor     # 串口监视
 
 - `target_compile_definitions(... ESP_PLATFORM=1)`：启用 `hal/se_transport_esp32.c` 里的真实 ESP-IDF SPI 实现（host 测试用 stub）。
 - `se_mock.c` **被排除**：生产固件用 `se_composite.c`（真实双 ACL16），mock 仅供 host 测试。
-- `main/CMakeLists.txt` 的 `REQUIRES openshield driver`：链接 SPI/GPIO 驱动。
+- `main/CMakeLists.txt` 的 `REQUIRES hardid driver`：链接 SPI/GPIO 驱动。
 
 ## 当前状态
 

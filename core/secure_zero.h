@@ -1,6 +1,6 @@
 /*
- * OpenShield Hardware Wallet — secure memory zeroization
- * Copyright (C) 2026 LightningASIC / OpenShield contributors
+ * HardID Hardware Wallet — secure memory zeroization
+ * Copyright (C) 2026 LightningASIC / HardID contributors
  *
  * Clean-room reimplementation. Not derived from TREZOR code.
  * License: Apache License 2.0
@@ -10,8 +10,8 @@
  * call is never elided — key material must not linger in RAM.
  */
 
-#ifndef OPENSHIELD_SECURE_ZERO_H
-#define OPENSHIELD_SECURE_ZERO_H
+#ifndef HARDID_SECURE_ZERO_H
+#define HARDID_SECURE_ZERO_H
 
 #include <stddef.h>
 #include <string.h>
@@ -43,4 +43,4 @@ static inline int os_consttime_eq(const void *a, const void *b, size_t len)
 }
 #endif
 
-#endif /* OPENSHIELD_SECURE_ZERO_H */
+#endif /* HARDID_SECURE_ZERO_H */

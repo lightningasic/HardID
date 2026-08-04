@@ -1,6 +1,6 @@
 /*
- * OpenShield Hardware Wallet — Keccak-256 (Ethereum variant)
- * Copyright (C) 2026 LightningASIC / OpenShield contributors
+ * HardID Hardware Wallet — Keccak-256 (Ethereum variant)
+ * Copyright (C) 2026 LightningASIC / HardID contributors
  *
  * Clean-room reimplementation of Keccak-f[1600].
  * Not derived from TREZOR code. License: Apache License 2.0

@@ -1,5 +1,5 @@
 #
-# OpenShield ESP32-P4 sdkconfig defaults
+# HardID ESP32-P4 sdkconfig defaults
 # Apply: idf.py set-target esp32p4
 #
 

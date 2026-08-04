@@ -1,14 +1,14 @@
 /*
- * OpenShield Hardware Wallet - BIP39 English wordlist
- * Copyright (C) 2026 LightningASIC / OpenShield contributors
+ * HardID Hardware Wallet - BIP39 English wordlist
+ * Copyright (C) 2026 LightningASIC / HardID contributors
  *
  * The BIP39 English wordlist is a public standard data table defined by
  * BIP-0039. Any conforming implementation must contain this exact list.
  * License: Apache License 2.0
  */
 
-#ifndef OPENSHIELD_BIP39_WORDLIST_H
-#define OPENSHIELD_BIP39_WORDLIST_H
+#ifndef HARDID_BIP39_WORDLIST_H
+#define HARDID_BIP39_WORDLIST_H
 
 static const char *const os_bip39_wordlist[2048] = {
 	"abandon", "ability", "able", "about", "above", "absent", "absorb", "abstract",

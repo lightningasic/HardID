@@ -1,6 +1,6 @@
 /*
- * OpenShield Hardware Wallet — ACL16 APDU opcodes
- * Copyright (C) 2026 LightningASIC / OpenShield contributors
+ * HardID Hardware Wallet — ACL16 APDU opcodes
+ * Copyright (C) 2026 LightningASIC / HardID contributors
  * License: Apache License 2.0
  *
  * PLACEHOLDER opcodes. Replace with the real values from the ACL16
@@ -11,8 +11,8 @@
  * vendors); adjust to the datasheet's class byte.
  */
 
-#ifndef OPENSHIELD_SE_ACL16_OPCODES_H
-#define OPENSHIELD_SE_ACL16_OPCODES_H
+#ifndef HARDID_SE_ACL16_OPCODES_H
+#define HARDID_SE_ACL16_OPCODES_H
 
 /* Class byte for proprietary ACL16 commands */
 #define ACL16_CLA            0x80
@@ -33,4 +33,4 @@
 #define ACL16_P1_CURVE_SECP256K1 0x01   /* PLACEHOLDER — CONFIRM ACL16 supports
                                          * secp256k1 natively (audit gate) */
 
-#endif /* OPENSHIELD_SE_ACL16_OPCODES_H */
+#endif /* HARDID_SE_ACL16_OPCODES_H */

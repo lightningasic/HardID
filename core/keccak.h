@@ -1,6 +1,6 @@
 /*
- * OpenShield Hardware Wallet — Keccak-256 (Ethereum variant)
- * Copyright (C) 2026 LightningASIC / OpenShield contributors
+ * HardID Hardware Wallet — Keccak-256 (Ethereum variant)
+ * Copyright (C) 2026 LightningASIC / HardID contributors
  *
  * Clean-room reimplementation of the Keccak-f[1600] permutation.
  * Not derived from TREZOR code. License: Apache License 2.0
@@ -9,8 +9,8 @@
  * (padding 0x06). Ethereum uses the original Keccak padding.
  */
 
-#ifndef OPENSHIELD_KECCAK_H
-#define OPENSHIELD_KECCAK_H
+#ifndef HARDID_KECCAK_H
+#define HARDID_KECCAK_H
 
 #include <stdint.h>
 #include <stddef.h>
@@ -42,4 +42,4 @@ void os_eth_address_checksum(const uint8_t addr20[20], char *out43);
 }
 #endif
 
-#endif /* OPENSHIELD_KECCAK_H */
+#endif /* HARDID_KECCAK_H */

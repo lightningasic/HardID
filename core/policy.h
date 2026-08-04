@@ -1,6 +1,6 @@
 /*
- * OpenShield Hardware Wallet — auto-sign policy (SignPolicy)
- * Copyright (C) 2026 LightningASIC / OpenShield contributors
+ * HardID Hardware Wallet — auto-sign policy (SignPolicy)
+ * Copyright (C) 2026 LightningASIC / HardID contributors
  *
  * Clean-room reimplementation. Not derived from TREZOR code.
  * License: Apache License 2.0
@@ -12,8 +12,8 @@
  * Clear Sign confirmation.
  */
 
-#ifndef OPENSHIELD_POLICY_H
-#define OPENSHIELD_POLICY_H
+#ifndef HARDID_POLICY_H
+#define HARDID_POLICY_H
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -64,4 +64,4 @@ bool os_policy_in_cooldown(const os_policy *p, uint32_t now);
 }
 #endif
 
-#endif /* OPENSHIELD_POLICY_H */
+#endif /* HARDID_POLICY_H */

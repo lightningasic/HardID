@@ -1,6 +1,6 @@
 /*
- * OpenShield Hardware Wallet — seed generation (multi-source entropy)
- * Copyright (C) 2026 LightningASIC / OpenShield contributors
+ * HardID Hardware Wallet — seed generation (multi-source entropy)
+ * Copyright (C) 2026 LightningASIC / HardID contributors
  *
  * Clean-room reimplementation. Not derived from TREZOR code.
  * License: Apache License 2.0
@@ -38,7 +38,7 @@ __attribute__((weak)) int os_seed_se2_trng(uint8_t *buf, size_t len)
 int os_seed_generate(const uint8_t *host_entropy, size_t host_len,
                      uint8_t *seed_out32)
 {
-	static const uint8_t salt[] = "OpenShield seed v1";
+	static const uint8_t salt[] = "HardID seed v1";
 	static const uint8_t info[] = "mnemonic";
 	uint8_t se[OS_SEED_LEN], mcu[OS_SEED_LEN];
 	uint8_t prk[32];

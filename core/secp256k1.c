@@ -1,6 +1,6 @@
 /*
- * OpenShield Hardware Wallet — secp256k1 field + point arithmetic
- * Copyright (C) 2026 LightningASIC / OpenShield contributors
+ * HardID Hardware Wallet — secp256k1 field + point arithmetic
+ * Copyright (C) 2026 LightningASIC / HardID contributors
  *
  * Clean-room reimplementation. Not derived from TREZOR code.
  * License: Apache License 2.0

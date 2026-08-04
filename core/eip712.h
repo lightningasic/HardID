@@ -1,6 +1,6 @@
 /*
- * OpenShield Hardware Wallet — EIP-712 typed structured data
- * Copyright (C) 2026 LightningASIC / OpenShield contributors
+ * HardID Hardware Wallet — EIP-712 typed structured data
+ * Copyright (C) 2026 LightningASIC / HardID contributors
  *
  * Clean-room reimplementation. Not derived from TREZOR code.
  * License: Apache License 2.0
@@ -14,8 +14,8 @@
  * subset is surfaced as opaque bytes with a hash for the UI to warn on.
  */
 
-#ifndef OPENSHIELD_EIP712_H
-#define OPENSHIELD_EIP712_H
+#ifndef HARDID_EIP712_H
+#define HARDID_EIP712_H
 
 #include <stdint.h>
 #include <stddef.h>
@@ -68,4 +68,4 @@ void os_eip712_hash_struct(const uint8_t type_hash32[32],
 }
 #endif
 
-#endif /* OPENSHIELD_EIP712_H */
+#endif /* HARDID_EIP712_H */

@@ -1,6 +1,6 @@
 /*
- * OpenShield Hardware Wallet — SE transport abstraction (SPI/I2C/UART)
- * Copyright (C) 2026 LightningASIC / OpenShield contributors
+ * HardID Hardware Wallet — SE transport abstraction (SPI/I2C/UART)
+ * Copyright (C) 2026 LightningASIC / HardID contributors
  *
  * Clean-room reimplementation. Not derived from TREZOR code.
  * License: Apache License 2.0
@@ -12,8 +12,8 @@
  * bus-agnostic and host-testable with a loopback transport.
  */
 
-#ifndef OPENSHIELD_SE_TRANSPORT_H
-#define OPENSHIELD_SE_TRANSPORT_H
+#ifndef HARDID_SE_TRANSPORT_H
+#define HARDID_SE_TRANSPORT_H
 
 #include <stdint.h>
 #include <stddef.h>
@@ -63,4 +63,4 @@ const se_transport_t *se_transport_get(void);
 }
 #endif
 
-#endif /* OPENSHIELD_SE_TRANSPORT_H */
+#endif /* HARDID_SE_TRANSPORT_H */

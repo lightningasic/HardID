@@ -1,6 +1,6 @@
 /*
- * OpenShield Hardware Wallet — BTC PSBT (BIP174) parser
- * Copyright (C) 2026 LightningASIC / OpenShield contributors
+ * HardID Hardware Wallet — BTC PSBT (BIP174) parser
+ * Copyright (C) 2026 LightningASIC / HardID contributors
  *
  * Clean-room reimplementation. Not derived from TREZOR code.
  * License: Apache License 2.0
@@ -10,8 +10,8 @@
  * bounded; malformed input is rejected, never guessed.
  */
 
-#ifndef OPENSHIELD_PSBT_H
-#define OPENSHIELD_PSBT_H
+#ifndef HARDID_PSBT_H
+#define HARDID_PSBT_H
 
 #include <stdint.h>
 #include <stddef.h>
@@ -55,4 +55,4 @@ int os_psbt_parse(const uint8_t *psbt, size_t len,
 }
 #endif
 
-#endif /* OPENSHIELD_PSBT_H */
+#endif /* HARDID_PSBT_H */

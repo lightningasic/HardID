@@ -1,6 +1,6 @@
 /*
- * OpenShield Hardware Wallet — ACL16 secure-element driver (APDU layer)
- * Copyright (C) 2026 LightningASIC / OpenShield contributors
+ * HardID Hardware Wallet — ACL16 secure-element driver (APDU layer)
+ * Copyright (C) 2026 LightningASIC / HardID contributors
  *
  * Clean-room reimplementation. Not derived from TREZOR code.
  * License: Apache License 2.0
@@ -15,8 +15,8 @@
  * transport pointer.
  */
 
-#ifndef OPENSHIELD_SE_ACL16_H
-#define OPENSHIELD_SE_ACL16_H
+#ifndef HARDID_SE_ACL16_H
+#define HARDID_SE_ACL16_H
 
 #include <stdint.h>
 #include <stddef.h>
@@ -72,4 +72,4 @@ int  se_acl16_attest(se_acl16_t *ctx, const uint8_t *challenge32,
 }
 #endif
 
-#endif /* OPENSHIELD_SE_ACL16_H */
+#endif /* HARDID_SE_ACL16_H */

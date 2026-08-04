@@ -1,6 +1,6 @@
 /*
- * OpenShield Hardware Wallet — ECDSA (secp256k1) sign & verify
- * Copyright (C) 2026 LightningASIC / OpenShield contributors
+ * HardID Hardware Wallet — ECDSA (secp256k1) sign & verify
+ * Copyright (C) 2026 LightningASIC / HardID contributors
  *
  * Clean-room reimplementation. Not derived from TREZOR code.
  * License: Apache License 2.0
@@ -13,8 +13,8 @@
  * public-key derivation are safe to use anywhere.
  */
 
-#ifndef OPENSHIELD_ECDSA_H
-#define OPENSHIELD_ECDSA_H
+#ifndef HARDID_ECDSA_H
+#define HARDID_ECDSA_H
 
 #include <stdint.h>
 
@@ -37,4 +37,4 @@ int os_ecdsa_verify(const uint8_t pub33[33], const uint8_t hash32[32],
 }
 #endif
 
-#endif /* OPENSHIELD_ECDSA_H */
+#endif /* HARDID_ECDSA_H */

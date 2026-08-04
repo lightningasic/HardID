@@ -1,5 +1,5 @@
 /*
- * OpenShield — fuzz harness (GCC ASan/UBSan, no libFuzzer dependency)
+ * HardID — fuzz harness (GCC ASan/UBSan, no libFuzzer dependency)
  *
  * Drives the parsers with generated inputs: seeds from valid structures
  * with systematic bit/byte mutations, plus random bytes. Any crash, ASan

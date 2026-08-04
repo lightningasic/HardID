@@ -1,6 +1,6 @@
 /*
- * OpenShield Hardware Wallet — RNG subsystem
- * Copyright (C) 2026 LightningASIC / OpenShield contributors
+ * HardID Hardware Wallet — RNG subsystem
+ * Copyright (C) 2026 LightningASIC / HardID contributors
  *
  * Clean-room reimplementation. Not derived from TREZOR code.
  * License: Apache License 2.0 (see LICENSE in repository root)
@@ -11,8 +11,8 @@
  *  - fail-safe escalation (weak, overridable) instead of silent hang
  */
 
-#ifndef OPENSHIELD_RNG_H
-#define OPENSHIELD_RNG_H
+#ifndef HARDID_RNG_H
+#define HARDID_RNG_H
 
 #include <stdint.h>
 #include <stddef.h>
@@ -51,4 +51,4 @@ void     os_rng_hw_recover(void);
 }
 #endif
 
-#endif /* OPENSHIELD_RNG_H */
+#endif /* HARDID_RNG_H */

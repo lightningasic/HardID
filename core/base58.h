@@ -1,13 +1,13 @@
 /*
- * OpenShield Hardware Wallet — Base58Check encoding
- * Copyright (C) 2026 LightningASIC / OpenShield contributors
+ * HardID Hardware Wallet — Base58Check encoding
+ * Copyright (C) 2026 LightningASIC / HardID contributors
  *
  * Clean-room reimplementation. Not derived from TREZOR code.
  * License: Apache License 2.0
  */
 
-#ifndef OPENSHIELD_BASE58_H
-#define OPENSHIELD_BASE58_H
+#ifndef HARDID_BASE58_H
+#define HARDID_BASE58_H
 
 #include <stdint.h>
 #include <stddef.h>
@@ -34,4 +34,4 @@ size_t os_base58_encode_check(const uint8_t *data, size_t len,
 }
 #endif
 
-#endif /* OPENSHIELD_BASE58_H */
+#endif /* HARDID_BASE58_H */

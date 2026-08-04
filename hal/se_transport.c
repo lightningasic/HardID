@@ -1,6 +1,6 @@
 /*
- * OpenShield Hardware Wallet — SE transport abstraction (impl)
- * Copyright (C) 2026 LightningASIC / OpenShield contributors
+ * HardID Hardware Wallet — SE transport abstraction (impl)
+ * Copyright (C) 2026 LightningASIC / HardID contributors
  * License: Apache License 2.0
  */
 

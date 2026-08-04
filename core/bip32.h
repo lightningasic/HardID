@@ -1,6 +1,6 @@
 /*
- * OpenShield Hardware Wallet — BIP32 HD key derivation
- * Copyright (C) 2026 LightningASIC / OpenShield contributors
+ * HardID Hardware Wallet — BIP32 HD key derivation
+ * Copyright (C) 2026 LightningASIC / HardID contributors
  *
  * Clean-room reimplementation. Not derived from TREZOR code.
  * License: Apache License 2.0
@@ -14,8 +14,8 @@
  * (constant-time, side-channel hardened). Do NOT sign with this on MCU.
  */
 
-#ifndef OPENSHIELD_BIP32_H
-#define OPENSHIELD_BIP32_H
+#ifndef HARDID_BIP32_H
+#define HARDID_BIP32_H
 
 #include <stdint.h>
 #include <stddef.h>
@@ -61,4 +61,4 @@ size_t os_bip32_serialize(const os_hdnode *node, bool private,
 }
 #endif
 
-#endif /* OPENSHIELD_BIP32_H */
+#endif /* HARDID_BIP32_H */

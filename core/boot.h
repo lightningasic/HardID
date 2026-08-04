@@ -1,6 +1,6 @@
 /*
- * OpenShield Hardware Wallet — firmware boot & main loop
- * Copyright (C) 2026 LightningASIC / OpenShield contributors
+ * HardID Hardware Wallet — firmware boot & main loop
+ * Copyright (C) 2026 LightningASIC / HardID contributors
  *
  * Clean-room reimplementation. Not derived from TREZOR code.
  * License: Apache License 2.0
@@ -10,8 +10,8 @@
  * than ever producing keys from a broken source.
  */
 
-#ifndef OPENSHIELD_BOOT_H
-#define OPENSHIELD_BOOT_H
+#ifndef HARDID_BOOT_H
+#define HARDID_BOOT_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -44,4 +44,4 @@ void os_main_loop(void);
 }
 #endif
 
-#endif /* OPENSHIELD_BOOT_H */
+#endif /* HARDID_BOOT_H */

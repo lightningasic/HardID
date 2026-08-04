@@ -1,6 +1,6 @@
 /*
- * OpenShield Hardware Wallet — ESP32-P4 I2C transport for ACL16 (alternative)
- * Copyright (C) 2026 LightningASIC / OpenShield contributors
+ * HardID Hardware Wallet — ESP32-P4 I2C transport for ACL16 (alternative)
+ * Copyright (C) 2026 LightningASIC / HardID contributors
  *
  * Clean-room reimplementation. Not derived from TREZOR code.
  * License: Apache License 2.0
@@ -10,8 +10,8 @@
  * address rather than a GPIO. Guarded by ESP_PLATFORM like the SPI variant.
  */
 
-#ifndef OPENSHIELD_SE_TRANSPORT_ESP32_I2C_H
-#define OPENSHIELD_SE_TRANSPORT_ESP32_I2C_H
+#ifndef HARDID_SE_TRANSPORT_ESP32_I2C_H
+#define HARDID_SE_TRANSPORT_ESP32_I2C_H
 
 #include "se_transport.h"
 
@@ -35,4 +35,4 @@ int se_esp32_i2c_make_transport(const se_esp32_i2c_config *cfg,
 }
 #endif
 
-#endif /* OPENSHIELD_SE_TRANSPORT_ESP32_I2C_H */
+#endif /* HARDID_SE_TRANSPORT_ESP32_I2C_H */

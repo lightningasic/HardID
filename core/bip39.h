@@ -1,6 +1,6 @@
 /*
- * OpenShield Hardware Wallet — BIP39 mnemonic
- * Copyright (C) 2026 LightningASIC / OpenShield contributors
+ * HardID Hardware Wallet — BIP39 mnemonic
+ * Copyright (C) 2026 LightningASIC / HardID contributors
  *
  * Clean-room reimplementation. Not derived from TREZOR code.
  * License: Apache License 2.0
@@ -9,8 +9,8 @@
  * mnemonic (+passphrase) -> 64-byte seed via PBKDF2-HMAC-SHA512.
  */
 
-#ifndef OPENSHIELD_BIP39_H
-#define OPENSHIELD_BIP39_H
+#ifndef HARDID_BIP39_H
+#define HARDID_BIP39_H
 
 #include <stdint.h>
 #include <stddef.h>
@@ -45,4 +45,4 @@ int os_bip39_word_index(const char *word);
 }
 #endif
 
-#endif /* OPENSHIELD_BIP39_H */
+#endif /* HARDID_BIP39_H */

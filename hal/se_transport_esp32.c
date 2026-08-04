@@ -1,6 +1,6 @@
 /*
- * OpenShield Hardware Wallet — ESP32-P4 SPI transport for dual ACL16
- * Copyright (C) 2026 LightningASIC / OpenShield contributors
+ * HardID Hardware Wallet — ESP32-P4 SPI transport for dual ACL16
+ * Copyright (C) 2026 LightningASIC / HardID contributors
  *
  * Clean-room reimplementation. Not derived from TREZOR code.
  * License: Apache License 2.0

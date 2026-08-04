@@ -1,4 +1,4 @@
-/* Verify OpenShield HKDF-SHA256 against RFC 5869 Test Case 1. */
+/* Verify HardID HKDF-SHA256 against RFC 5869 Test Case 1. */
 #include <stdio.h>
 #include <string.h>
 #include <stdint.h>

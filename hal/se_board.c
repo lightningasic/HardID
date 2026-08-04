@@ -1,6 +1,6 @@
 /*
- * OpenShield Hardware Wallet — board bring-up for ESP32-P4 + dual ACL16
- * Copyright (C) 2026 LightningASIC / OpenShield contributors
+ * HardID Hardware Wallet — board bring-up for ESP32-P4 + dual ACL16
+ * Copyright (C) 2026 LightningASIC / HardID contributors
  * License: Apache License 2.0
  */
 

@@ -1,6 +1,6 @@
 /*
- * OpenShield Hardware Wallet — HKDF-SHA256 (RFC 5869)
- * Copyright (C) 2026 LightningASIC / OpenShield contributors
+ * HardID Hardware Wallet — HKDF-SHA256 (RFC 5869)
+ * Copyright (C) 2026 LightningASIC / HardID contributors
  *
  * Clean-room reimplementation. Not derived from TREZOR code.
  * License: Apache License 2.0
@@ -10,8 +10,8 @@
  *   OKM = HMAC-SHA256(PRK, info || 0x01)   (single 32-byte block)
  */
 
-#ifndef OPENSHIELD_HKDF_H
-#define OPENSHIELD_HKDF_H
+#ifndef HARDID_HKDF_H
+#define HARDID_HKDF_H
 
 #include <stdint.h>
 #include <stddef.h>
@@ -61,4 +61,4 @@ void os_hkdf_expand32(const uint8_t *prk32,
 }
 #endif
 
-#endif /* OPENSHIELD_HKDF_H */
+#endif /* HARDID_HKDF_H */

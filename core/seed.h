@@ -1,6 +1,6 @@
 /*
- * OpenShield Hardware Wallet — seed generation (multi-source entropy)
- * Copyright (C) 2026 LightningASIC / OpenShield contributors
+ * HardID Hardware Wallet — seed generation (multi-source entropy)
+ * Copyright (C) 2026 LightningASIC / HardID contributors
  *
  * Clean-room reimplementation. Not derived from TREZOR code.
  * License: Apache License 2.0
@@ -8,7 +8,7 @@
  * Combines entropy from independent sources via HKDF-SHA256 so that no
  * single compromised/failed source can determine the seed:
  *   IKM = se1_trng(32) || se2_trng(32) || host_entropy(len)
- *   PRK = HMAC(salt="OpenShield seed v1", IKM)
+ *   PRK = HMAC(salt="HardID seed v1", IKM)
  *   seed = HMAC(PRK, "mnemonic" || 0x01)
  *
  * Dual-SE hardware (two ACL16): two independent EAL6+ TRNGs + host entropy.
@@ -16,8 +16,8 @@
  * a second source may come from the MCU TRNG instead (legacy fallback).
  */
 
-#ifndef OPENSHIELD_SEED_H
-#define OPENSHIELD_SEED_H
+#ifndef HARDID_SEED_H
+#define HARDID_SEED_H
 
 #include <stdint.h>
 #include <stddef.h>
@@ -46,4 +46,4 @@ int os_seed_generate(const uint8_t *host_entropy, size_t host_len,
 }
 #endif
 
-#endif /* OPENSHIELD_SEED_H */
+#endif /* HARDID_SEED_H */

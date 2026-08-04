@@ -1,6 +1,6 @@
 /*
- * OpenShield Hardware Wallet — ESP32-P4 SPI transport for dual ACL16
- * Copyright (C) 2026 LightningASIC / OpenShield contributors
+ * HardID Hardware Wallet — ESP32-P4 SPI transport for dual ACL16
+ * Copyright (C) 2026 LightningASIC / HardID contributors
  *
  * Clean-room reimplementation. Not derived from TREZOR code.
  * License: Apache License 2.0
@@ -17,8 +17,8 @@
  *   RESET = GPIO8    (shared SE reset, active low)
  */
 
-#ifndef OPENSHIELD_SE_TRANSPORT_ESP32_H
-#define OPENSHIELD_SE_TRANSPORT_ESP32_H
+#ifndef HARDID_SE_TRANSPORT_ESP32_H
+#define HARDID_SE_TRANSPORT_ESP32_H
 
 #include "se_transport.h"
 
@@ -48,4 +48,4 @@ int se_esp32_spi_make_transport(const se_esp32_spi_config *cfg,
 }
 #endif
 
-#endif /* OPENSHIELD_SE_TRANSPORT_ESP32_H */
+#endif /* HARDID_SE_TRANSPORT_ESP32_H */

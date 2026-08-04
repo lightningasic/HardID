@@ -1,6 +1,6 @@
 /*
- * OpenShield Hardware Wallet — multisig (M-of-N) configuration
- * Copyright (C) 2026 LightningASIC / OpenShield contributors
+ * HardID Hardware Wallet — multisig (M-of-N) configuration
+ * Copyright (C) 2026 LightningASIC / HardID contributors
  *
  * Clean-room reimplementation. Not derived from TREZOR code.
  * License: Apache License 2.0
@@ -11,8 +11,8 @@
  * manages configuration and partial-signature accounting.
  */
 
-#ifndef OPENSHIELD_MULTISIG_H
-#define OPENSHIELD_MULTISIG_H
+#ifndef HARDID_MULTISIG_H
+#define HARDID_MULTISIG_H
 
 #include <stdint.h>
 #include <stddef.h>
@@ -62,4 +62,4 @@ uint8_t os_ms_find(const os_multisig *m, const uint8_t fp[4]);
 }
 #endif
 
-#endif /* OPENSHIELD_MULTISIG_H */
+#endif /* HARDID_MULTISIG_H */

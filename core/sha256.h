@@ -1,6 +1,6 @@
 /*
- * OpenShield Hardware Wallet — SHA-256 (public interface)
- * Copyright (C) 2026 LightningASIC / OpenShield contributors
+ * HardID Hardware Wallet — SHA-256 (public interface)
+ * Copyright (C) 2026 LightningASIC / HardID contributors
  *
  * Clean-room reimplementation. Not derived from TREZOR code.
  * License: Apache License 2.0
@@ -9,8 +9,8 @@
  * for modules that need plain SHA-256 (BIP39 checksum, base58check, ...).
  */
 
-#ifndef OPENSHIELD_SHA256_H
-#define OPENSHIELD_SHA256_H
+#ifndef HARDID_SHA256_H
+#define HARDID_SHA256_H
 
 #include <stdint.h>
 #include <stddef.h>
@@ -27,4 +27,4 @@ void os_sha256(const uint8_t *data, size_t len, uint8_t *out32);
 }
 #endif
 
-#endif /* OPENSHIELD_SHA256_H */
+#endif /* HARDID_SHA256_H */

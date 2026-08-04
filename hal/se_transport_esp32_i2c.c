@@ -1,6 +1,6 @@
 /*
- * OpenShield Hardware Wallet — ESP32-P4 I2C transport for ACL16 (alternative)
- * Copyright (C) 2026 LightningASIC / OpenShield contributors
+ * HardID Hardware Wallet — ESP32-P4 I2C transport for ACL16 (alternative)
+ * Copyright (C) 2026 LightningASIC / HardID contributors
  * License: Apache License 2.0
  */
 

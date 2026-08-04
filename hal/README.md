@@ -1,4 +1,4 @@
-# OpenShield SE Hardware Abstraction Layer (HAL)
+# HardID SE Hardware Abstraction Layer (HAL)
 
 双 ACL16 安全芯片的硬件抽象层。三层结构：
 

@@ -1,6 +1,6 @@
 /*
- * OpenShield Hardware Wallet — BIP32 HD key derivation
- * Copyright (C) 2026 LightningASIC / OpenShield contributors
+ * HardID Hardware Wallet — BIP32 HD key derivation
+ * Copyright (C) 2026 LightningASIC / HardID contributors
  *
  * Clean-room reimplementation. Not derived from TREZOR code.
  * License: Apache License 2.0
@@ -192,7 +192,7 @@ int os_bip32_ckd(const os_hdnode *parent, uint32_t index, os_hdnode *child)
 	}
 	os_hmac_sha512_final(&h, I);
 
-	/* Public-only CKD (point add) not implemented: OpenShield derives on
+	/* Public-only CKD (point add) not implemented: HardID derives on
 	 * the SE which always holds privkey. Require private parent. */
 	if (!parent->has_priv) {
 		os_secure_bzero(I, 64);

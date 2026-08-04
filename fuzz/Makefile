@@ -1,4 +1,4 @@
-# OpenShield fuzz targets (GCC ASan/UBSan, no libFuzzer needed)
+# HardID fuzz targets (GCC ASan/UBSan, no libFuzzer needed)
 CC ?= gcc
 SAN = -fsanitize=address,undefined -g -O1
 CORE = ../core

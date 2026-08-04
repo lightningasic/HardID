@@ -1,0 +1,25 @@
+#
+# OpenShield ESP32-P4 sdkconfig defaults
+# Apply: idf.py set-target esp32p4
+#
+
+# Target
+CONFIG_IDF_TARGET="esp32p4"
+
+# Flash / PSRAM (P4 modules typically have large PSRAM for Clear Sign parsing)
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+
+# PSRAM (Clear Sign needs RAM for large PSBT / EVM ABI / QR frames)
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+
+# Security: flash encryption + secure boot v2 (enable in production)
+# CONFIG_SECURE_FLASH_ENCRYPTION_MODE_DEVELOPMENT=y
+# CONFIG_SECURE_BOOT_V2_ENABLED=y
+
+# Optimization
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+
+# Log
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y

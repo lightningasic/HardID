@@ -9,33 +9,46 @@
 
 ---
 
-## 🎯 HardID 三原则 (The Three Principles)
+## 🎯 HardID 三原则 · The Three Principles
 
 > 这三条原则是 HardID 的灵魂，凌驾于一切工程决策之上。任何与安全模型的冲突，以这三条为准。
+> *These three principles are the soul of HardID and override every engineering decision.*
 
-### 1️⃣ 完全开源 (Fully Open Source)
+<p align="center">
+  <img src="https://img.shields.io/badge/%E2%91%A0-%E5%AE%8C%E5%85%A8%E5%BC%80%E6%BA%90%20Fully%20Open%20Source-2ea44f?style=for-the-badge&logo=opensourceinitiative&logoColor=white" alt="完全开源">
+  <img src="https://img.shields.io/badge/%E2%91%A1-%E6%9C%80%E7%AE%80%E7%A1%AC%E4%BB%B6%2B%E6%9C%80%E9%AB%98%E9%9A%8F%E6%9C%BA%E6%95%B0%20Minimal%20HW%2BMax%20Entropy-blueviolet?style=for-the-badge&logo=hackaday&logoColor=white" alt="最简硬件最高随机">
+  <img src="https://img.shields.io/badge/%E2%91%A2-%E5%AF%86%E9%92%A5%E4%B8%8D%E5%87%BA%E8%AE%BE%E5%A4%87%20Keys%20Never%20Leave-critical?style=for-the-badge&logo=keycdn&logoColor=white" alt="密钥不出设备">
+</p>
 
-固件、硬件原理图、主机端工具**全部开源**，并支持**可复现构建**——任何人都能编译出与发布版逐字节一致的固件并比对哈希。没有信任，只有验证（Don't trust, verify）。
+---
 
-- 全部代码 clean-room 重写，零 TREZOR 代码、零 Ms-RSL 合规风险 → [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
-- Apache 2.0 许可证（含明确专利授权条款）
+### <img src="https://img.shields.io/badge/1-2ea44f?style=flat-square" valign="middle"> 完全开源 · Fully Open Source
 
-### 2️⃣ 最简硬件 + 最高随机数要求 (Minimal Hardware, Maximal Entropy)
+| 中文 | English |
+|------|---------|
+| 固件、硬件原理图、主机端工具**全部开源**，支持**可复现构建**——任何人都能编译出与发布版逐字节一致的固件并比对哈希。 | Firmware, schematics and host tools are **fully open**, with **reproducible builds** — anyone can compile a bit-for-bit identical firmware and verify the hash. |
+| **没有信任，只有验证。** | **Don't trust, verify.** |
+| 全部代码 clean-room 重写，零 TREZOR 代码、零 Ms-RSL 合规风险 → [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) | All code is a clean-room rewrite — zero TREZOR code, zero Ms-RSL risk → [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) |
+| Apache 2.0 许可证（含明确专利授权条款） | Apache 2.0 license with an explicit patent grant |
 
-硬件设计**极致精简**以最小化攻击面，但随机数生成**绝不让步**：
+### <img src="https://img.shields.io/badge/2-blueviolet?style=flat-square" valign="middle"> 最简硬件 + 最高随机数要求 · Minimal Hardware, Maximal Entropy
 
-- 主控只跑逻辑，**私钥全在 EAL6+ 安全芯片**，主控 flash 零密钥材料
-- **双独立 TRNG + 主机熵，HKDF 混合**——任一熵源失效或被操控都不致命
-- **NIST SP 800-90B** 熵源评估 + **启动自检**：熵源不健康，设备拒绝生成任何密钥
-- 无射频（ESP32-P4 无 WiFi/蓝牙）= 天生气隙
+| 中文 | English |
+|------|---------|
+| 硬件设计**极致精简**以最小化攻击面，但随机数生成**绝不让步**。 | Hardware is **minimal** to shrink the attack surface, but entropy quality is **non-negotiable**. |
+| 主控只跑逻辑，**私钥全在 EAL6+ 安全芯片**，主控 flash 零密钥材料。 | The MCU only runs logic — **keys live in the EAL6+ secure element**; zero key material in MCU flash. |
+| **双独立 TRNG + 主机熵，HKDF 混合**——任一熵源失效或被操控都不致命。 | **Two independent TRNGs + host entropy, mixed via HKDF** — no single failed or manipulated source is fatal. |
+| **NIST SP 800-90B** 熵源评估 + **启动自检**：熵源不健康，设备拒绝生成任何密钥。 | **NIST SP 800-90B** entropy assessment + **boot-time self-test**: an unhealthy source means no keys are ever generated. |
+| 无射频（ESP32-P4 无 WiFi/蓝牙）= 天生气隙。 | No radio (ESP32-P4 has no WiFi/BT) = air-gapped by design. |
 
-### 3️⃣ 一切操作在钱包完成，只输出签名结果 (Keys Never Leave the Device)
+### <img src="https://img.shields.io/badge/3-critical?style=flat-square" valign="middle"> 一切操作在钱包完成，只输出签名结果 · Keys Never Leave the Device
 
-私钥的**生成、备份恢复、签名**全在设备内完成，通过**屏幕（手写触摸）与用户交互**；对外、对网络**只输出签名结果**。
-
-- 私钥全生命周期不出安全芯片（SE）
-- **Clear Sign 所见即所签**：签名前屏幕显示人类可读的交易意图，无法解析一律警告
-- 助记词仅屏幕显示一次（手写备份），**无任何形式的导出**
+| 中文 | English |
+|------|---------|
+| 私钥的**生成、备份恢复、签名**全在设备内完成，通过**屏幕（手写触摸）**与用户交互；对外、对网络**只输出签名结果**。 | Key **generation, recovery and signing all happen on-device**, with user interaction via the **touchscreen**; only **signatures** ever leave for the host/network. |
+| 私钥全生命周期不出安全芯片（SE）。 | Private keys never leave the secure element — not once, ever. |
+| **Clear Sign 所见即所签**：签名前屏幕显示人类可读的交易意图，无法解析一律警告。 | **Clear Sign (WYSIWYS)**: the screen shows a human-readable intent before signing; anything unparseable triggers a warning. |
+| 助记词仅屏幕显示一次（手写备份），**无任何形式的导出**。 | The mnemonic is shown on screen exactly once (write it down) — **no export of any form, ever**. |
 
 ---
 

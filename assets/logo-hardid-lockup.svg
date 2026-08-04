@@ -1,0 +1,32 @@
+<svg width="760" height="200" viewBox="0 0 760 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bolt" x1="30" y1="10" x2="150" y2="190" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#00E5FF"/>
+      <stop offset="0.45" stop-color="#0A84FF"/>
+      <stop offset="1" stop-color="#0047E1"/>
+    </linearGradient>
+    <linearGradient id="keyg" x1="70" y1="70" x2="130" y2="150" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#9FE3FF"/>
+    </linearGradient>
+    <linearGradient id="word" x1="200" y1="0" x2="700" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#7FC4FF"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="760" height="200" rx="40" fill="#0A0F1E"/>
+
+  <!-- icon (scaled bolt+key) -->
+  <g transform="translate(8,4) scale(0.475)">
+    <path d="M292 40 L128 256 L222 256 L160 440 L356 212 L252 212 L306 40 Z" fill="url(#bolt)"/>
+    <g transform="translate(242,236)">
+      <circle cx="0" cy="0" r="32" fill="#0A0F1E" stroke="url(#keyg)" stroke-width="11"/>
+      <path d="M0 32 L0 82 M0 62 L17 62 M0 82 L22 82" stroke="url(#keyg)" stroke-width="11" stroke-linecap="round" fill="none"/>
+    </g>
+  </g>
+
+  <!-- wordmark -->
+  <text x="210" y="110" font-family="Helvetica, Arial, sans-serif" font-size="76" font-weight="800" letter-spacing="2" fill="url(#word)">HardID</text>
+  <text x="216" y="154" font-family="Helvetica, Arial, sans-serif" font-size="22" font-weight="400" letter-spacing="4" fill="#6E7B8B">HARDWARE WALLET</text>
+</svg>

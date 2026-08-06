@@ -1,51 +1,79 @@
-# MEMORY — touch UI ship (latest)
+# MEMORY — HardID architecture optimization (P0–P3) + handoff
 
-## What changed (commit c55d22a)
-- Added `components/hardid/touch.c/h` — CST816D capacitive touch (I2C port 0,
-  SDA=48, SCL=47, addr=0x15, 400kHz, internal pullups). Polled; single point.
-  Coordinates read raw from regs 0x02-0x06 (num, x_h, x_l, y_h, y_l);
-  high nibbles masked `&0x0F`, combined `x_h<<8|x_l`, clamped to 240x320.
-  Mapping verified against esp-bsp `esp_lcd_touch_cst816s.c` (DATA_START=0x02,
-  identical bitfield). No hw reset/read-ID needed; chip may ACK only on touch —
-  `touch_get` returns false on error, caller polls.
-- Added `ui.h/c` — touch-only Trezor-style framework:
-  - `ui_run()`: main menu (Initialize / Sign / Factory reset), re-draws after
-    each action returns.
-  - On-screen keypad: numeric page (3x4 + [ABC][DEL][OK]) and alpha page
-    (6 cols x 5 rows: A-YZ + [SPC][DEL][OK][123]). Toggle via KEY_TOGGLE.
-  - `ui_set_pin` / `ui_enter_pin`: double-entry set + confirm; buffers
-    secure_bzero'd on every exit path.
-  - `confirm()` clears screen with msg; `confirm_overlay()` draws buttons
-    over existing content (keeps recovery phrase visible during confirm).
-  - `screen_initialize`: gen seed -> BIP39 mnemonic -> show phrase +
-    overlay confirm -> set PIN -> store_seed. Already-init guarded.
-  - `screen_fixed_digest_sign`: guard is_initialized -> enter+verify PIN ->
-    sign fixed 0x11 digest -> show 64-byte r||s hex. Non-fatal wrong PIN.
-  - `screen_factory_reset`: confirm -> se_mock_reset -> home.
-- `main.c`: boot -> touch_init -> ui_run (never returns).
-- `CMakeLists.txt`: add touch.c/ui.c, REQUIRES esp_driver_i2c.
+状态：**所有阶段代码已实现、host 测试通过、编译零警告**。真机验证待用户回到机器后执行。
 
-## Mock-SE helpers used (forward-declared in ui.c)
-- `se_mock_set_pin(const uint8_t *pin, size_t len)` / `void se_mock_reset(void)`
-  in `core/se_mock.c`; real backend must expose wipe via se_driver_t later.
+## Commits (this run, from P0 onward)
+- `ab551a4` ESP-IDF P0: split ui.c -> inter / keypad / screen layers (warning-free,
+  verified on-device menu/sign before user left). Moved mis-created `esp-adf-s3/
+  screen.c` to the correct path; added color consts+stdint to display.h.
+- `db3f7bf` P3: on-device mnemonic recovery (screen_run_recover).
+- `c670458` P1: framed host protocol + Clear-Sign service; USB-Serial-JTAG screen.
+- `5ac8c23` P2: SE backend selectable via Kconfig (mock default).
+- `ffff1b2` docs: feature matrix reflects Recover / Host link / backend switch.
 
-## Audit status
-- 4 rounds, `idf.py build` produces ZERO warnings/errors. Clean proof:
-  alpha layout maps 26 letters correctly, keypad fits 320px, PIN zeroized,
-  store_seed guarded by is_initialized, touch nibble mapping matches ref.
+## What each piece does
 
-## Left / DONE note
-- DONE: flash + smoke-test on hardware. Touch fixed (commit 049f6c1): menu
-  stable, no flicker/crash/watchdog; Buttons 1 (Initialize full flow) and 2
-  (Sign) work on-device.
-- DONE: touch no longer needs BOOT — `idf.py flash` auto-resets via USB-Serial-JTAG.
-- Still LEFT: touch axis calibration if taps land mirrored; Button 3 (Factory
-  reset) not yet exercised on-device.
-- Note: mock_sign_digest is a deterministic stand-in (digest^seed^idx), NOT
-  real ECDSA; the on-device proof is the PIN-unlock invariant (SE_ERR_AUTH
-  guard), not crypto validity. Real backend will do ECDSA.
+### P0 UI layers (components/hardid/)
+- `inter.c/h` — touch debounce / release / hit-test / wait_ack / ui_touch_now
+- `keypad.c/h` — numeric + alpha keypad, PIN set/enter, confirm dialogs
+- `screen.c/h` — initialize / sign / factory_reset / **recover**
+- `link_esp.c` — Host link screen (USB-Serial-JTAG driver)
+- `ui.c` — 5-item main menu (Initialize / Sign / Recover / Host link / Factory reset)
 
-## Commands
-- Build/flash/monitor: `source ~/esp/esp-idf/export.sh` then
-  `idf.py build`, `idf.py flash monitor` (in esp-idf-s3/).
-- Boot smoke: hold BOOT on-board, insert USB.
+### P1 host link (core/)
+- `linkproto.c/h` — framed, CRC-16/CCITT protocol, both directions
+- `linksvc.c/h` — status / ping / PIN-consented sign via an injected SE vtable
+- host tests: `tests/test_linkproto.c`, `tests/test_linksvc.c` (both PASS)
+
+### P2 backend switch (core + hal + Kconfig)
+- `esp-idf-s3/components/hardid/Kconfig` — HARDID_SE_MOCK (default) / HARDID_SE_ACL16
+- CMake pulls `core/se_mock.c` or `hal/se_composite.c + se_acl16.c +
+  se_transport_esp32*` accordingly. `CONFIG_HARDID_SE_MOCK=1` confirmed.
+
+### P3 recovery (screen.c)
+- menu entry 3 → screen_run_recover(): masked phrase entry → lowercase →
+  checksum-validate (`os_bip39_mnemonic_to_entropy`) → new PIN → store seed.
+- crypto path proven on host with the official 24-word vector round-trip.
+
+## Verified so far (host / build)
+- `idf.py build` zero warnings/errors.
+- test_linkproto, test_linksvc, test_bip39 PASS on host.
+- blog: mock sign (digest^seed^idx) is a placeholder; PIN-unlock invariant is the
+  real safety property (SE_AUTH gate). Real ECDSA only via ACL16 backend.
+
+## LEFT — must verify on REAL hardware (user back at machine)
+1. **Flash + boot** the new 5-item menu; confirm original 3 flows still work
+   (Initialize / Sign / Factory reset) and the layout fits (5 rows, 240x320).
+2. **Recover**: after Factory reset, run Recover → type a real phrase → confirm
+   "Recovered. Seed + PIN stored." Also test bad-checksum → "Invalid mnemonic."
+   (Alpha keypad emits uppercase; input is lowercased before validation.)
+3. **Host link (P1) transport — risky**: the console already owns USB-Serial-
+   JTAG. Connecting a real host & sending a framed SIG/STATUS needs on-device
+   bring-up. If `usb_serial_jtag_read_bytes` conflicts with the console, run
+   PIN first (the session requires it). Confirm a digest is shown + only signed
+   after a `Confirm` tap.
+4. **SE backend switch (P2)**: only if ACL16 parts + SPI wiring are fitted.
+   NOTE: `screen.c` still calls the mock-only helpers `se_mock_reset()`,
+   `se_mock_set_pin()`. For an ACL16 build these must be re-routed to the
+   composite API (store_seed / a wipe). This is the known follow-up.
+
+## Environment
+- IDF v5.3.2, toolchain esp32s3. Board: Waveshare ESP32-S3-Touch-LCD-2
+  (ST7789 240×320, CST816D touch I2C SDA=48/SCL=47 @0x15, 8MB PSRAM / 16MB flash).
+- Build dir: `code/esp-idf-s3`. Shell env needed: `source ~/esp/esp-idf/export.sh`.
+- Flash: `idf.py -p /dev/ttyACM0 flash` (USB-Serial-JTAG auto-reset; no BOOT).
+- Logs: keyboard `idf.py monitor` or `python /tmp/opencode/reset].py` (pyserial).
+
+## Commands for user
+```
+cd "code/esp-idf-s3"
+source ~/esp/esp-idf/export.sh
+idf.py build            # already clean
+idf.py flash            # device attached -> auto reset
+idf.py monitor          # tap menu, walk each flow
+```
+Host unit tests (no hardware):
+```
+cd code/tests && cc test_linkproto.c -I.. -o /tmp/t_lp && /tmp/t_lp
+cc test_linksvc.c -I.. -o /tmp/t_ls && /tmp/t_ls
+```

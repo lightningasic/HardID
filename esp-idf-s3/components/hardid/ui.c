@@ -18,16 +18,18 @@ static void menu_draw(void)
 	lcd_fill(C_BG);
 	lcd_line(2, 2, "HardID", C_LBL, C_BG);
 	lcd_line(2, 14, "tap an action", C_DIM, C_BG);
-	lcd_rect_text(15, 60, 225, 120, "1  Initialize", C_FG, C_BTN);
-	lcd_rect_text(15, 140, 225, 200, "2  Sign", C_FG, C_BTN);
-	lcd_rect_text(15, 220, 225, 280, "3  Factory reset", C_FG, C_BTN);
+	lcd_rect_text(15, 38,  225,  88, "1  Initialize", C_FG, C_BTN);
+	lcd_rect_text(15, 96,  225, 146, "2  Sign", C_FG, C_BTN);
+	lcd_rect_text(15, 154, 225, 204, "3  Recover", C_FG, C_BTN);
+	lcd_rect_text(15, 212, 225, 262, "4  Factory reset", C_FG, C_BTN);
 }
 
 static bool menu_handle_press(int px, int py)
 {
-	if (ui_pt_in(px, py, 15, 60, 225, 120))  { screen_run_initialize();    return true; }
-	if (ui_pt_in(px, py, 15, 140, 225, 200)) { screen_run_sign();          return true; }
-	if (ui_pt_in(px, py, 15, 220, 225, 280)) { screen_run_factory_reset(); return true; }
+	if (ui_pt_in(px, py, 15, 38,  225, 88))  { screen_run_initialize();    return true; }
+	if (ui_pt_in(px, py, 15, 96,  225, 146)) { screen_run_sign();          return true; }
+	if (ui_pt_in(px, py, 15, 154, 225, 204)) { screen_run_recover();       return true; }
+	if (ui_pt_in(px, py, 15, 212, 225, 262)) { screen_run_factory_reset(); return true; }
 	return false;
 }
 

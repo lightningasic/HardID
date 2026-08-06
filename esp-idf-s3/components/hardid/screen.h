@@ -27,6 +27,11 @@ void screen_run_sign(void);
 /* Factory reset: confirm dialog, wipe the SE, return to home. */
 void screen_run_factory_reset(void);
 
+/* Recover: on a wiped device, type the existing BIP39 mnemonic on the
+ * on-screen keypad, validate its checksum, re-derive the seed, set a new
+ * PIN and store it. Input is masked as it is typed. */
+void screen_run_recover(void);
+
 #ifdef __cplusplus
 }
 #endif

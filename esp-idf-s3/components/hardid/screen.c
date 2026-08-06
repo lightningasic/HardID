@@ -7,6 +7,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <ctype.h>
 
 #include "esp_random.h"
 
@@ -136,4 +137,62 @@ void screen_run_initialize(void)
 	os_secure_bzero(seed32, sizeof(seed32));
 	os_secure_bzero(seed64, sizeof(seed64));
 	os_secure_bzero(host, sizeof(host));
+}
+
+void screen_run_recover(void)
+{
+	const se_driver_t *se = se_active();
+	bool initd;
+	se->is_initialized(&initd);
+	if (initd) {
+		lcd_fill(C_BG);
+		lcd_text_wrap(2, 10, "Already initialized. Factory-reset first.", C_WARN, C_BG);
+		return;
+	}
+
+	/* Masked mnemonic entry. The on-screen keypad emits A-Z and spaces;
+	 * BIP39 words are lowercase, so the phrase is lowercased before use. */
+	char mnemonic[OS_BIP39_MNEMONIC_MAX];
+	if (kp_capture("RECOVER PHRASE", mnemonic, (int)sizeof(mnemonic), 0) != 0) {
+		lcd_text_wrap(2, 100, "cancelled", C_FG, C_BG);
+		return;
+	}
+	for (size_t i = 0; mnemonic[i]; i++)
+		mnemonic[i] = (char)tolower((unsigned char)mnemonic[i]);
+
+	/* Validate checksum + recover the original entropy (the seed). */
+	uint8_t seed32[OS_SEED_LEN];
+	memset(seed32, 0, sizeof seed32);
+	size_t elen = os_bip39_mnemonic_to_entropy(mnemonic, seed32, sizeof(seed32));
+	if (elen == 0) {
+		os_secure_bzero(seed32, sizeof(seed32));
+		os_secure_bzero(mnemonic, sizeof(mnemonic));
+		lcd_fill(C_BG);
+		lcd_text_wrap(2, 10, "Invalid mnemonic.", C_ERR, C_BG);
+		return;
+	}
+
+	lcd_fill(C_BG);
+	char pin[OS_PIN_MAX_LEN + 1];
+	int pin_len = ui_set_pin(pin, sizeof(pin));
+	if (pin_len < 0) {
+		os_secure_bzero(seed32, sizeof(seed32));
+		os_secure_bzero(mnemonic, sizeof(mnemonic));
+		lcd_text_wrap(2, 80, "PIN setup failed", C_ERR, C_BG);
+		return;
+	}
+	se_mock_set_pin((const uint8_t *)pin, (size_t)pin_len);
+	os_secure_bzero(pin, sizeof(pin));
+
+	int rc = se->store_seed(seed32);
+	os_secure_bzero(seed32, sizeof(seed32));
+	os_secure_bzero(mnemonic, sizeof(mnemonic));
+
+	lcd_fill(C_BG);
+	if (rc != SE_OK) {
+		lcd_text_wrap(2, 10, "store seed failed", C_ERR, C_BG);
+	} else {
+		lcd_text_wrap(2, 10, "Recovered. Seed + PIN stored.", C_OK, C_BG);
+		ui_wait_ack();
+	}
 }

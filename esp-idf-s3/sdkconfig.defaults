@@ -1,0 +1,26 @@
+#
+# HardID ESP32-S3 sdkconfig defaults
+# Target board: Waveshare ESP32-S3-Touch-LCD-2 (ESP32-S3R8)
+# Apply: idf.py set-target esp32s3
+#
+
+# Target
+CONFIG_IDF_TARGET="esp32s3"
+
+# Flash / PSRAM (S3R8 module: 16MB flash, 8MB Octal PSRAM)
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+
+# PSRAM (Clear Sign needs RAM for large PSBT / EVM ABI / QR frames)
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+
+# Security: flash encryption + secure boot v2 (enable in production)
+# CONFIG_SECURE_FLASH_ENCRYPTION_MODE_DEVELOPMENT=y
+# CONFIG_SECURE_BOOT_V2_ENABLED=y
+
+# Optimization
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+
+# Log
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y

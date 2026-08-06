@@ -14,6 +14,16 @@ extern "C" {
 /* Init ST7789 (240x320). Returns 0 on success, -1 on failure. */
 int lcd_init(void);
 
+/* Clear the whole panel to a 16-bit RGB565 color. */
+void lcd_fill(uint16_t color);
+
+/* Draw a single line of text at (x,y) in fg on bg. Clips to panel. */
+void lcd_line(int x, int y, const char *s, uint16_t fg, uint16_t bg);
+
+/* Draw text with simple word-wrap within the panel width, starting at
+ * (x,y). Returns the y just below the last drawn line. */
+int lcd_text_wrap(int x, int y, const char *s, uint16_t fg, uint16_t bg);
+
 #ifdef __cplusplus
 }
 #endif

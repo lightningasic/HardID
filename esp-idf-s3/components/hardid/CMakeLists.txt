@@ -32,6 +32,7 @@ idf_component_register(
         "board_s3.c"
     INCLUDE_DIRS
         "${HARDID_ROOT}/core"
+        "${CMAKE_CURRENT_SOURCE_DIR}"
     REQUIRES
         mbedtls esp_lcd esp_driver_spi esp_driver_gpio
 )

@@ -55,8 +55,8 @@ static const char *TAG = "hardid.lcd";
 static esp_lcd_panel_io_handle_t s_io = NULL;
 static esp_lcd_panel_handle_t     s_panel = NULL;
 
-static void lcd_fill(uint16_t color);
-static void lcd_text(int x, int y, const char *s, uint16_t fg, uint16_t bg);
+static void lcd_fill_panel(uint16_t color);
+void lcd_fill(uint16_t color);
 
 int lcd_init(void)
 {
@@ -126,7 +126,7 @@ int lcd_init(void)
 	return 0;
 }
 
-static void lcd_fill(uint16_t color)
+static void lcd_fill_panel(uint16_t color)
 {
 	uint16_t line[LCD_H_RES];
 	for (int i = 0; i < LCD_H_RES; i++)
@@ -135,9 +135,11 @@ static void lcd_fill(uint16_t color)
 		esp_lcd_panel_draw_bitmap(s_panel, 0, y, LCD_H_RES, y + 1, line);
 }
 
+void lcd_fill(uint16_t color) { lcd_fill_panel(color); }
+
 /* Render an ASCII string at (x,y) in fg on bg. Glyphs are column-major:
  * font7_glyph() returns 5 bytes, byte c = column c, bit r = row r (bit0=top). */
-static void lcd_text(int x, int y, const char *s, uint16_t fg, uint16_t bg)
+void lcd_line(int x, int y, const char *s, uint16_t fg, uint16_t bg)
 {
 	if (!s) return;
 	size_t len = strlen(s);
@@ -159,21 +161,65 @@ static void lcd_text(int x, int y, const char *s, uint16_t fg, uint16_t bg)
 	}
 }
 
+#define LINE_H (FONT_CHAR_H + 2)
+
+int lcd_text_wrap(int x, int y, const char *s, uint16_t fg, uint16_t bg)
+{
+	if (!s) return y;
+	int cur = y;
+	/* max chars that fit on a line of width LCD_H_RES */
+	int maxch = (LCD_H_RES - x) / (FONT_CHAR_W + 1);
+	if (maxch < 1) return y;
+	/* fill a buffer one line at a time, breaking at spaces when possible */
+	char line[LCD_H_RES / (FONT_CHAR_W + 1) + 2];
+	const char *p = s;
+	while (*p) {
+		int n = 0;
+		while (n < maxch && p[n] && p[n] != '\n') {
+			line[n] = p[n];
+			n++;
+		}
+		/* if we stopped early due to a space, absorb it */
+		if (n == maxch) {
+			/* find last space to break more cleanly */
+			int brk = n;
+			for (int i = n - 1; i > 0; i--) {
+				if (line[i] == ' ') { brk = i; break; }
+			}
+			if (brk > 0 && brk < maxch) {
+				line[brk] = '\0';
+				p += brk + 1;
+			} else {
+				line[n] = '\0';
+				p += n;
+			}
+		} else {
+			line[n] = '\0';
+			p += n;
+			if (*p == '\n') p++;
+		}
+		lcd_line(x, cur, line, fg, bg);
+		cur += LINE_H;
+		if (cur + FONT_CHAR_H > LCD_V_RES) break;
+	}
+	return cur;
+}
+
 void os_board_display_home(void)
 {
 	if (!s_panel) { lcd_init(); }
 	lcd_fill(0x0000);
 	/* status bar */
-	lcd_text(2, 2, "HardID", 0xE73C, 0x0000);
-	lcd_text(2, 14, "Wallet v0.1 - mock SE", 0xAD75, 0x0000);
-	lcd_text(2, 28, "ready", 0x3F00, 0x0000);
+	lcd_line(2, 2, "HardID", 0xE73C, 0x0000);
+	lcd_line(2, 14, "Wallet v0.1 - mock SE", 0xAD75, 0x0000);
+	lcd_line(2, 28, "ready", 0x3F00, 0x0000);
 }
 
 void os_board_display_error(const char *line1, const char *line2)
 {
 	if (!s_panel) { lcd_init(); }
 	lcd_fill(0xF800); /* red */
-	lcd_text(2, 2, "ERROR", 0xFFFF, 0xF800);
-	if (line1) lcd_text(2, 16, line1, 0xFFFF, 0xF800);
-	if (line2) lcd_text(2, 30, line2, 0xFFFF, 0xF800);
+	lcd_line(2, 2, "ERROR", 0xFFFF, 0xF800);
+	if (line1) lcd_line(2, 16, line1, 0xFFFF, 0xF800);
+	if (line2) lcd_line(2, 30, line2, 0xFFFF, 0xF800);
 }

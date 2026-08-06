@@ -29,6 +29,7 @@
 #include "bip32.h"
 #include "se_driver.h"
 #include "secure_zero.h"
+#include "display.h"
 
 static const char *TAG = "hardid.main";
 
@@ -71,6 +72,10 @@ void app_main(void)
 	ESP_LOGI(TAG, "%s", mnemonic);
 	os_bip39_mnemonic_to_seed(mnemonic, NULL, seed64);
 
+	lcd_fill(0x0000);
+	lcd_line(2, 2, "Recovery phrase:", 0xE73C, 0x0000);
+	lcd_text_wrap(2, 16, mnemonic, 0xFFFF, 0x0000);
+
 	/* 4. BIP32: master node -> m/44'/0'/0'/0/0, print xpub */
 	int r1 = os_bip32_from_seed(seed64, sizeof(seed64), &node);
 	int r2 = (r1 == 0) ? os_bip32_derive_path(&node, "m/44'/0'/0'/0/0") : -99;
@@ -81,6 +86,10 @@ void app_main(void)
 	}
 	os_bip32_serialize(&node, false, XPUB_VERSION, xpub, sizeof(xpub));
 	ESP_LOGI(TAG, "xpub m/44'/0'/0'/0/0: %s", xpub);
+
+	lcd_fill(0x0000);
+	lcd_line(2, 2, "xpub m/44'/0'/0'/0/0", 0xA0FF, 0x0000);
+	lcd_text_wrap(2, 20, xpub, 0xFFFF, 0x0000);
 
 	/* 5. provision the seed in the SE, then exercise the signing flow */
 	se = se_active();
@@ -94,6 +103,15 @@ void app_main(void)
 	memset(digest, 0x11, sizeof(digest));
 	int r = se->sign_digest(NULL, 0, digest, sig, &recid);
 	ESP_LOGI(TAG, "sign before PIN (expect AUTH fail): %d", r);
+
+	lcd_fill(0x0000);
+	lcd_line(2, 2, "Sign gate:", 0xE73C, 0x0000);
+	lcd_line(2, 16, "pre-PIN (expect auth fail)", 0xAD75, 0x0000);
+	{
+		char msg[64];
+		snprintf(msg, sizeof(msg), "rc=%d", r);
+		lcd_line(2, 30, msg, (r == SE_ERR_AUTH) ? 0x07E0 : 0xF800, 0x0000);
+	}
 
 	/* zeroize secrets */
 	os_secure_bzero(seed32, sizeof(seed32));

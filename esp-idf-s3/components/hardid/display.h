@@ -24,6 +24,13 @@ void lcd_line(int x, int y, const char *s, uint16_t fg, uint16_t bg);
  * (x,y). Returns the y just below the last drawn line. */
 int lcd_text_wrap(int x, int y, const char *s, uint16_t fg, uint16_t bg);
 
+/* Fill a rectangle with a solid 16-bit RGB565 color. Clips to panel. */
+void lcd_rect(int x0, int y0, int x1, int y1, uint16_t color);
+
+/* Draw a text label centered horizontally on a filled rect, clipped to it. */
+void lcd_rect_text(int x0, int y0, int x1, int y1, const char *s,
+                   uint16_t fg, uint16_t bg);
+
 #ifdef __cplusplus
 }
 #endif

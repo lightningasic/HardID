@@ -163,6 +163,34 @@ void lcd_line(int x, int y, const char *s, uint16_t fg, uint16_t bg)
 
 #define LINE_H (FONT_CHAR_H + 2)
 
+void lcd_rect(int x0, int y0, int x1, int y1, uint16_t color)
+{
+	if (x0 < 0) x0 = 0;
+	if (y0 < 0) y0 = 0;
+	if (x1 > LCD_H_RES) x1 = LCD_H_RES;
+	if (y1 > LCD_V_RES) y1 = LCD_V_RES;
+	if (x0 >= x1 || y0 >= y1) return;
+	uint16_t line[LCD_H_RES];
+	for (int i = x0; i < x1; i++)
+		line[i] = color;
+	for (int y = y0; y < y1; y++)
+		esp_lcd_panel_draw_bitmap(s_panel, x0, y, x1, y + 1, &line[x0]);
+}
+
+void lcd_rect_text(int x0, int y0, int x1, int y1, const char *s,
+                   uint16_t fg, uint16_t bg)
+{
+	lcd_rect(x0, y0, x1, y1, bg);
+	if (!s) return;
+	size_t len = strlen(s);
+	int tw = (int)len * (FONT_CHAR_W + 1) - 1;
+	int cx = x0 + ((x1 - x0) - tw) / 2;
+	if (cx < 0) cx = 0;
+	int cy = y0 + ((y1 - y0) - FONT_CHAR_H) / 2;
+	if (cy < 0) cy = 0;
+	lcd_line(cx, cy, s, fg, bg);
+}
+
 int lcd_text_wrap(int x, int y, const char *s, uint16_t fg, uint16_t bg)
 {
 	if (!s) return y;

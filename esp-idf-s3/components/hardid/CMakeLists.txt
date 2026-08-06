@@ -29,12 +29,14 @@ idf_component_register(
         "secp256k1_s3.c"
         "font7.c"
         "display.c"
+        "touch.c"
+        "ui.c"
         "board_s3.c"
     INCLUDE_DIRS
         "${HARDID_ROOT}/core"
         "${CMAKE_CURRENT_SOURCE_DIR}"
     REQUIRES
-        mbedtls esp_lcd esp_driver_spi esp_driver_gpio
+        mbedtls esp_lcd esp_driver_spi esp_driver_gpio esp_driver_i2c
 )
 
 target_compile_definitions(${COMPONENT_LIB} PUBLIC ESP_PLATFORM=1)

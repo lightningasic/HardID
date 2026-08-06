@@ -29,6 +29,7 @@
 #include "rng.h"
 #include "se_driver.h"
 #include "boot.h"
+#include "display.h"
 
 static const char *TAG = "hardid.board";
 
@@ -71,22 +72,14 @@ int os_seed_se2_trng(uint8_t *buf, size_t len)
 	return 0;
 }
 
-/* ---- board hooks (boot.c contract). Display is not wired yet on the
- * bring-up port; report over UART. ---- */
+/* ---- board hooks (boot.c contract). hw_init inits the LCD; display
+ * hooks (display_home/error) are provided by display.c. ---- */
 
 void os_board_hw_init(void)
 {
-	ESP_LOGI(TAG, "board hw init (no display wired; WD boot OK)");
-}
-
-void os_board_display_error(const char *line1, const char *line2)
-{
-	ESP_LOGE(TAG, "BOARD ERROR: %s %s", line1 ? line1 : "", line2 ? line2 : "");
-}
-
-void os_board_display_home(void)
-{
-	ESP_LOGI(TAG, "home screen (display TBD)");
+	ESP_LOGI(TAG, "board hw init");
+	int rc = lcd_init();
+	ESP_LOGI(TAG, "LCD init rc=%d", rc);
 }
 
 void os_board_halt(void)

@@ -27,11 +27,13 @@ idf_component_register(
         "${HARDID_ROOT}/core/boot.c"
         "${HARDID_ROOT}/core/se_mock.c"
         "secp256k1_s3.c"
+        "font7.c"
+        "display.c"
         "board_s3.c"
     INCLUDE_DIRS
         "${HARDID_ROOT}/core"
     REQUIRES
-        mbedtls
+        mbedtls esp_lcd esp_driver_spi esp_driver_gpio
 )
 
 target_compile_definitions(${COMPONENT_LIB} PUBLIC ESP_PLATFORM=1)

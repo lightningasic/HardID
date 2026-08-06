@@ -24,3 +24,9 @@ CONFIG_COMPILER_OPTIMIZATION_PERF=y
 
 # Log
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+
+# Console: Waveshare ESP32-S3-Touch-LCD-2 has no USB-UART bridge / no UART0
+# exposed; the board exposes native USB only. Route the console to
+# USB-Serial-JTAG so we can see logs over /dev/ttyACM0.
+CONFIG_ESP_CONSOLE_UART_DEFAULT=n
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y

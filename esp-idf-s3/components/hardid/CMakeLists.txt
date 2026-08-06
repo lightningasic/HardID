@@ -4,7 +4,7 @@
 # (hal/se_composite.c + se_acl16.c + se_transport_esp32*.c). No ACL16 hardware
 # on this first S3 port.
 
-set(HARDID_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../..")
+set(HARDID_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../..")
 
 idf_component_register(
     SRCS
@@ -16,7 +16,6 @@ idf_component_register(
         "${HARDID_ROOT}/core/bip39.c"
         "${HARDID_ROOT}/core/bip32.c"
         "${HARDID_ROOT}/core/base58.c"
-        "${HARDID_ROOT}/core/secp256k1.c"
         "${HARDID_ROOT}/core/rfc6979.c"
         "${HARDID_ROOT}/core/ecdsa.c"
         "${HARDID_ROOT}/core/clearsign.c"
@@ -27,8 +26,12 @@ idf_component_register(
         "${HARDID_ROOT}/core/multisig.c"
         "${HARDID_ROOT}/core/boot.c"
         "${HARDID_ROOT}/core/se_mock.c"
+        "secp256k1_s3.c"
+        "board_s3.c"
     INCLUDE_DIRS
         "${HARDID_ROOT}/core"
+    REQUIRES
+        mbedtls
 )
 
 target_compile_definitions(${COMPONENT_LIB} PUBLIC ESP_PLATFORM=1)

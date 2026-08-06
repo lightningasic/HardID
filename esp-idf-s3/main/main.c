@@ -35,8 +35,6 @@ static const char *TAG = "hardid.main";
 /* bitcoin mainnet xpub version bytes 0x0488B21E */
 #define XPUB_VERSION 0x0488B21Eu
 
-static void app_main(void);
-
 void app_main(void)
 {
 	uint8_t seed32[OS_SEED_LEN];
@@ -44,7 +42,6 @@ void app_main(void)
 	uint8_t host[32];
 	char mnemonic[OS_BIP39_MNEMONIC_MAX];
 	os_hdnode node;
-	os_hdnode child;
 	char xpub[OS_BIP32_XKEY_MAX];
 	uint8_t digest[32];
 	uint8_t sig[64];
@@ -75,8 +72,10 @@ void app_main(void)
 	os_bip39_mnemonic_to_seed(mnemonic, NULL, seed64);
 
 	/* 4. BIP32: master node -> m/44'/0'/0'/0/0, print xpub */
-	if (os_bip32_from_seed(seed64, sizeof(seed64), &node) != 0 ||
-	    os_bip32_derive_path(&node, "m/44'/0'/0'/0/0") != 0) {
+	int r1 = os_bip32_from_seed(seed64, sizeof(seed64), &node);
+	int r2 = (r1 == 0) ? os_bip32_derive_path(&node, "m/44'/0'/0'/0/0") : -99;
+	ESP_LOGI(TAG, "BIP32 from_seed=%d derive=%d", r1, r2);
+	if (r1 != 0 || r2 != 0) {
 		ESP_LOGE(TAG, "BIP32 derivation failed");
 		return;
 	}

@@ -29,6 +29,10 @@ void ui_wait_release(int *rx, int *ry);
 /* Show "tap to return" and hold until the user taps. Blocking. */
 void ui_wait_ack(void);
 
+/* Non-blocking single poll: true if a finger is currently down (coords in
+ * px/py if non-NULL). Used to escape a blocking transport loop on a tap. */
+bool ui_touch_now(int *px, int *py);
+
 #ifdef __cplusplus
 }
 #endif

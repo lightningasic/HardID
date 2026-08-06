@@ -25,6 +25,8 @@ idf_component_register(
         "${HARDID_ROOT}/core/policy.c"
         "${HARDID_ROOT}/core/multisig.c"
         "${HARDID_ROOT}/core/boot.c"
+        "${HARDID_ROOT}/core/linkproto.c"
+        "${HARDID_ROOT}/core/linksvc.c"
         "${HARDID_ROOT}/core/se_mock.c"
         "secp256k1_s3.c"
         "font7.c"
@@ -33,6 +35,7 @@ idf_component_register(
         "inter.c"
         "keypad.c"
         "screen.c"
+        "link_esp.c"
         "ui.c"
         "board_s3.c"
     INCLUDE_DIRS
@@ -40,6 +43,7 @@ idf_component_register(
         "${CMAKE_CURRENT_SOURCE_DIR}"
     REQUIRES
         mbedtls esp_lcd esp_driver_spi esp_driver_gpio esp_driver_i2c
+        esp_driver_usb_serial_jtag
 )
 
 target_compile_definitions(${COMPONENT_LIB} PUBLIC ESP_PLATFORM=1)

@@ -52,3 +52,13 @@ void ui_wait_ack(void)
 	ui_wait_press(&x, &y);
 	ui_wait_release(&x, &y);
 }
+
+bool ui_touch_now(int *px, int *py)
+{
+	int x, y;
+	if (!touch_get(&x, &y))
+		return false;
+	if (px) *px = x;
+	if (py) *py = y;
+	return true;
+}

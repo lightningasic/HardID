@@ -32,6 +32,10 @@ void screen_run_factory_reset(void);
  * PIN and store it. Input is masked as it is typed. */
 void screen_run_recover(void);
 
+/* Host link: PIN-unlock then serve framed requests (status/sign) over the
+ * USB-Serial-JTAG port. See link_esp.c. Returns on tap. */
+void screen_run_link_host(void);
+
 #ifdef __cplusplus
 }
 #endif

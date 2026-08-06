@@ -14,6 +14,8 @@
 #include <string.h>
 
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #include "boot.h"
 #include "display.h"
@@ -21,6 +23,14 @@
 #include "ui.h"
 
 static const char *TAG = "hardid.main";
+
+#define UI_TASK_STACK 8192
+#define UI_TASK_PRIO  5
+
+static void ui_task(void *arg)
+{
+	ui_run();   /* never returns */
+}
 
 void app_main(void)
 {
@@ -38,6 +48,9 @@ void app_main(void)
 	else
 		ESP_LOGI(TAG, "touch ready");
 
-	/* Trezor-style three-function UI (never returns) */
-	ui_run();
+	/* Trezor-style three-function UI, on its own task with a large stack
+	 * (menu drawing + I2C touch polling overflow the 3.5K main stack). */
+	ESP_LOGI(TAG, "starting UI task");
+	xTaskCreate(ui_task, "ui", UI_TASK_STACK, NULL, UI_TASK_PRIO, NULL);
+	vTaskDelete(NULL);   /* end main task: never spin, keep IDLE healthy */
 }

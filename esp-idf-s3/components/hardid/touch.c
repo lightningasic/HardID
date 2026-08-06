@@ -6,13 +6,21 @@
  * CST816D: I2C address 0x15, touch data from register 0x01:
  *   [0]=gesture, [1]=touch point number, [2]=X high, [3]=X low,
  *   [4]=Y high, [5]=Y low.
- * Polled from the main loop; single point is enough for the menu.
+ *
+ * This board routes only SDA/SCL to the touch chip (no INT, no RST),
+ * so the chip is polled. The CST816D only answers I2C while a finger
+ * is down; an idle poll therefore returns a NACK/timeout, which the
+ * caller treats as "no touch". We use the legacy synchronous I2C
+ * driver (no async queue) because the async engine is unstable when
+ * polled in a tight loop.
  */
 
 #include <string.h>
-#include "driver/i2c_master.h"
+#include "driver/i2c.h"
 #include "esp_log.h"
 #include "esp_err.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #include "touch.h"
 
@@ -27,46 +35,50 @@
 
 static const char *TAG = "hardid.touch";
 
-static i2c_master_bus_handle_t   s_bus  = NULL;
-static i2c_master_dev_handle_t   s_dev  = NULL;
-
 int touch_init(void)
 {
-	i2c_master_bus_config_t bus = {
-		.i2c_port = TOUCH_I2C_PORT,
+	i2c_config_t cfg = {
+		.mode = I2C_MODE_MASTER,
 		.sda_io_num = TOUCH_SDA_GPIO,
 		.scl_io_num = TOUCH_SCL_GPIO,
-		.clk_source = I2C_CLK_SRC_DEFAULT,
-		.glitch_ignore_cnt = 7,
-		.trans_queue_depth = 4,
-		.flags.enable_internal_pullup = 1,
+		.sda_pullup_en = GPIO_PULLUP_ENABLE,
+		.scl_pullup_en = GPIO_PULLUP_ENABLE,
+		.master.clk_speed = TOUCH_I2C_FREQ,
 	};
-	if (i2c_new_master_bus(&bus, &s_bus) != ESP_OK)
+	if (i2c_param_config(TOUCH_I2C_PORT, &cfg) != ESP_OK)
+		return -1;
+	if (i2c_driver_install(TOUCH_I2C_PORT, I2C_MODE_MASTER, 0, 0, 0) != ESP_OK)
 		return -1;
 
-	i2c_device_config_t dev = {
-		.dev_addr_length = I2C_ADDR_BIT_LEN_7,
-		.device_address = TOUCH_I2C_ADDR,
-		.scl_speed_hz = TOUCH_I2C_FREQ,
-	};
-	if (i2c_master_bus_add_device(s_bus, &dev, &s_dev) != ESP_OK)
-		return -1;
+	/* probe the chip ID (reg 0xA7): confirms the bus + address are right */
+	uint8_t id = 0;
+	uint8_t idreg = 0xA7;
+	if (i2c_master_write_read_device(TOUCH_I2C_PORT, TOUCH_I2C_ADDR,
+	                                &idreg, 1, &id, 1,
+	                                pdMS_TO_TICKS(100)) == ESP_OK)
+		ESP_LOGI(TAG, "CST816D ready, chip id 0x%02x", id);
+	else
+		ESP_LOGW(TAG, "chip-id read failed (idle chip NACKs — normal)");
 
-	ESP_LOGI(TAG, "CST816D ready (addr 0x%02x)", TOUCH_I2C_ADDR);
 	return 0;
 }
 
 static int touch_read_raw(uint8_t *buf, size_t len)
 {
+	/* Write the data register address (0x01) first, then read the touch
+	 * info. A bare read() would start at the chip's default register and
+	 * return the wrong bytes. Very short timeout: an idle chip does not
+	 * answer, and a failed poll must not stall the menu for long. */
 	uint8_t reg = 0x01;
-	esp_err_t rc = i2c_master_transmit_receive(s_dev, &reg, 1, buf, len, 100);
+	esp_err_t rc = i2c_master_write_read_device(TOUCH_I2C_PORT, TOUCH_I2C_ADDR,
+	                                           &reg, 1, buf, len,
+	                                           pdMS_TO_TICKS(20));
 	return (rc == ESP_OK) ? 0 : -1;
 }
 
 bool touch_get(int *x, int *y)
 {
 	uint8_t d[6];
-	if (!s_dev) return false;
 	if (touch_read_raw(d, sizeof(d)) != 0)
 		return false;
 
@@ -74,8 +86,7 @@ bool touch_get(int *x, int *y)
 	if (npoints == 0)
 		return false;
 
-	/* CST816 maps directly to the panel: X in 0..240, Y in 0..320.
-	 * Coordinates are raw panel pixels already; just clamp defensively. */
+	/* CST816 maps directly to the panel: X in 0..240, Y in 0..320. */
 	uint16_t rx = ((uint16_t)d[2] & 0x0F) << 8 | d[3];
 	uint16_t ry = ((uint16_t)d[4] & 0x0F) << 8 | d[5];
 

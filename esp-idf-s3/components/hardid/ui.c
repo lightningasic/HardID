@@ -65,24 +65,35 @@ static bool pt_in(int x, int y, int x0, int y0, int x1, int y1)
 	return x >= x0 && x < x1 && y >= y0 && y < y1;
 }
 
-/* Wait for a touch press, return its position (blocking, polled). */
+/* Wait for a touch press, return its position (blocking, polled).
+ * Debounced: the point must be present on K consecutive reads. */
 static bool touch_wait_press(int *px, int *py)
 {
 	int x, y;
+	int settle = 0;
 	for (;;) {
-		if (touch_get(&x, &y)) { *px = x; *py = y; return true; }
-		vTaskDelay(pdMS_TO_TICKS(10));
+		if (touch_get(&x, &y)) {
+			if (++settle >= 3) { *px = x; *py = y; return true; }
+		} else {
+			settle = 0;
+		}
+		vTaskDelay(pdMS_TO_TICKS(8));
 	}
 }
 
-/* Wait until the finger lifts. Returns true if (x,y) at release. */
+/* Wait until the finger lifts (debounced too). */
 static void touch_wait_release(int *rx, int *ry)
 {
 	int x, y;
+	int lost = 0;
 	for (;;) {
-		if (!touch_get(&x, &y)) break;
-		*rx = x; *ry = y;
-		vTaskDelay(pdMS_TO_TICKS(10));
+		if (touch_get(&x, &y)) {
+			*rx = x; *ry = y;
+			lost = 0;
+		} else if (++lost >= 3) {
+			break;
+		}
+		vTaskDelay(pdMS_TO_TICKS(8));
 	}
 }
 
@@ -496,11 +507,12 @@ static void menu_draw(void)
 	lcd_rect_text(15, 220, 225, 280, "3  Factory reset", C_FG, C_BTN);
 }
 
-static void menu_handle_press(int px, int py)
+static bool menu_handle_press(int px, int py)
 {
-	if (pt_in(px, py, 15, 60, 225, 120))       screen_initialize();
-	else if (pt_in(px, py, 15, 140, 225, 200)) screen_fixed_digest_sign();
-	else if (pt_in(px, py, 15, 220, 225, 280)) screen_factory_reset();
+	if (pt_in(px, py, 15, 60, 225, 120)) {       screen_initialize();      return true; }
+	if (pt_in(px, py, 15, 140, 225, 200)) {      screen_fixed_digest_sign(); return true; }
+	if (pt_in(px, py, 15, 220, 225, 280)) {      screen_factory_reset();     return true; }
+	return false;
 }
 
 void ui_run(void)
@@ -508,14 +520,15 @@ void ui_run(void)
 	menu_draw();
 	for (;;) {
 		int px, py;
-		if (touch_wait_press(&px, &py)) {
-			int rx = px, ry = py;
-			touch_wait_release(&rx, &ry);
-			/* only fire if released inside same button */
-			if (pt_in(rx, ry, px - 20, py - 20, px + 20, py + 20) ||
-			    (rx == px && ry == py))
-				menu_handle_press(px, py);
-			menu_draw();
+		if (!touch_wait_press(&px, &py))
+			continue;
+		int rx = px, ry = py;
+		touch_wait_release(&rx, &ry);
+		/* only fire if released inside same button */
+		if (pt_in(rx, ry, px - 20, py - 20, px + 20, py + 20) ||
+		    (rx == px && ry == py)) {
+			menu_handle_press(px, py);   /* returns true if a screen ran */
 		}
+		menu_draw();   /* always return to menu after an action */
 	}
 }

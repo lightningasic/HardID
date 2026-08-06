@@ -6,6 +6,18 @@
 
 set(HARDID_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../..")
 
+if(CONFIG_HARDID_SE_ACL16)
+    set(HARDID_SE_SRCS
+        "${HARDID_ROOT}/hal/se_acl16.c"
+        "${HARDID_ROOT}/hal/se_composite.c"
+        "${HARDID_ROOT}/hal/se_transport.c"
+        "${HARDID_ROOT}/hal/se_transport_esp32.c"
+        "${HARDID_ROOT}/hal/se_transport_esp32_i2c.c"
+    )
+else()
+    set(HARDID_SE_SRCS "${HARDID_ROOT}/core/se_mock.c")
+endif()
+
 idf_component_register(
     SRCS
         "${HARDID_ROOT}/core/rng.c"
@@ -27,7 +39,7 @@ idf_component_register(
         "${HARDID_ROOT}/core/boot.c"
         "${HARDID_ROOT}/core/linkproto.c"
         "${HARDID_ROOT}/core/linksvc.c"
-        "${HARDID_ROOT}/core/se_mock.c"
+        ${HARDID_SE_SRCS}
         "secp256k1_s3.c"
         "font7.c"
         "display.c"

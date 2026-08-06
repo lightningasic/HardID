@@ -34,14 +34,16 @@
   alpha layout maps 26 letters correctly, keypad fits 320px, PIN zeroized,
   store_seed guarded by is_initialized, touch nibble mapping matches ref.
 
-## What is LEFT / needs review
-- NOT yet flashed to hardware. Flash + smoke-test the three touch flows on
-  the device (use `/tmp/opencode/resetlog.py`; needs idf5.3 venv python
-  with pyserial). User must hold BOOT while inserting USB.
-- Touch axis/orientation may need calibration on-device (X vs Y swap if
-  taps land mirrored). If mapping off, adjust `touch_get` decode or the
-  panel-transform in ui.c hit-testing — do NOT change raw reg read.
-- Build binary `build/hardid.bin` (~302KB).
+## Left / DONE note
+- DONE: flash + smoke-test on hardware. Touch fixed (commit 049f6c1): menu
+  stable, no flicker/crash/watchdog; Buttons 1 (Initialize full flow) and 2
+  (Sign) work on-device.
+- DONE: touch no longer needs BOOT — `idf.py flash` auto-resets via USB-Serial-JTAG.
+- Still LEFT: touch axis calibration if taps land mirrored; Button 3 (Factory
+  reset) not yet exercised on-device.
+- Note: mock_sign_digest is a deterministic stand-in (digest^seed^idx), NOT
+  real ECDSA; the on-device proof is the PIN-unlock invariant (SE_ERR_AUTH
+  guard), not crypto validity. Real backend will do ECDSA.
 
 ## Commands
 - Build/flash/monitor: `source ~/esp/esp-idf/export.sh` then

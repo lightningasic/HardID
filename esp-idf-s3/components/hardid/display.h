@@ -7,6 +7,17 @@
 #ifndef HARDID_DISPLAY_H
 #define HARDID_DISPLAY_H
 
+#include <stdint.h>
+
+#define C_BG   0x0000
+#define C_FG   0xFFFF
+#define C_LBL  0xE73C
+#define C_DIM  0x8410
+#define C_BTN  0x1D8F
+#define C_OK   0x07E0
+#define C_ERR  0xF800
+#define C_WARN 0xFD20
+
 #ifdef __cplusplus
 extern "C" {
 #endif

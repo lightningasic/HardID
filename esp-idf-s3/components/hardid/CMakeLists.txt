@@ -30,6 +30,9 @@ idf_component_register(
         "font7.c"
         "display.c"
         "touch.c"
+        "inter.c"
+        "keypad.c"
+        "screen.c"
         "ui.c"
         "board_s3.c"
     INCLUDE_DIRS

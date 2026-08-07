@@ -411,23 +411,62 @@ int kp_capture_phrase(const char *title, char *out, int max)
 
 	int hover = -1;
 	bool down = false;
+	int settle = 0;              /* consecutive touch samples before a press */
+	int lost = 0;                /* consecutive misses before a release */
+	TickType_t last_commit = 0;  /* ghost-tap lockout */
+
 	for (;;) {
 		int cx, cy;
-		bool pressed = ui_touch_now(&cx, &cy);
-		if (pressed) {
-			down = true;
-			int h = kp_hit(cells, n, cx, cy);
-			if (h != hover) {
-				if (hover >= 0) kp_paint_cell(&cells[hover], 0);
-				hover = h;
-				if (hover >= 0) {
-					kp_paint_cell(&cells[hover], 1);
-					kp_float_preview(cells[hover].kind, cur, ncur, prev_wi);
+		bool got = ui_touch_now(&cx, &cy);
+		if (got) {
+			if (!down) {
+				/* debounced press: only believe a finger after 3
+				 * consecutive reads land on a key (the CST816D
+				 * ghosts single-sample touches near a lift) */
+				int h = kp_hit(cells, n, cx, cy);
+				if (h >= 0) {
+					if (++settle >= 3) {
+						down = true;
+						settle = 0;
+						lost = 0;
+						hover = h;
+						kp_paint_cell(&cells[hover], 1);
+						kp_float_preview(cells[hover].kind, cur, ncur, prev_wi);
+					}
+				} else {
+					settle = 0;
+				}
+			} else {
+				/* already down: track hover as the finger moves */
+				lost = 0;
+				int h = kp_hit(cells, n, cx, cy);
+				if (h != hover) {
+					if (hover >= 0) kp_paint_cell(&cells[hover], 0);
+					hover = h;
+					if (hover >= 0) {
+						kp_paint_cell(&cells[hover], 1);
+						kp_float_preview(cells[hover].kind, cur, ncur, prev_wi);
+					}
 				}
 			}
 		} else if (down) {
+			/* debounced release: commit only after the finger is gone
+			 * for 3 consecutive polls (same lost>=3 rule as the rest
+			 * of the UI) */
+			if (++lost < 3)
+				goto tick;
 			down = false;
-			if (hover >= 0) {
+			lost = 0;
+			settle = 0;
+			if (hover < 0)
+				goto tick;
+			/* ghost-tap lockout: ignore a release that follows the last
+			 * commit by less than 120ms — the CST816D re-reports the
+			 * same point as the finger lifts off a key */
+			if (xTaskGetTickCount() - last_commit < pdMS_TO_TICKS(120))
+				goto tick;
+			last_commit = xTaskGetTickCount();
+			{
 				int kind = cells[hover].kind;
 				kp_paint_cell(&cells[hover], 0);
 				hover = -1;
@@ -483,10 +522,14 @@ int kp_capture_phrase(const char *title, char *out, int max)
 					ncur = 0;
 				}
 			}
+			if (xTaskGetTickCount() - last_commit < pdMS_TO_TICKS(120))
+				goto tick;
+			last_commit = xTaskGetTickCount();
 			kp_draw_phrase_header(title, nwords);
 			kp_float_preview(KEY_SPACE, cur, ncur, prev_wi);
 			for (int i = 0; i < n; i++) kp_paint_cell(&cells[i], 0);
 		}
+tick:
 		vTaskDelay(pdMS_TO_TICKS(8));
 	}
 }

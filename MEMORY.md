@@ -1,101 +1,30 @@
-# MEMORY — HardID architecture optimization (P0–P3) + handoff
+# MEMORY.md
 
-状态：**所有阶段代码已实现、host 测试通过、编译零警告**。真机验证待用户回到机器后执行。
+## 状态:恢复键盘流畅度调试中,彩条问题暂搁置
 
-## Commits (this run, from P0 onward)
-- `ab551a4` ESP-IDF P0: split ui.c -> inter / keypad / screen layers (warning-free,
-  verified on-device menu/sign before user left). Moved mis-created `esp-adf-s3/
-  screen.c` to the correct path; added color consts+stdint to display.h.
-- `db3f7bf` P3: on-device mnemonic recovery (screen_run_recover).
-- `c670458` P1: framed host protocol + Clear-Sign service; USB-Serial-JTAG screen.
-- `5ac8c23` P2: SE backend selectable via Kconfig (mock default).
-- `ffff1b2` docs: feature matrix reflects Recover / Host link / backend switch.
+## 已完成 (本次会话)
+- **幽灵 TTTT 修复**: 同键 60ms 重复锁定 (keypad.c `last_kind` + `last_commit`, 按下了 60ms 内相同 kind 的 press 会被 drop)。不同键快速连击不受影响。真机验证: 连续输入 6 个单词无幽灵、无误伤。
+- **闪烁修复**: `kp_draw_phrase_header` 原用 `lcd_fill(C_BG)` 全屏重绘导致每次按键整屏闪烁。改为 `lcd_rect(0,0,240,KP_TOP,C_BG)` 只清 header+预览带 (y<120)。闪烁已消除。
+- **OK 键行为**: 词数非法 (非 12/15/18/21/24) 时按 OK 弹 "need 12/15/18/21/24 words" 并停留——预期行为,OK 本身工作正常。
 
-## What each piece does
+## 待解决 (搁置)
+- **恢复键盘蓝色背景右上角固定彩色横条**: 全屏 RAM 镜像帧缓冲扫描确认 framebuffer 无此颜色 (PALETTE OK, 右条带 x170-239 只有蓝底+白字)。软件从未画过它。其他界面无、重启后仍在同位置。非面板坏点 (用户判断)。
+  - 已加调试基建: display.c `s_fb` 镜像 + `fb_blit` + `lcd_dump` + `lcd_dump_palette_scan`。
+  - 下一步验证方向: 把键格底色 `C_BTN` 临时改纯黑看彩条是否消失 → 判断是"面板对特定色的显示问题"还是"固定物理行"。
+  - 亦可检查 ST7789 是否需 `esp_lcd_panel_set_gap()` / 列偏移。
 
-### P0 UI layers (components/hardid/)
-- `inter.c/h` — touch debounce / release / hit-test / wait_ack / ui_touch_now
-- `keypad.c/h` — numeric + alpha keypad, PIN set/enter, confirm dialogs
-- `screen.c/h` — initialize / sign / factory_reset / **recover**
-- `link_esp.c` — Host link screen (USB-Serial-JTAG driver)
-- `ui.c` — 5-item main menu (Initialize / Sign / Recover / Host link / Factory reset)
+## 调试残留 (需清理)
+- keypad.c `kp_capture_phrase`: `printf("RC press ...")`, `printf("RC drop-press ...")`, `printf("RC commit ...")` 日志。
+- keypad.c: `static int dumped` + `lcd_dump_palette_scan()` 调用。
+- display.c: `s_fb` 镜像缓冲, `fb_blit`, `lcd_dump`, `lcd_dump_palette_scan`。
+- display.h: `lcd_dump`, `lcd_dump_palette_scan` 声明。
 
-### P1 host link (core/)
-- `linkproto.c/h` — framed, CRC-16/CCITT protocol, both directions
-- `linksvc.c/h` — status / ping / PIN-consented sign via an injected SE vtable
-- host tests: `tests/test_linkproto.c`, `tests/test_linksvc.c` (both PASS)
+## 提交链 (未提交, 工作区含未整理改动)
+- 同键重复锁定 (last_kind) / 闪烁修复 (lcd_rect header) / RAM 镜像调试基建 均未 commit。
+- 上一正式提交: `1e96e06` (P3 recover: OK 词数校验 + 可选 passphrase + 64B BIP39 seed)。
 
-### P2 backend switch (core + hal + Kconfig)
-- `esp-idf-s3/components/hardid/Kconfig` — HARDID_SE_MOCK (default) / HARDID_SE_ACL16
-- CMake pulls `core/se_mock.c` or `hal/se_composite.c + se_acl16.c +
-  se_transport_esp32*` accordingly. `CONFIG_HARDID_SE_MOCK=1` confirmed.
-
-### P3 recovery (screen.c)
-- menu entry 3 → screen_run_recover(): masked phrase entry → lowercase →
-  checksum-validate (`os_bip39_mnemonic_to_entropy`) → new PIN → store seed.
-- crypto path proven on host with the official 24-word vector round-trip.
-
-### P3 word-by-word recovery via unique 4-char prefix (new)
-- `os_bip39_word_resolve_prefix(p,n)` — resolve a typed prefix to a word index.
-- `os_bip39_word_try_commit(p,n)` — auto-commit an *unambiguous* prefix:
-  - n==4: the (only) word starting with the prefix commits (BIP39 guarantees
-    every word has a unique 4-char prefix — verified over all 2048 words).
-  - n<4: only words whose full length == n (short terminal words like "zoo");
-    leaves "add" open so "addict"/"address" can be reached, and lets
-    KEY_SPACE force-commit the exact short word when the user means "add".
-- `os_bip39_word_at(i)` — word by index (for the UI / tests).
-- On-screen: `kp_capture_phrase()` in keypad.c — swipe letters of each word's
-  prefix; the keypad auto-resolves to the full lowercase word and advances.
-  DEL drops a letter or backs out the last word; ENTER finishes; the 8x16
-  high-res floats the hovered letter / current prefix.
-- `screen_run_recover` now uses `kp_capture_phrase` (returns lowercase phrase
-  directly; no manual tolower needed).
-- Host tests t7–t15 cover prefix uniqueness, short-word ambiguity, and
-  try_commit. All PASS (test_bip39.c). `granted` paths proven on host.
-
-## Verified so far (host / build)
-- `idf.py build` zero warnings/errors.
-- test_linkproto, test_linksvc, test_bip39 PASS on host.
-- blog: mock sign (digest^seed^idx) is a placeholder; PIN-unlock invariant is the
-  real safety property (SE_AUTH gate). Real ECDSA only via ACL16 backend.
-
-## LEFT — must verify on REAL hardware (user back at machine)
-- The board was **physically unplugged** at the end of this run (`/dev/ttyACM0`
-  absent), so the word-by-word recover could not be flashed/verified on-device.
-1. **Flash + boot** the new 5-item menu; confirm original 3 flows still work
-   (Initialize / Sign / Factory reset) and the layout fits (5 rows, 240x320).
-2. **Recover (word-by-word)**: after Factory reset, run Recover → swipe each
-   word's unique 4-char prefix → the device expands it to the full lowercase
-   word; short words like "add" need SPC to force-commit. Confirm "Recovered.
-   Seed + PIN stored." Also test bad-checksum → "Invalid mnemonic."
-3. **Host link (P1) transport — risky**: the console already owns USB-Serial-
-   JTAG. Connecting a real host & sending a framed SIG/STATUS needs on-device
-   bring-up. If `usb_serial_jtag_read_bytes` conflicts with the console, run
-   PIN first (the session requires it). Confirm a digest is shown + only signed
-   after a `Confirm` tap.
-4. **SE backend switch (P2)**: only if ACL16 parts + SPI wiring are fitted.
-   NOTE: `screen.c` still calls the mock-only helpers `se_mock_reset()`,
-   `se_mock_set_pin()`. For an ACL16 build these must be re-routed to the
-   composite API (store_seed / a wipe). This is the known follow-up.
-
-## Environment
-- IDF v5.3.2, toolchain esp32s3. Board: Waveshare ESP32-S3-Touch-LCD-2
-  (ST7789 240×320, CST816D touch I2C SDA=48/SCL=47 @0x15, 8MB PSRAM / 16MB flash).
-- Build dir: `code/esp-idf-s3`. Shell env needed: `source ~/esp/esp-idf/export.sh`.
-- Flash: `idf.py -p /dev/ttyACM0 flash` (USB-Serial-JTAG auto-reset; no BOOT).
-- Logs: keyboard `idf.py monitor` or `python /tmp/opencode/reset].py` (pyserial).
-
-## Commands for user
-```
-cd "code/esp-idf-s3"
-source ~/esp/esp-idf/export.sh
-idf.py build            # already clean
-idf.py flash            # device attached -> auto reset
-idf.py monitor          # tap menu, walk each flow
-```
-Host unit tests (no hardware):
-```
-cd code/tests && cc test_linkproto.c -I.. -o /tmp/t_lp && /tmp/t_lp
-cc test_linksvc.c -I.. -o /tmp/t_ls && /tmp/t_ls
-cc test_bip39.c -I.. -o /tmp/t_b39 && /tmp/t_b39
-```
+## 待办
+- 清理调试日志与镜像缓冲 (或保留镜像做彩条定位)。
+- 决定彩条处理方案。
+- host 测试跑一遍 (test_se/test_seed/test_bip39) 确认无回归。
+- 可选: 12 词全流程真机走查。

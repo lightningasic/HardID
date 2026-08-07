@@ -4,7 +4,8 @@
  * License: Apache License 2.0
  *
  * Layer 3 (application): the home menu and the touch event loop routing
- * taps to the three screen flows. PIN/keypad primitives live in keypad.h.
+ * taps to the five screen flows. One menu item per screen, stepped with
+ * on-screen left/right arrow keys; PIN/keypad primitives live in keypad.h.
  */
 
 #ifndef HARDID_UI_H
@@ -14,8 +15,8 @@
 extern "C" {
 #endif
 
-/* Run the three-function menu. Calls se to init/sign/wipe.
- * Never returns (main loop). */
+/* Run the five-action menu (one item per screen, stepped with on-screen
+ * left/right arrows, tap center to open). Never returns (main loop). */
 void ui_run(void);
 
 #ifdef __cplusplus

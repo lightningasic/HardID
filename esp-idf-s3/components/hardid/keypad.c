@@ -176,6 +176,9 @@ static void kp_draw(const char *title, const char *echo, int echo_len,
 int kp_capture(const char *title, char *out, int max, int numeric_only,
                int mask)
 {
+	/* numeric-only entries (PIN) always start on the digit page; anything
+	 * else (e.g. typing RESET) starts on the alphabetic page */
+	s_mode = numeric_only ? 0 : 1;
 	int len = 0;
 	out[0] = '\0';
 	for (;;) {
@@ -360,17 +363,30 @@ static bool kp_legal_word_count(int count)
 static void kp_draw_phrase_header(const char *title, int nwords,
                                   const char *hint)
 {
-	lcd_fill(C_BG);
+	/* Clear the whole header band (title + floating preview region) down to
+	 * the very top of the key grid (KP_TOP). lcd_fill full-screen repaints
+	 * every key on keypress and visibly flickers; this narrower clear
+	 * leaves no unpainted seam: the 8px strip between the preview box
+	 * (ends PREV_Y1) and the first grid row (KP_TOP) would otherwise keep
+	 * stale colored pixels, showing up as a horizontal bar. */
+	lcd_rect(0, 0, 240, KP_TOP, C_BG);
 	if (title) lcd_line(2, 2, title, C_LBL, C_BG);
 	char line[40];
 	if (hint) {
 		lcd_line(2, 14, hint, C_ERR, C_BG);
-	} else if (nwords > 0) {
-		snprintf(line, sizeof line, "%d word%s in", nwords,
-		         nwords == 1 ? "" : "s");
-		lcd_line(2, 14, line, C_DIM, C_BG);
 	} else {
-		lcd_line(2, 14, "type word abbreviations", C_DIM, C_BG);
+		/* tell the user which word they are about to type: "input 1st
+		 * word", "input 2nd word", ... based on words committed so far */
+		int wn = nwords + 1;
+		const char *suf = "th";
+		int mod100 = wn % 100;
+		if (mod100 < 11 || mod100 > 13) {
+			if (wn % 10 == 1) suf = "st";
+			else if (wn % 10 == 2) suf = "nd";
+			else if (wn % 10 == 3) suf = "rd";
+		}
+		snprintf(line, sizeof line, "input %d%s word", wn, suf);
+		lcd_line(2, 14, line, C_DIM, C_BG);
 	}
 }
 
@@ -425,6 +441,7 @@ int kp_capture_phrase(const char *title, char *out, int max)
 	bool down = false;
 	int settle = 0;              /* consecutive touch samples before a press */
 	int lost = 0;                /* consecutive misses before a release */
+	int last_kind = -1;         /* last committed key kind (for repeat lock) */
 	TickType_t last_commit = 0;  /* ghost re-press lockout (short window) */
 
 	for (;;) {
@@ -450,12 +467,14 @@ int kp_capture_phrase(const char *title, char *out, int max)
 				if (h >= 0) {
 					if (++settle >= 3) {
 						settle = 0;
-						/* drop a press that starts within 60ms of the last
-						 * commit: the ghost "release -> immediate re-press"
-						 * lands milliseconds after the lift, while a real
-						 * next tap is deliberate and slower */
-						if (xTaskGetTickCount() - last_commit <
-						    pdMS_TO_TICKS(60))
+						/* repeat lockout: a ghost lands on the *same* key
+						 * immediately after a lift (TTTT). A real next tap
+						 * is on a different key, so the 60ms window below
+						 * is scoped to the SAME kind — different keys are
+						 * always allowed even when typed fast. */
+						if (cells[h].kind == last_kind &&
+						    xTaskGetTickCount() - last_commit <
+							    pdMS_TO_TICKS(60))
 							continue;
 						down = true;
 						lost = 0;
@@ -491,6 +510,7 @@ int kp_capture_phrase(const char *title, char *out, int max)
 				int kind = cells[hover].kind;
 				kp_paint_cell(&cells[hover], 0);
 				hover = -1;
+				last_kind = kind;
 				if (kind == KEY_BACK) {
 					/* drop a letter, or the last committed word */
 					if (ncur > 0) {
@@ -587,6 +607,25 @@ bool ui_confirm_overlay(void)
 {
 	lcd_rect_text(15, 200, 115, 250, "Cancel", C_FG, C_BTN);
 	lcd_rect_text(125, 200, 225, 250, "Confirm", C_FG, C_ERR);
+	for (;;) {
+		int px, py;
+		ui_wait_press(&px, &py);
+		int rx = px, ry = py;
+		ui_wait_release(&rx, &ry);
+		if (ui_pt_in(px, py, 125, 200, 225, 250) &&
+		    ui_pt_in(rx, ry, 125, 200, 225, 250))
+			return true;
+		if (ui_pt_in(px, py, 15, 200, 115, 250) &&
+		    ui_pt_in(rx, ry, 15, 200, 115, 250))
+			return false;
+	}
+}
+
+/* Yes/No question (drawn over existing content). True if "Yes". */
+bool ui_confirm_yesno(void)
+{
+	lcd_rect_text(15, 200, 115, 250, "No", C_FG, C_BTN);
+	lcd_rect_text(125, 200, 225, 250, "Yes", C_FG, C_OK);
 	for (;;) {
 		int px, py;
 		ui_wait_press(&px, &py);

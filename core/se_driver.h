@@ -52,6 +52,11 @@ typedef struct se_driver {
 	/* Returns true if a seed has been provisioned. */
 	int (*is_initialized)(bool *initialized);
 
+	/* Returns true if a PIN has been set (independent of seed: a wiped
+	 * device may still carry a PIN). Lets the UI require a PIN on first
+	 * boot even before the seed exists. */
+	int (*is_pin_set)(bool *set);
+
 	/* Derive + sign inside the SE. path is a BIP32 path array (path_len
 	 * uint32 components, hardened flag included). digest32 is the tx hash.
 	 * Produces a 64-byte compact signature (r||s); recid out optional. */

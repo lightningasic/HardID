@@ -17,6 +17,12 @@
 
 static se_acl16_t g_se1, g_se2;
 
+/* The ACL16 exposes no "is a PIN provisioned" query, so we track PIN
+ * presence locally: a successful verify proves a PIN exists, and the flag
+ * stays until the guard is re-flashed. The first-boot PIN gate relies on
+ * this being false on a fresh guard. */
+static bool g_pin_set = false;
+
 static int comp_init(void)
 {
 	const se_transport_t *t = se_transport_get();
@@ -44,6 +50,12 @@ static int comp_is_initialized(bool *init)
 	return se_acl16_is_initialized(&g_se1, init) == 0 ? SE_OK : SE_ERR_INTERNAL;
 }
 
+static int comp_is_pin_set(bool *set)
+{
+	*set = g_pin_set;
+	return SE_OK;
+}
+
 static int comp_sign_digest(const uint32_t *path, size_t path_len,
                             const uint8_t *digest32, uint8_t *sig64, uint8_t *recid)
 {
@@ -59,7 +71,11 @@ static int comp_get_xpub(const uint32_t *path, size_t path_len,
 static int comp_verify_pin(const uint8_t *pin, size_t len,
                            uint32_t *wait_seconds, bool *is_duress)
 {
-	return se_acl16_verify_pin(&g_se2, pin, len, wait_seconds, is_duress);
+	int rc = se_acl16_verify_pin(&g_se2, pin, len, wait_seconds, is_duress);
+	if (rc == SE_SW_OK)
+		g_pin_set = true;
+	return rc == SE_SW_OK ? SE_OK
+	       : (rc == SE_SW_LOCKED ? SE_ERR_LOCKED : SE_ERR_AUTH);
 }
 
 static int comp_policy_authorize(uint32_t policy_id, uint64_t amount)
@@ -88,6 +104,7 @@ static const se_driver_t composite_driver = {
 	.get_random = comp_get_random,
 	.store_seed = comp_store_seed,
 	.is_initialized = comp_is_initialized,
+	.is_pin_set = comp_is_pin_set,
 	.sign_digest = comp_sign_digest,
 	.get_xpub = comp_get_xpub,
 	.verify_pin = comp_verify_pin,

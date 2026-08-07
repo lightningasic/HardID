@@ -49,6 +49,12 @@ static int mock_is_initialized(bool *init)
 	return SE_OK;
 }
 
+static int mock_is_pin_set(bool *set)
+{
+	*set = mock_pin_len != 0;
+	return SE_OK;
+}
+
 static int mock_sign_digest(const uint32_t *path, size_t path_len,
                             const uint8_t *digest32,
                             uint8_t *sig64, uint8_t *recid)
@@ -116,6 +122,7 @@ static const se_driver_t mock_driver = {
 	.get_random = mock_get_random,
 	.store_seed = mock_store_seed,
 	.is_initialized = mock_is_initialized,
+	.is_pin_set = mock_is_pin_set,
 	.sign_digest = mock_sign_digest,
 	.get_xpub = mock_get_xpub,
 	.verify_pin = mock_verify_pin,

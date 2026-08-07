@@ -46,6 +46,9 @@ bool ui_confirm(const char *msg);
  * "Confirm". */
 bool ui_confirm_overlay(void);
 
+/* Yes/No question drawn over existing content. True if "Yes". */
+bool ui_confirm_yesno(void);
+
 /* Prompt & confirm a new PIN (both entries must match, >= OS_PIN_MIN_LEN).
  * On success stores ASCII PIN in out (<=OS_PIN_MAX_LEN) and returns its
  * length; -1 on failure. */

@@ -420,10 +420,21 @@ int kp_capture_phrase(const char *title, char *out, int max)
 		bool got = ui_touch_now(&cx, &cy);
 		if (got) {
 			if (!down) {
-				/* debounced press: only believe a finger after 3
-				 * consecutive reads land on a key (the CST816D
-				 * ghosts single-sample touches near a lift) */
+				/* Visual feedback is immediate (first read paints the hover
+				 * highlight + floating preview), but the press is only
+				 * *armed* (eligible to commit on release) after 3
+				 * consecutive reads land on a key. The CST816D ghosts
+				 * single-sample touches near a lift, and an unarmed ghost
+				 * never commits. */
 				int h = kp_hit(cells, n, cx, cy);
+				if (h != hover) {
+					if (hover >= 0) kp_paint_cell(&cells[hover], 0);
+					hover = h;
+					if (hover >= 0) {
+						kp_paint_cell(&cells[hover], 1);
+						kp_float_preview(cells[hover].kind, cur, ncur, prev_wi);
+					}
+				}
 				if (h >= 0) {
 					if (++settle >= 3) {
 						settle = 0;
@@ -436,9 +447,6 @@ int kp_capture_phrase(const char *title, char *out, int max)
 							continue;
 						down = true;
 						lost = 0;
-						hover = h;
-						kp_paint_cell(&cells[hover], 1);
-						kp_float_preview(cells[hover].kind, cur, ncur, prev_wi);
 					}
 				} else {
 					settle = 0;

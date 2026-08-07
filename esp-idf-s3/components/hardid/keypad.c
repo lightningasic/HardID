@@ -332,6 +332,7 @@ int kp_capture_alpha(const char *title, char *out, int max)
 
 #define WORD_BUF_MAX 8   /* longest typed prefix we keep around */
 
+/* Append a resolved word index to the phrase string, space separated. */
 static void word_append(char *out, int *len, int max, int wi)
 {
 	const char *w = os_bip39_word_at(wi);
@@ -344,8 +345,10 @@ static void word_append(char *out, int *len, int max, int wi)
 	out[*len] = '\0';
 }
 
-static void kp_draw_phrase_header(const char *title, const char *cur,
-                                  int ncur, int nwords)
+/* Draw the phrase header: title, word count, and a hint line. The current
+ * prefix (and the hovered letter) live in the floating preview box, so we
+ * keep the header to the two top lines (y<=30, above PREV_Y0=34). */
+static void kp_draw_phrase_header(const char *title, int nwords)
 {
 	lcd_fill(C_BG);
 	if (title) lcd_line(2, 2, title, C_LBL, C_BG);
@@ -355,25 +358,22 @@ static void kp_draw_phrase_header(const char *title, const char *cur,
 		         nwords == 1 ? "" : "s");
 		lcd_line(2, 14, line, C_DIM, C_BG);
 	} else {
-		lcd_line(2, 14, "type an abbreviation", C_DIM, C_BG);
+		lcd_line(2, 14, "type word abbreviations", C_DIM, C_BG);
 	}
-	if (ncur > 0)
-		lcd_line_big(2, 30, cur, C_FG, C_BG);
-	else
-		lcd_line(2, 30, "swipe letters to pick a word", C_DIM, C_BG);
 }
 
+/* Floating preview: hovered letter (large), or the current typed prefix. */
 static void kp_float_preview(int ch, const char *cur, int ncur)
 {
 	lcd_rect(PREV_X0, PREV_Y0, PREV_X1, PREV_Y1, C_BG);
-	if (ch > 0 && ch != KEY_SPACE) {
+	if (ch > 0 && ch != KEY_SPACE) {           /* hovered key */
 		char s[2] = { (char)ch, '\0' };
 		int scale = 3;
 		int tw = F8_W * scale, th = F8_H * scale;
 		int cx = PREV_X0 + ((PREV_X1 - PREV_X0) - tw) / 2;
 		int cy = PREV_Y0 + ((PREV_Y1 - PREV_Y0) - th) / 2;
 		lcd_gl8x16(cx, cy, s[0], C_FG, C_BG, scale);
-	} else if (ncur > 0) {
+	} else if (ncur > 0) {           /* prefix in progress */
 		char s[5];
 		int n = ncur < 4 ? ncur : 4;
 		for (int i = 0; i < n; i++) s[i] = cur[i];
@@ -398,7 +398,7 @@ int kp_capture_phrase(const char *title, char *out, int max)
 	out[0] = '\0';
 
 	lcd_fill(C_BG);
-	kp_draw_phrase_header(title, cur, ncur, 0);
+	kp_draw_phrase_header(title, 0);
 	kp_float_preview(KEY_SPACE, cur, ncur);
 	for (int i = 0; i < n; i++) kp_paint_cell(&cells[i], 0);
 
@@ -425,19 +425,40 @@ int kp_capture_phrase(const char *title, char *out, int max)
 				kp_paint_cell(&cells[hover], 0);
 				hover = -1;
 				if (kind == KEY_BACK) {
-					if (ncur > 0)
+					/* drop a letter, or the last committed word */
+					if (ncur > 0) {
 						cur[--ncur] = '\0';
+					} else if (nwords > 0) {
+						/* back out the last word from the phrase */
+						int i = outlen;
+						if (i > 0 && out[i - 1] == ' ') i--;
+						while (i > 0 && out[i - 1] != ' ') i--;
+						outlen = i;
+						out[outlen] = '\0';
+						nwords--;
+					}
+				} else if (kind == KEY_SPACE) {
+					/* commit the prefix as an exact word if it is a complete
+					 * word the auto-resolve left open (short words whose 4th
+					 * letter points at a longer word, e.g. "add" vs "addict") */
+					int wi = (ncur > 0) ? os_bip39_word_index(cur) : -1;
+					if (wi >= 0) {
+						word_append(out, &outlen, max, wi);
+						nwords++;
+						cur[0] = '\0';
+						ncur = 0;
+					}
 				} else if (kind == KEY_ENTER) {
 					out[outlen] = '\0';
 					return (outlen > 0) ? 0 : -1;
-				} else if (kind >= 0 && kind != KEY_SPACE) {
+				} else if (kind >= 0) {
 					if (ncur < WORD_BUF_MAX) {
 						cur[ncur++] = (char)kind;
 						cur[ncur] = '\0';
 					}
 				}
 			}
-			/* resolve an unambiguous prefix -> committed word */
+			/* auto-resolve an unambiguous prefix -> committed word */
 			if (ncur >= 1 && ncur <= 4) {
 				int wi = os_bip39_word_try_commit(cur, ncur);
 				if (wi >= 0) {
@@ -447,7 +468,7 @@ int kp_capture_phrase(const char *title, char *out, int max)
 					ncur = 0;
 				}
 			}
-			kp_draw_phrase_header(title, cur, ncur, nwords);
+			kp_draw_phrase_header(title, nwords);
 			kp_float_preview(KEY_SPACE, cur, ncur);
 			for (int i = 0; i < n; i++) kp_paint_cell(&cells[i], 0);
 		}

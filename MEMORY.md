@@ -35,6 +35,24 @@
   checksum-validate (`os_bip39_mnemonic_to_entropy`) → new PIN → store seed.
 - crypto path proven on host with the official 24-word vector round-trip.
 
+### P3 word-by-word recovery via unique 4-char prefix (new)
+- `os_bip39_word_resolve_prefix(p,n)` — resolve a typed prefix to a word index.
+- `os_bip39_word_try_commit(p,n)` — auto-commit an *unambiguous* prefix:
+  - n==4: the (only) word starting with the prefix commits (BIP39 guarantees
+    every word has a unique 4-char prefix — verified over all 2048 words).
+  - n<4: only words whose full length == n (short terminal words like "zoo");
+    leaves "add" open so "addict"/"address" can be reached, and lets
+    KEY_SPACE force-commit the exact short word when the user means "add".
+- `os_bip39_word_at(i)` — word by index (for the UI / tests).
+- On-screen: `kp_capture_phrase()` in keypad.c — swipe letters of each word's
+  prefix; the keypad auto-resolves to the full lowercase word and advances.
+  DEL drops a letter or backs out the last word; ENTER finishes; the 8x16
+  high-res floats the hovered letter / current prefix.
+- `screen_run_recover` now uses `kp_capture_phrase` (returns lowercase phrase
+  directly; no manual tolower needed).
+- Host tests t7–t15 cover prefix uniqueness, short-word ambiguity, and
+  try_commit. All PASS (test_bip39.c). `granted` paths proven on host.
+
 ## Verified so far (host / build)
 - `idf.py build` zero warnings/errors.
 - test_linkproto, test_linksvc, test_bip39 PASS on host.
@@ -42,11 +60,14 @@
   real safety property (SE_AUTH gate). Real ECDSA only via ACL16 backend.
 
 ## LEFT — must verify on REAL hardware (user back at machine)
+- The board was **physically unplugged** at the end of this run (`/dev/ttyACM0`
+  absent), so the word-by-word recover could not be flashed/verified on-device.
 1. **Flash + boot** the new 5-item menu; confirm original 3 flows still work
    (Initialize / Sign / Factory reset) and the layout fits (5 rows, 240x320).
-2. **Recover**: after Factory reset, run Recover → type a real phrase → confirm
-   "Recovered. Seed + PIN stored." Also test bad-checksum → "Invalid mnemonic."
-   (Alpha keypad emits uppercase; input is lowercased before validation.)
+2. **Recover (word-by-word)**: after Factory reset, run Recover → swipe each
+   word's unique 4-char prefix → the device expands it to the full lowercase
+   word; short words like "add" need SPC to force-commit. Confirm "Recovered.
+   Seed + PIN stored." Also test bad-checksum → "Invalid mnemonic."
 3. **Host link (P1) transport — risky**: the console already owns USB-Serial-
    JTAG. Connecting a real host & sending a framed SIG/STATUS needs on-device
    bring-up. If `usb_serial_jtag_read_bytes` conflicts with the console, run
@@ -76,4 +97,5 @@ Host unit tests (no hardware):
 ```
 cd code/tests && cc test_linkproto.c -I.. -o /tmp/t_lp && /tmp/t_lp
 cc test_linksvc.c -I.. -o /tmp/t_ls && /tmp/t_ls
+cc test_bip39.c -I.. -o /tmp/t_b39 && /tmp/t_b39
 ```

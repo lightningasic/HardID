@@ -16,6 +16,9 @@
 extern "C" {
 #endif
 
+/* Software/firmware version, shown in the ABOUT screen. */
+#define HARDID_FW_VERSION "0.2.0"
+
 /* Initialize: if not yet provisioned, generate a seed, show + confirm the
  * recovery phrase, set a PIN, and store the seed in the SE. */
 void screen_run_initialize(void);
@@ -35,6 +38,9 @@ void screen_run_recover(void);
 /* Host link: PIN-unlock then serve framed requests (status/sign) over the
  * USB-Serial-JTAG port. See link_esp.c. Returns on tap. */
 void screen_run_link_host(void);
+
+/* About: show hardware and firmware version, tap to return. */
+void screen_run_about(void);
 
 #ifdef __cplusplus
 }

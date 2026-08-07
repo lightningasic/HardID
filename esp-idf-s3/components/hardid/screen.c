@@ -10,6 +10,8 @@
 #include <ctype.h>
 
 #include "esp_random.h"
+#include "esp_chip_info.h"
+#include "esp_flash.h"
 
 #include "display.h"
 #include "boot.h"
@@ -421,4 +423,36 @@ void screen_run_recover(void)
 		lcd_text_wrap(2, 10, "Recovered. Seed + PIN stored.", C_OK, C_BG);
 		ui_wait_ack();
 	}
+}
+
+void screen_run_about(void)
+{
+	lcd_fill(C_BG);
+	lcd_line(2, 2, "ABOUT", C_LBL, C_BG);
+
+	esp_chip_info_t ci;
+	esp_chip_info(&ci);
+	const char *model = "ESP32";
+	switch (ci.model) {
+	case CHIP_ESP32S3: model = "ESP32-S3"; break;
+	default: break;
+	}
+	char line[48];
+	snprintf(line, sizeof line, "Chip %s", model);
+	lcd_line(2, 22, line, C_FG, C_BG);
+
+	uint32_t flash = 0;
+	if (esp_flash_get_size(NULL, &flash) == ESP_OK)
+		snprintf(line, sizeof line, "Flash %d MB", (int)(flash >> 20));
+	else
+		snprintf(line, sizeof line, "Flash unknown");
+	lcd_line(2, 36, line, C_FG, C_BG);
+
+	snprintf(line, sizeof line, "Cores %d", ci.cores);
+	lcd_line(2, 50, line, C_FG, C_BG);
+
+	snprintf(line, sizeof line, "Firmware " HARDID_FW_VERSION);
+	lcd_line(2, 64, line, C_FG, C_BG);
+
+	ui_wait_ack();
 }

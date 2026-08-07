@@ -375,18 +375,10 @@ static void kp_draw_phrase_header(const char *title, int nwords,
 	if (hint) {
 		lcd_line(2, 14, hint, C_ERR, C_BG);
 	} else {
-		/* tell the user which word they are about to type: "input 1st
-		 * word", "input 2nd word", ... based on words committed so far */
-		int wn = nwords + 1;
-		const char *suf = "th";
-		int mod100 = wn % 100;
-		if (mod100 < 11 || mod100 > 13) {
-			if (wn % 10 == 1) suf = "st";
-			else if (wn % 10 == 2) suf = "nd";
-			else if (wn % 10 == 3) suf = "rd";
-		}
-		snprintf(line, sizeof line, "input %d%s word", wn, suf);
-		lcd_line(2, 14, line, C_DIM, C_BG);
+		/* tell the user which word they are about to type, in large type:
+		 * "WORD 1", "WORD 2", ... based on words committed so far */
+		snprintf(line, sizeof line, "WORD %d", nwords + 1);
+		lcd_line_big(2, 14, line, C_FG, C_BG);
 	}
 }
 

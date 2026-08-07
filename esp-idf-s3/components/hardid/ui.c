@@ -25,10 +25,11 @@
 /* mock-SE helper (se_mock.c); a real backend stores the PIN inside the SE */
 void se_mock_set_pin(const uint8_t *pin, size_t len);
 
-#define MENU_COUNT 5
+#define MENU_COUNT 6
 
 static const char *const s_items[MENU_COUNT] = {
 	"INITIALIZE", "SIGN", "RECOVER", "HOST LINK", "FACTORY RESET",
+	"ABOUT",
 };
 
 static int s_sel = 0;
@@ -120,6 +121,7 @@ static void menu_run_sel(void)
 	case 2: screen_run_recover();       break;
 	case 3: screen_run_link_host();     break;
 	case 4: screen_run_factory_reset(); break;
+	case 5: screen_run_about();         break;
 	}
 }
 

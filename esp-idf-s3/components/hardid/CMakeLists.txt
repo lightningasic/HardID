@@ -56,7 +56,7 @@ idf_component_register(
         "${CMAKE_CURRENT_SOURCE_DIR}"
     REQUIRES
         mbedtls esp_lcd esp_driver_spi esp_driver_gpio esp_driver_i2c
-        esp_driver_usb_serial_jtag
+        esp_driver_usb_serial_jtag spi_flash
 )
 
 target_compile_definitions(${COMPONENT_LIB} PUBLIC ESP_PLATFORM=1)

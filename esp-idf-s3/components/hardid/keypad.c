@@ -452,8 +452,13 @@ int kp_capture_phrase(const char *title, char *out, int max)
 					out[outlen] = '\0';
 					return (outlen > 0) ? 0 : -1;
 				} else if (kind >= 0) {
+					/* append a letter; BIP39 words are lowercase so fold the
+					 * keypad's uppercase cell into lower case for matching */
 					if (ncur < WORD_BUF_MAX) {
-						cur[ncur++] = (char)kind;
+						char c = (char)kind;
+						if (c >= 'A' && c <= 'Z')
+							c = (char)(c - 'A' + 'a');
+						cur[ncur++] = c;
 						cur[ncur] = '\0';
 					}
 				}

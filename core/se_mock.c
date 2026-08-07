@@ -100,6 +100,26 @@ static int mock_verify_pin(const uint8_t *pin, size_t len,
 	return SE_ERR_AUTH;
 }
 
+static int mock_set_pin(const uint8_t *pin, size_t len)
+{
+	if (len < 4 || len > sizeof(mock_pin))
+		return SE_ERR_PARAM;
+	memcpy(mock_pin, pin, len);
+	mock_pin_len = len;
+	return SE_OK;
+}
+
+static int mock_wipe(void)
+{
+	mock_seed_stored = 0;
+	memset(mock_seed, 0, sizeof(mock_seed));
+	mock_counter = 0;
+	mock_rng_seq = 1;
+	mock_pin_len = 0;
+	mock_unlocked = false;
+	return SE_OK;
+}
+
 static int mock_policy_authorize(uint32_t pid, uint64_t amount)
 {
 	(void)pid; (void)amount;
@@ -126,6 +146,8 @@ static const se_driver_t mock_driver = {
 	.sign_digest = mock_sign_digest,
 	.get_xpub = mock_get_xpub,
 	.verify_pin = mock_verify_pin,
+	.set_pin = mock_set_pin,
+	.wipe = mock_wipe,
 	.policy_authorize = mock_policy_authorize,
 	.monotonic_read = mock_mono_read,
 	.monotonic_increment = mock_mono_inc,
@@ -135,17 +157,11 @@ static const se_driver_t mock_driver = {
 /* test helpers */
 void se_mock_set_pin(const uint8_t *pin, size_t len)
 {
-	memcpy(mock_pin, pin, len);
-	mock_pin_len = len;
+	(void)mock_set_pin(pin, len);
 }
 void se_mock_reset(void)
 {
-	mock_seed_stored = 0;
-	memset(mock_seed, 0, 64);
-	mock_counter = 0;
-	mock_rng_seq = 1;
-	mock_pin_len = 0;
-	mock_unlocked = false;
+	(void)mock_wipe();
 }
 
 const se_driver_t *se_active(void)

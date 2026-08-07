@@ -1,5 +1,6 @@
 #
 # HardID ESP32-P4 sdkconfig defaults
+# Target: ESP32-P4 carrier board (LCD/touch pins in components/hardid/board_p4.h)
 # Apply: idf.py set-target esp32p4
 #
 
@@ -10,9 +11,9 @@ CONFIG_IDF_TARGET="esp32p4"
 CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
 CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
 
-# PSRAM (Clear Sign needs RAM for large PSBT / EVM ABI / QR frames)
+# PSRAM (Clear Sign needs RAM for large PSBT / EVM ABI / QR frames).
+# Mode/clock are auto-detected for P4 in this IDF version.
 CONFIG_SPIRAM=y
-CONFIG_SPIRAM_MODE_OCT=y
 
 # Security: flash encryption + secure boot v2 (enable in production)
 # CONFIG_SECURE_FLASH_ENCRYPTION_MODE_DEVELOPMENT=y
@@ -23,3 +24,8 @@ CONFIG_COMPILER_OPTIMIZATION_PERF=y
 
 # Log
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+
+# SE backend: dual-ACL16 composite is the production build; the mock backend
+# is the default for board bring-up until the two ACL16 parts are wired.
+CONFIG_HARDID_SE_ACL16=n
+CONFIG_HARDID_SE_MOCK=y

@@ -1,0 +1,35 @@
+menu "HardID secure-element backend"
+
+choice HARDID_SE_BACKEND
+    prompt "SE backend for this build"
+    default HARDID_SE_MOCK
+
+config HARDID_SE_MOCK
+    bool "Software mock (no secure-element hardware)"
+    help
+        Compile the in-RAM mock backend (core/se_mock.c). Used for bring-up,
+        host tests and board bring-up when no ACL16 secure element is wired.
+        Signatures are deterministic stand-ins (digest XOR seed) — fine for
+        plumbing, NOT for real keys.
+
+config HARDID_SE_ACL16
+    bool "ACL16 dual secure element (SPI)"
+    help
+        Compile the production dual-ACL16 composite backend
+        (hal/se_composite.c + se_acl16.c + se_transport_esp32*.c).
+        Real ECDSA signing inside the SE. Requires two ACL16 parts on the
+        board SPI pins (see hardware selection doc). When fitted this swaps
+        the mock for real hardware-backed signing with zero changes to the
+        UI/service layers.
+
+endchoice
+
+config HARDID_SE_ACL16_FULL
+    bool "Build the ACL16 sources into the flash image"
+    depends on HARDID_SE_BACKEND = "ACL16"
+    default y
+    help
+        Pulls hal/se_composite.c, se_acl16.c and the SPI transport into the
+        S3 build. Only meaningful when the ACL16 hardware is present.
+
+endmenu

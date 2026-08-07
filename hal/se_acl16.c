@@ -222,6 +222,24 @@ int se_acl16_verify_pin(se_acl16_t *ctx, const uint8_t *pin, size_t len,
 	return rc;
 }
 
+int se_acl16_set_pin(se_acl16_t *ctx, const uint8_t *pin, size_t len)
+{
+	uint8_t rbuf[4]; size_t rlen = 0;
+	int rc = se_acl16_apdu(ctx, ACL16_CLA, ACL16_INS_SET_PIN,
+	                       0x00, 0x00, pin, len, rbuf, &rlen, sizeof rbuf);
+	os_secure_bzero(rbuf, sizeof rbuf);
+	return rc;
+}
+
+int se_acl16_wipe(se_acl16_t *ctx)
+{
+	uint8_t rbuf[4]; size_t rlen = 0;
+	int rc = se_acl16_apdu(ctx, ACL16_CLA, ACL16_INS_WIPE,
+	                       0x00, 0x00, NULL, 0, rbuf, &rlen, sizeof rbuf);
+	os_secure_bzero(rbuf, sizeof rbuf);
+	return rc;
+}
+
 int se_acl16_policy_authorize(se_acl16_t *ctx, uint32_t policy_id, uint64_t amount)
 {
 	uint8_t data[12];

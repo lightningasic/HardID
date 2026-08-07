@@ -62,6 +62,8 @@ int  se_acl16_get_xpub(se_acl16_t *ctx, const uint32_t *path, size_t path_len,
                        char *xpub_out, size_t xpub_max);
 int  se_acl16_verify_pin(se_acl16_t *ctx, const uint8_t *pin, size_t len,
                          uint32_t *wait_seconds, bool *is_duress);
+int  se_acl16_set_pin(se_acl16_t *ctx, const uint8_t *pin, size_t len);
+int  se_acl16_wipe(se_acl16_t *ctx);
 int  se_acl16_policy_authorize(se_acl16_t *ctx, uint32_t policy_id, uint64_t amount);
 int  se_acl16_monotonic_read(se_acl16_t *ctx, uint32_t *counter);
 int  se_acl16_monotonic_increment(se_acl16_t *ctx);

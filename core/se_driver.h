@@ -74,6 +74,14 @@ typedef struct se_driver {
 	int (*verify_pin)(const uint8_t *pin, size_t len,
 	                  uint32_t *wait_seconds, bool *is_duress);
 
+	/* Provision/overwrite the PIN (4..16 digits). Used by the first-boot
+	 * PIN gate and factory-reset PIN enforcement. SE_OK on success. */
+	int (*set_pin)(const uint8_t *pin, size_t len);
+
+	/* Full device wipe: erase seed AND PIN (factory reset). SE_OK if the
+	 * device is now blank. Must be PIN/PROVENANCE gated by the caller. */
+	int (*wipe)(void);
+
 	/* Auto-sign policy: authorize amount under policy_id, or report that
 	 * manual confirmation is required. Returns SE_OK if auto-approved,
 	 * SE_ERR_AUTH if manual Clear Sign needed. */

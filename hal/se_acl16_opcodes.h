@@ -24,6 +24,8 @@
 #define ACL16_INS_SIGN           0xD4   /* PLACEHOLDER */
 #define ACL16_INS_GET_XPUB       0xD6   /* PLACEHOLDER */
 #define ACL16_INS_VERIFY_PIN     0x20   /* like ISO VERIFY; confirm */
+#define ACL16_INS_SET_PIN        0x22   /* PLACEHOLDER */
+#define ACL16_INS_WIPE           0xD1   /* PLACEHOLDER */
 #define ACL16_INS_POLICY_AUTH    0xD8   /* PLACEHOLDER */
 #define ACL16_INS_MONO_READ      0xDA   /* PLACEHOLDER */
 #define ACL16_INS_MONO_INC       0xDC   /* PLACEHOLDER */

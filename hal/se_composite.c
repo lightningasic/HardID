@@ -78,6 +78,26 @@ static int comp_verify_pin(const uint8_t *pin, size_t len,
 	       : (rc == SE_SW_LOCKED ? SE_ERR_LOCKED : SE_ERR_AUTH);
 }
 
+static int comp_set_pin(const uint8_t *pin, size_t len)
+{
+	int rc = se_acl16_set_pin(&g_se2, pin, len);
+	if (rc == 0)
+		g_pin_set = true;
+	return rc == 0 ? SE_OK : SE_ERR_INTERNAL;
+}
+
+static int comp_wipe(void)
+{
+	int rc = se_acl16_wipe(&g_se1);
+	if (rc != 0)
+		return SE_ERR_INTERNAL;
+	rc = se_acl16_wipe(&g_se2);
+	if (rc != 0)
+		return SE_ERR_INTERNAL;
+	g_pin_set = false;
+	return SE_OK;
+}
+
 static int comp_policy_authorize(uint32_t policy_id, uint64_t amount)
 {
 	return se_acl16_policy_authorize(&g_se2, policy_id, amount);
@@ -108,6 +128,8 @@ static const se_driver_t composite_driver = {
 	.sign_digest = comp_sign_digest,
 	.get_xpub = comp_get_xpub,
 	.verify_pin = comp_verify_pin,
+	.set_pin = comp_set_pin,
+	.wipe = comp_wipe,
 	.policy_authorize = comp_policy_authorize,
 	.monotonic_read = comp_monotonic_read,
 	.monotonic_increment = comp_monotonic_increment,

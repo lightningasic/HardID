@@ -16,6 +16,7 @@
 
 #include "display.h"
 #include "font7.h"
+#include "bip39.h"
 #include "pin.h"
 #include "secure_zero.h"
 #include "inter.h"
@@ -313,6 +314,142 @@ int kp_capture_alpha(const char *title, char *out, int max)
 				kp_float_box(' ');
 				for (int i = 0; i < n; i++) kp_paint_cell(&cells[i], 0);
 			}
+		}
+		vTaskDelay(pdMS_TO_TICKS(8));
+	}
+}
+
+/* ------------------------------------------------------------------ *
+ * Word-by-word mnemonic recovery.
+ *
+ * Each BIP39 word is uniquely identified by its first 4 letters (or, for a
+ * short terminal word, the whole word). The user swipes the letters of a
+ * prefix; as soon as it is unambiguous the keypad resolves it to the full
+ * word, inserts it into the phrase and advances. DEL removes the last letter
+ * (or the last finished word when the current word is empty); the action key
+ * (OK) finishes the phrase.
+ * ------------------------------------------------------------------ */
+
+#define WORD_BUF_MAX 8   /* longest typed prefix we keep around */
+
+static void word_append(char *out, int *len, int max, int wi)
+{
+	const char *w = os_bip39_word_at(wi);
+	if (!w) return;
+	size_t wl = strlen(w);
+	if (*len + (int)wl + 2 > max) return;
+	if (*len > 0) out[(*len)++] = ' ';
+	memcpy(out + *len, w, wl);
+	*len += (int)wl;
+	out[*len] = '\0';
+}
+
+static void kp_draw_phrase_header(const char *title, const char *cur,
+                                  int ncur, int nwords)
+{
+	lcd_fill(C_BG);
+	if (title) lcd_line(2, 2, title, C_LBL, C_BG);
+	char line[40];
+	if (nwords > 0) {
+		snprintf(line, sizeof line, "%d word%s in", nwords,
+		         nwords == 1 ? "" : "s");
+		lcd_line(2, 14, line, C_DIM, C_BG);
+	} else {
+		lcd_line(2, 14, "type an abbreviation", C_DIM, C_BG);
+	}
+	if (ncur > 0)
+		lcd_line_big(2, 30, cur, C_FG, C_BG);
+	else
+		lcd_line(2, 30, "swipe letters to pick a word", C_DIM, C_BG);
+}
+
+static void kp_float_preview(int ch, const char *cur, int ncur)
+{
+	lcd_rect(PREV_X0, PREV_Y0, PREV_X1, PREV_Y1, C_BG);
+	if (ch > 0 && ch != KEY_SPACE) {
+		char s[2] = { (char)ch, '\0' };
+		int scale = 3;
+		int tw = F8_W * scale, th = F8_H * scale;
+		int cx = PREV_X0 + ((PREV_X1 - PREV_X0) - tw) / 2;
+		int cy = PREV_Y0 + ((PREV_Y1 - PREV_Y0) - th) / 2;
+		lcd_gl8x16(cx, cy, s[0], C_FG, C_BG, scale);
+	} else if (ncur > 0) {
+		char s[5];
+		int n = ncur < 4 ? ncur : 4;
+		for (int i = 0; i < n; i++) s[i] = cur[i];
+		s[n] = '\0';
+		lcd_line_big(PREV_X0 + 4, PREV_Y0 +
+		             ((PREV_Y1 - PREV_Y0) - FONT_CHAR_H * 2) / 2,
+		             s, C_FG, C_BG);
+	}
+}
+
+int kp_capture_phrase(const char *title, char *out, int max)
+{
+	s_mode = 1;
+	kp_cell cells[40];
+	int n = kp_build(cells, 40);
+
+	char cur[WORD_BUF_MAX + 1];
+	int ncur = 0;
+	cur[0] = '\0';
+	int outlen = 0;
+	int nwords = 0;
+	out[0] = '\0';
+
+	lcd_fill(C_BG);
+	kp_draw_phrase_header(title, cur, ncur, 0);
+	kp_float_preview(KEY_SPACE, cur, ncur);
+	for (int i = 0; i < n; i++) kp_paint_cell(&cells[i], 0);
+
+	int hover = -1;
+	bool down = false;
+	for (;;) {
+		int cx, cy;
+		bool pressed = ui_touch_now(&cx, &cy);
+		if (pressed) {
+			down = true;
+			int h = kp_hit(cells, n, cx, cy);
+			if (h != hover) {
+				if (hover >= 0) kp_paint_cell(&cells[hover], 0);
+				hover = h;
+				if (hover >= 0) {
+					kp_paint_cell(&cells[hover], 1);
+					kp_float_preview(cells[hover].kind, cur, ncur);
+				}
+			}
+		} else if (down) {
+			down = false;
+			if (hover >= 0) {
+				int kind = cells[hover].kind;
+				kp_paint_cell(&cells[hover], 0);
+				hover = -1;
+				if (kind == KEY_BACK) {
+					if (ncur > 0)
+						cur[--ncur] = '\0';
+				} else if (kind == KEY_ENTER) {
+					out[outlen] = '\0';
+					return (outlen > 0) ? 0 : -1;
+				} else if (kind >= 0 && kind != KEY_SPACE) {
+					if (ncur < WORD_BUF_MAX) {
+						cur[ncur++] = (char)kind;
+						cur[ncur] = '\0';
+					}
+				}
+			}
+			/* resolve an unambiguous prefix -> committed word */
+			if (ncur >= 1 && ncur <= 4) {
+				int wi = os_bip39_word_try_commit(cur, ncur);
+				if (wi >= 0) {
+					word_append(out, &outlen, max, wi);
+					nwords++;
+					cur[0] = '\0';
+					ncur = 0;
+				}
+			}
+			kp_draw_phrase_header(title, cur, ncur, nwords);
+			kp_float_preview(KEY_SPACE, cur, ncur);
+			for (int i = 0; i < n; i++) kp_paint_cell(&cells[i], 0);
 		}
 		vTaskDelay(pdMS_TO_TICKS(8));
 	}

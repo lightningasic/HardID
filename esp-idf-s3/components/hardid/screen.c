@@ -150,15 +150,15 @@ void screen_run_recover(void)
 		return;
 	}
 
-	/* Masked mnemonic entry. The on-screen keypad emits A-Z and spaces;
-	 * BIP39 words are lowercase, so the phrase is lowercased before use. */
+	/* Word-by-word mnemonic entry. Each BIP39 word is uniquely identified by
+	 * its first 4 letters, so the user swipes a short prefix and the keypad
+	 * auto-resolves it to the full lowercase word. The returned phrase is
+	 * already lowercase BIP39 words separated by spaces. */
 	char mnemonic[OS_BIP39_MNEMONIC_MAX];
-	if (kp_capture("RECOVER PHRASE", mnemonic, (int)sizeof(mnemonic), 0) != 0) {
+	if (kp_capture_phrase("RECOVER PHRASE", mnemonic, (int)sizeof(mnemonic)) != 0) {
 		lcd_text_wrap(2, 100, "cancelled", C_FG, C_BG);
 		return;
 	}
-	for (size_t i = 0; mnemonic[i]; i++)
-		mnemonic[i] = (char)tolower((unsigned char)mnemonic[i]);
 
 	/* Validate checksum + recover the original entropy (the seed). */
 	uint8_t seed32[OS_SEED_LEN];

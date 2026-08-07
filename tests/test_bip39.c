@@ -80,11 +80,71 @@ int main(void)
 		printf("FAIL t5 bad checksum accepted\n"); return 1; }
 	printf("PASS t5 bad checksum rejected\n");
 
-	/* Invalid word rejected */
+/* Invalid word rejected */
 	if (os_bip39_mnemonic_to_entropy("notaword abandon abandon abandon abandon abandon "
 		"abandon abandon abandon abandon abandon about", rec, sizeof rec) != 0) {
 		printf("FAIL t6 bad word accepted\n"); return 1; }
 	printf("PASS t6 invalid word rejected\n");
+
+	/* Prefix resolution: "aban" -> "abandon" (unique 4-char prefix) */
+	int wi = os_bip39_word_resolve_prefix("aban", 4);
+	if (wi < 0 || strcmp(os_bip39_word_at(wi), "abandon") != 0) {
+		printf("FAIL t7 resolve aban wi=%d\n", wi); return 1; }
+	printf("PASS t7 prefix aban -> abandon\n");
+
+	/* Short word via whole-word prefix: "add" must resolve to "add" (word is
+	 * 3 letters; it is a prefix of "addict"/"address" so 4-char match differs) */
+	wi = os_bip39_word_resolve_prefix("add", 3);
+	if (wi < 0 || strcmp(os_bip39_word_at(wi), "add") != 0) {
+		printf("FAIL t8 prefix add(3) wi=%d\n", wi); return 1; }
+	printf("PASS t8 short word add resolves to itself\n");
+
+	/* A 3-letter prefix must NOT match a longer word that merely starts with
+	 * it: "add" typed at length 3 must not yield "address". */
+	if (os_bip39_word_resolve_prefix("addr", 4) < 0 ||
+	    strcmp(os_bip39_word_at(os_bip39_word_resolve_prefix("addr", 4)), "address") != 0) {
+		printf("FAIL t9 addr -> address\n"); return 1; }
+	printf("PASS t9 addr -> address\n");
+
+	/* Unique prefix resolves: "abso" -> "absorb" */
+	wi = os_bip39_word_resolve_prefix("abso", 4);
+	if (wi < 0 || strcmp(os_bip39_word_at(wi), "absorb") != 0) {
+		printf("FAIL t10 abso wi=%d\n", wi); return 1; }
+	printf("PASS t10 abso -> absorb\n");
+
+	/* Non-prefix returns -1 */
+	if (os_bip39_word_resolve_prefix("zzzz", 4) != -1) {
+		printf("FAIL t11 zzzz must not resolve\n"); return 1; }
+	printf("PASS t11 non-word prefix rejected\n");
+
+	/* Auto-commit (try_commit): 4-char prefix commits uniquely ("aban") */
+	wi = os_bip39_word_try_commit("aban", 4);
+	if (wi < 0 || strcmp(os_bip39_word_at(wi), "abandon") != 0) {
+		printf("FAIL t12 commit aban wi=%d\n", wi); return 1; }
+	printf("PASS t12 try_commit aban -> abandon\n");
+
+	/* Auto-commit: a 3-letter word with no longer word extending it commits
+	 * at 3 chars ("zoo" is terminal; there is no "zoo*" word). */
+	wi = os_bip39_word_try_commit("zoo", 3);
+	if (wi < 0 || strcmp(os_bip39_word_at(wi), "zoo") != 0) {
+		printf("FAIL t13 commit zoo(3) wi=%d\n", wi); return 1; }
+	printf("PASS t13 try_commit zoo(3) -> zoo\n");
+
+	/* Auto-commit must NOT fire for a short word that can be extended:
+	 * "add" is a word but "addict"/"address" start with it, so 3 chars
+	 * stays open until the 4th disambiguates. */
+	if (os_bip39_word_try_commit("add", 3) != -1) {
+		printf("FAIL t14 commit add(3) must be ambiguous\n"); return 1; }
+	wi = os_bip39_word_try_commit("addi", 4);
+	if (wi < 0 || strcmp(os_bip39_word_at(wi), "addict") != 0) {
+		printf("FAIL t14 commit addi wi=%d\n", wi); return 1; }
+	printf("PASS t14 add stays open; addi -> addict\n");
+
+	/* Auto-commit returns -1 for a non-word prefix */
+	if (os_bip39_word_try_commit("zzz", 3) != -1 &&
+	    os_bip39_word_try_commit("zzzz", 4) != -1) {
+		printf("FAIL t15 zzz must not commit\n"); return 1; }
+	printf("PASS t15 non-word prefix not committed\n");
 
 	(void)hbuf;
 	printf("\nALL BIP39 TESTS PASSED\n");

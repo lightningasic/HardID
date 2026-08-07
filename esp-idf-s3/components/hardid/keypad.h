@@ -19,8 +19,25 @@ extern "C" {
 #endif
 
 /* Capture a string via the keypad. Returns 0 on OK, -1 on cancel/timeout.
- * If numeric_only, non-digit keys are ignored. */
-int kp_capture(const char *title, char *out, int max, int numeric_only);
+ * If numeric_only, non-digit keys are ignored. If mask, the entered text is
+ * echoed as '*' (used for PINs); otherwise it is shown in plain text (e.g.
+ * an on-screen recovery phrase the user must verify). */
+int kp_capture(const char *title, char *out, int max, int numeric_only,
+               int mask);
+
+/* Swipe-to-select input for alphabetic entry (recovery phrase): the finger
+ * slides over the letter grid, the hovered cell is highlighted and its
+ * character is shown enlarged in a floating preview box; releasing commits
+ * it. Returns 0 on OK, -1 on cancel/timeout. */
+int kp_capture_alpha(const char *title, char *out, int max);
+
+/* Word-by-word mnemonic recovery entry. The user swipes the letters of a
+ * word's unique prefix (first 4 letters, or the whole word when shorter and
+ * terminal); as soon as the prefix is unambiguous the full word is resolved
+ * from the BIP39 list, inserted into the phrase and the keypad advances.
+ * Returns 0 with the space-separated lowercase phrase in out on OK, -1 on
+ * cancel/timeout. */
+int kp_capture_phrase(const char *title, char *out, int max);
 
 /* Confirmation dialog (clears the screen, shows msg). True if "Confirm". */
 bool ui_confirm(const char *msg);

@@ -41,6 +41,19 @@ void os_bip39_mnemonic_to_seed(const char *mnemonic, const char *passphrase,
 /* Look up a word in the standard list; returns index or -1. */
 int os_bip39_word_index(const char *word);
 
+/* Resolve a typed prefix to a unique word index. See bip39.c for the exact
+ * matching rules. Returns the unique index (0..2047) or -1 if none/ambiguous. */
+int os_bip39_word_resolve_prefix(const char *prefix, size_t n);
+
+/* Try to auto-commit a typed prefix: returns the word index only when the
+ * prefix is a complete word that cannot be extended into another valid word
+ * (4-char prefixes are always unambiguous; shorter prefixes must match an
+ * actual word with no longer word sharing it). Returns -1 otherwise. */
+int os_bip39_word_try_commit(const char *prefix, size_t n);
+
+/* Pointer to the word at index (0..2047), or NULL on out-of-range. */
+const char *os_bip39_word_at(int index);
+
 #ifdef __cplusplus
 }
 #endif

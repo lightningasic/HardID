@@ -20,6 +20,85 @@ int os_bip39_word_index(const char *word)
 	return -1;
 }
 
+/* Resolve a partial word the user has typed against the wordlist.
+ *
+ * The BIP39 English list is free of 4-char-prefix collisions: every word is
+ * uniquely identified by its first 4 letters (or by the whole word when the
+ * word is shorter than 4 letters). So to enter a seed word on a tiny keyboard
+ * the user only needs to type its unique prefix.
+ *
+ * Rules applied here:
+ *   - 4 letters typed matches every word with that 4-letter prefix.
+ *   - fewer than 4 letters matches only words whose full length equals the
+ *     typed length (i.e. short words like "add"), never a longer word that
+ *     merely begins with those letters.
+ * Returns the unique word index (0..2047), or -1 if none or ambiguous. */
+int os_bip39_word_resolve_prefix(const char *prefix, size_t n)
+{
+	int match = -1;
+	if (n < 1 || n > 4)
+		return -1;
+	for (int i = 0; i < 2048; i++) {
+		const char *w = os_bip39_wordlist[i];
+		size_t wl = strlen(w);
+		if (wl < n)
+			continue;                 /* typed more than the word has */
+		if (strncmp(w, prefix, n) != 0)
+			continue;                 /* prefix mismatch */
+		if (n != 4 && wl != n)
+			continue;                 /* short prefix: word must be exactly n */
+		if (match >= 0)
+			return -1;                /* ambiguous: two words share prefix */
+		match = i;
+	}
+	return match;
+}
+
+/* Try to auto-commit a typed prefix to a single word.
+ *  - 4-char prefix: the BIP39 list is constructed so every word is uniquely
+ *    identified by its first 4 letters, so the (usually only) word starting
+ *    with the prefix is committed.
+ *  - shorter prefix (1..3 chars): commit only when the prefix equals a real
+ *    word AND no longer word starts with it — e.g. "add" is left open so the
+ *    user can continue to "addict"; "zoo" (no "zoo*") commits immediately. */
+int os_bip39_word_try_commit(const char *prefix, size_t n)
+{
+	int exact = -1;
+	if (n < 1 || n > 4)
+		return -1;
+	if (n == 4) {
+		int match = -1;
+		for (int i = 0; i < 2048; i++) {
+			if (strncmp(os_bip39_wordlist[i], prefix, 4) == 0) {
+				if (match >= 0) return -1; /* not unique */
+				match = i;
+			}
+		}
+		return match;
+	}
+	for (int i = 0; i < 2048; i++) {
+		const char *w = os_bip39_wordlist[i];
+		size_t wl = strlen(w);
+		if (strncmp(w, prefix, n) != 0)
+			continue;
+		if (wl == n) {
+			if (exact >= 0)
+				return -1;   /* two words equal the prefix */
+			exact = i;
+		} else {
+			return -1;         /* still extendable: not complete yet */
+		}
+	}
+	return exact;
+}
+
+const char *os_bip39_word_at(int index)
+{
+	if (index < 0 || index >= 2048)
+		return NULL;
+	return os_bip39_wordlist[index];
+}
+
 int os_bip39_entropy_to_mnemonic(const uint8_t *entropy, size_t elen,
                                  char *mnemonic, size_t mmax)
 {

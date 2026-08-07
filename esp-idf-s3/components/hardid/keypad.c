@@ -362,8 +362,10 @@ static void kp_draw_phrase_header(const char *title, int nwords)
 	}
 }
 
-/* Floating preview: hovered letter (large), or the current typed prefix. */
-static void kp_float_preview(int ch, const char *cur, int ncur)
+/* Floating preview: hovered letter (large), current typed prefix, or the
+ * last word resolved from a prefix (shown as confirmation until the user
+ * starts the next word). */
+static void kp_float_preview(int ch, const char *cur, int ncur, int prev_wi)
 {
 	lcd_rect(PREV_X0, PREV_Y0, PREV_X1, PREV_Y1, C_BG);
 	if (ch > 0 && ch != KEY_SPACE) {           /* hovered key */
@@ -381,6 +383,10 @@ static void kp_float_preview(int ch, const char *cur, int ncur)
 		lcd_line_big(PREV_X0 + 4, PREV_Y0 +
 		             ((PREV_Y1 - PREV_Y0) - FONT_CHAR_H * 2) / 2,
 		             s, C_FG, C_BG);
+	} else if (prev_wi >= 0) {       /* resolved word confirmation */
+		lcd_line_big(PREV_X0 + 4, PREV_Y0 +
+		             ((PREV_Y1 - PREV_Y0) - FONT_CHAR_H * 2) / 2,
+		             os_bip39_word_at(prev_wi), C_FG, C_BG);
 	}
 }
 
@@ -393,13 +399,14 @@ int kp_capture_phrase(const char *title, char *out, int max)
 	char cur[WORD_BUF_MAX + 1];
 	int ncur = 0;
 	cur[0] = '\0';
+	int prev_wi = -1;              /* last resolved word, shown as confirmation */
 	int outlen = 0;
 	int nwords = 0;
 	out[0] = '\0';
 
 	lcd_fill(C_BG);
 	kp_draw_phrase_header(title, 0);
-	kp_float_preview(KEY_SPACE, cur, ncur);
+	kp_float_preview(KEY_SPACE, cur, ncur, prev_wi);
 	for (int i = 0; i < n; i++) kp_paint_cell(&cells[i], 0);
 
 	int hover = -1;
@@ -415,7 +422,7 @@ int kp_capture_phrase(const char *title, char *out, int max)
 				hover = h;
 				if (hover >= 0) {
 					kp_paint_cell(&cells[hover], 1);
-					kp_float_preview(cells[hover].kind, cur, ncur);
+					kp_float_preview(cells[hover].kind, cur, ncur, prev_wi);
 				}
 			}
 		} else if (down) {
@@ -445,6 +452,7 @@ int kp_capture_phrase(const char *title, char *out, int max)
 					if (wi >= 0) {
 						word_append(out, &outlen, max, wi);
 						nwords++;
+						prev_wi = wi;
 						cur[0] = '\0';
 						ncur = 0;
 					}
@@ -460,6 +468,7 @@ int kp_capture_phrase(const char *title, char *out, int max)
 							c = (char)(c - 'A' + 'a');
 						cur[ncur++] = c;
 						cur[ncur] = '\0';
+						prev_wi = -1;    /* start of a new prefix */
 					}
 				}
 			}
@@ -469,12 +478,13 @@ int kp_capture_phrase(const char *title, char *out, int max)
 				if (wi >= 0) {
 					word_append(out, &outlen, max, wi);
 					nwords++;
+					prev_wi = wi;
 					cur[0] = '\0';
 					ncur = 0;
 				}
 			}
 			kp_draw_phrase_header(title, nwords);
-			kp_float_preview(KEY_SPACE, cur, ncur);
+			kp_float_preview(KEY_SPACE, cur, ncur, prev_wi);
 			for (int i = 0; i < n; i++) kp_paint_cell(&cells[i], 0);
 		}
 		vTaskDelay(pdMS_TO_TICKS(8));

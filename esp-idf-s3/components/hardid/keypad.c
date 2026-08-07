@@ -11,7 +11,11 @@
 #include <string.h>
 #include <stdio.h>
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
 #include "display.h"
+#include "font7.h"
 #include "pin.h"
 #include "secure_zero.h"
 #include "inter.h"
@@ -135,22 +139,27 @@ static const char *kp_label(int kind)
 	}
 }
 
-static void kp_draw_header(const char *title, const char *echo, int echo_len)
+static void kp_draw_header(const char *title, const char *echo, int echo_len,
+                           int mask)
 {
 	lcd_fill(C_BG);
 	if (title) lcd_line(2, 2, title, C_LBL, C_BG);
 	if (echo) {
 		char line[40];
-		int n = echo_len;
-		for (int i = 0; i < n && i < 34; i++) line[i] = '*';
-		line[(n > 34) ? 34 : n] = '\0';
-		lcd_line(2, 16, line, C_FG, C_BG);
+		int n = (echo_len > 20) ? 20 : echo_len;
+		for (int i = 0; i < n; i++) line[i] = mask ? '*' : echo[i];
+		line[n] = '\0';
+		if (mask)
+			lcd_line(2, 16, line, C_FG, C_BG);
+		else
+			lcd_line_big(2, 14, line, C_FG, C_BG);
 	}
 }
 
-static void kp_draw(const char *title, const char *echo, int echo_len)
+static void kp_draw(const char *title, const char *echo, int echo_len,
+                    int mask)
 {
-	kp_draw_header(title, echo, echo_len);
+	kp_draw_header(title, echo, echo_len, mask);
 	kp_cell cells[40];
 	int n = kp_build(cells, 40);
 	for (int i = 0; i < n; i++) {
@@ -163,12 +172,13 @@ static void kp_draw(const char *title, const char *echo, int echo_len)
 	}
 }
 
-int kp_capture(const char *title, char *out, int max, int numeric_only)
+int kp_capture(const char *title, char *out, int max, int numeric_only,
+               int mask)
 {
 	int len = 0;
 	out[0] = '\0';
 	for (;;) {
-		kp_draw(title, out, len);
+		kp_draw(title, out, len, mask);
 		int px, py;
 		ui_wait_press(&px, &py);
 		kp_cell cells[40];
@@ -200,6 +210,111 @@ int kp_capture(const char *title, char *out, int max, int numeric_only)
 		if (numeric_only && !(kind >= '0' && kind <= '9')) continue;
 		out[len++] = (char)kind;
 		out[len] = '\0';
+	}
+}
+
+/* ------------------------------------------------------------------ *
+ * Alpha swipe-to-select (recovery phrase entry).
+ *
+ * The finger drags over the letters; the hovered cell is highlighted and
+ * a big floating preview of the candidate appears in the box between the
+ * title and the grid. Lifting commits the hovered character (or triggers
+ * the hovered action key). Brightened box = current echo is up top.
+ * ------------------------------------------------------------------ */
+
+#define PREV_X0 78
+#define PREV_X1 162
+#define PREV_Y0 34
+#define PREV_Y1 112
+
+static void kp_paint_cell(const kp_cell *c, int highlight)
+{
+	const char *lbl = kp_label(c->kind);
+	int is_action = (c->kind < 0);
+	uint16_t bg = is_action ? 0x0842 : C_BTN;
+	if (c->kind == KEY_ENTER) bg = 0x03EF;
+	if (highlight) bg = C_FG;   /* bright box under the finger */
+	lcd_rect_text(c->x0, c->y0, c->x1, c->y1, lbl, C_FG, bg);
+}
+
+static void kp_float_box(int ch)
+{
+	/* clear the preview region; no colored outline block */
+	lcd_rect(PREV_X0, PREV_Y0, PREV_X1, PREV_Y1, C_BG);
+	if (ch < 0 || ch == KEY_SPACE) return;
+	/* high-res 8x16 glyph at scale 3 -> 24x48, centered in 84x78 box */
+	int scale = 3;
+	int tw = F8_W * scale, th = F8_H * scale;
+	int cx = PREV_X0 + ((PREV_X1 - PREV_X0) - tw) / 2;
+	int cy = PREV_Y0 + ((PREV_Y1 - PREV_Y0) - th) / 2;
+	lcd_gl8x16(cx, cy, (char)ch, C_FG, C_BG, scale);
+}
+
+static int kp_hit(kp_cell *cells, int n, int x, int y)
+{
+	for (int i = 0; i < n; i++)
+		if (ui_pt_in(x, y, cells[i].x0, cells[i].y0,
+		             cells[i].x1, cells[i].y1)) return i;
+	return -1;
+}
+
+int kp_capture_alpha(const char *title, char *out, int max)
+{
+	s_mode = 1;   /* force the alphabetic keypad layout */
+	kp_cell cells[40];
+	int n = kp_build(cells, 40);
+	int len = 0;
+	out[0] = '\0';
+
+	/* static fg/bg colors the grid uses */
+	lcd_fill(C_BG);
+	kp_draw_header(title, out, 0, 0);
+	kp_float_box(' ');
+	for (int i = 0; i < n; i++) kp_paint_cell(&cells[i], 0);
+
+	int hover = -1;
+	bool down = false;
+	for (;;) {
+		int cx, cy;
+		bool pressed = ui_touch_now(&cx, &cy);
+		if (pressed) {
+			down = true;
+			int h = kp_hit(cells, n, cx, cy);
+			if (h != hover) {
+				if (hover >= 0) kp_paint_cell(&cells[hover], 0);
+				hover = h;
+				if (hover >= 0) {
+					kp_paint_cell(&cells[hover], 1);
+					if (cells[hover].kind >= 0 && cells[hover].kind != KEY_SPACE)
+						kp_float_box(cells[hover].kind);
+					else
+						kp_float_box(KEY_SPACE);
+				}
+			}
+		} else if (down) {
+			down = false;
+			if (hover >= 0) {
+				int kind = cells[hover].kind;
+				kp_paint_cell(&cells[hover], 0);
+				hover = -1;
+				if (kind == KEY_ENTER) { out[len] = '\0'; return 0; }
+				if (kind == KEY_BACK) {
+					if (len > 0) len--;
+					out[len] = '\0';
+				} else if (kind == KEY_SPACE) {
+					if (len < max - 1) out[len++] = ' ';
+					out[len] = '\0';
+				} else if (kind >= 0) {
+					if (len >= max - 1) continue;
+					out[len++] = (char)kind;
+					out[len] = '\0';
+				}
+				kp_draw_header(title, out, len, 0);
+				kp_float_box(' ');
+				for (int i = 0; i < n; i++) kp_paint_cell(&cells[i], 0);
+			}
+		}
+		vTaskDelay(pdMS_TO_TICKS(8));
 	}
 }
 
@@ -245,12 +360,12 @@ int ui_set_pin(char *out, int out_max)
 {
 	char p1[OS_PIN_MAX_LEN + 1], p2[OS_PIN_MAX_LEN + 1];
 	lcd_fill(C_BG);
-	if (kp_capture("SET PIN  (numeric)", p1, OS_PIN_MAX_LEN + 1, 1) != 0) {
+	if (kp_capture("SET PIN  (numeric)", p1, OS_PIN_MAX_LEN + 1, 1, 1) != 0) {
 		os_secure_bzero(p1, sizeof(p1));
 		return -1;
 	}
 	lcd_fill(C_BG);
-	if (kp_capture("CONFIRM PIN", p2, OS_PIN_MAX_LEN + 1, 1) != 0) {
+	if (kp_capture("CONFIRM PIN", p2, OS_PIN_MAX_LEN + 1, 1, 1) != 0) {
 		os_secure_bzero(p1, sizeof(p1));
 		os_secure_bzero(p2, sizeof(p2));
 		return -1;
@@ -274,7 +389,7 @@ int ui_set_pin(char *out, int out_max)
 int ui_enter_pin(char *out, int out_max)
 {
 	char p[OS_PIN_MAX_LEN + 1];
-	if (kp_capture("ENTER PIN", p, OS_PIN_MAX_LEN + 1, 1) != 0)
+	if (kp_capture("ENTER PIN", p, OS_PIN_MAX_LEN + 1, 1, 1) != 0)
 		return -1;
 	if (out && out_max > (int)strlen(p)) {
 		strcpy(out, p);

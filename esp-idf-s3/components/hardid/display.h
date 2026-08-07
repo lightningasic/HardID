@@ -9,6 +9,8 @@
 
 #include <stdint.h>
 
+#include "font8x16.h"
+
 #define C_BG   0x0000
 #define C_FG   0xFFFF
 #define C_LBL  0xE73C
@@ -30,6 +32,21 @@ void lcd_fill(uint16_t color);
 
 /* Draw a single line of text at (x,y) in fg on bg. Clips to panel. */
 void lcd_line(int x, int y, const char *s, uint16_t fg, uint16_t bg);
+
+/* Draw a line of text at 2x scale (each glyph pixel becomes 2x2). Clips to
+ * panel. Used for entries the user must read (e.g. recovery phrase). */
+void lcd_line_big(int x, int y, const char *s, uint16_t fg, uint16_t bg);
+
+/* Draw a line of text at integer `scale` (each glyph pixel becomes a
+ * scale x scale block). Clips to the panel. Serves the floating swipe
+ * preview. */
+void lcd_line_scaled(int x, int y, const char *s, uint16_t fg, uint16_t bg,
+                     int scale);
+
+/* Draw a single 8x16 glyph (high-res, row-major) at integer `scale`
+ * centered/top-left at (x,y) in fg on bg. Clips to the panel. Serves the
+ * floating swipe preview, which upscales the 5x7 font with visible steps. */
+void lcd_gl8x16(int x, int y, char ch, uint16_t fg, uint16_t bg, int scale);
 
 /* Draw text with simple word-wrap within the panel width, starting at
  * (x,y). Returns the y just below the last drawn line. */

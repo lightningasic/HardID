@@ -35,6 +35,7 @@
 
 #include "boot.h"
 #include "font7.h"
+#include "font8x16.h"
 
 #define LCD_H_RES 240
 #define LCD_V_RES 320
@@ -162,6 +163,78 @@ void lcd_line(int x, int y, const char *s, uint16_t fg, uint16_t bg)
 }
 
 #define LINE_H (FONT_CHAR_H + 2)
+
+/* Render an ASCII string at integer `scale`: each glyph pixel becomes a
+ * scale x scale block. Glyphs are rasterized one display row at a time
+ * (each row is FONT_CHAR_W*scale wide and 1 px tall) and committed with a
+ * single draw_bitmap per row. This matches what the panel driver expects
+ * for a filled rectangle and keeps the scratch buffer small, avoiding the
+ * ghosting/missing-corner artifacts of wide per-column blits. */
+void lcd_line_scaled(int x, int y, const char *s, uint16_t fg, uint16_t bg,
+                     int scale)
+{
+	if (!s || scale < 1) return;
+	size_t len = strlen(s);
+	int gw = FONT_CHAR_W * scale;          /* glyph width in px */
+	int adv = (FONT_CHAR_W + 1) * scale;   /* advance per glyph  */
+	uint16_t row[6 * 6];                   /* max glyph width (scale 6) */
+	for (size_t ci = 0; ci < len; ci++) {
+		const uint8_t *gl = font7_glyph(s[ci]);
+		int xx = x + (int)ci * adv;
+		int x0 = (xx < 0) ? 0 : xx;
+		int x1 = xx + gw;
+		if (x1 > LCD_H_RES) x1 = LCD_H_RES;
+		if (x0 >= x1) continue;
+		for (int r = 0; r < FONT_CHAR_H; r++) {
+			for (int rr = 0; rr < scale; rr++) {
+				/* compose one display row across the glyph */
+				int n = 0;
+				for (int c = 0; c < FONT_CHAR_W; c++) {
+					uint16_t pix = (gl[c] & (1u << r)) ? fg : bg;
+					for (int cc = 0; cc < scale; cc++) row[n++] = pix;
+				}
+				int yy = y + r * scale + rr;
+				if (yy < 0 || yy >= LCD_V_RES) continue;
+				esp_lcd_panel_draw_bitmap(s_panel, x0, yy, x1, yy + 1,
+				                          &row[x0 - xx]);
+			}
+		}
+	}
+}
+
+void lcd_line_big(int x, int y, const char *s, uint16_t fg, uint16_t bg)
+{
+	lcd_line_scaled(x, y, s, fg, bg, 2);
+}
+
+/* Rasterize one 8x16 glyph (row-major: byte r = row r, bit 7 = leftmost
+ * column) as a scale x scale block per font pixel, one display row at a
+ * time. Single draw_bitmap per row keeps the scratch buffer small. */
+void lcd_gl8x16(int x, int y, char ch, uint16_t fg, uint16_t bg, int scale)
+{
+	if (scale < 1) return;
+	const uint8_t *gl = font8x16_glyph(ch);
+	int gw = F8_W * scale;
+	uint16_t row[F8_W * 8];   /* max single row width */
+	int x0 = (x < 0) ? 0 : x;
+	int x1 = x + gw;
+	if (x1 > LCD_H_RES) x1 = LCD_H_RES;
+	if (x0 >= x1) return;
+	for (int r = 0; r < F8_H; r++) {
+		uint8_t bits = gl[r];
+		for (int rr = 0; rr < scale; rr++) {
+			int n = 0;
+			for (int c = 0; c < F8_W; c++) {
+				uint16_t pix = (bits & (1u << (7 - c))) ? fg : bg;
+				for (int cc = 0; cc < scale; cc++) row[n++] = pix;
+			}
+			int yy = y + r * scale + rr;
+			if (yy < 0 || yy >= LCD_V_RES) continue;
+			esp_lcd_panel_draw_bitmap(s_panel, x0, yy, x1, yy + 1,
+			                          &row[x0 - x]);
+		}
+	}
+}
 
 void lcd_rect(int x0, int y0, int x1, int y1, uint16_t color)
 {

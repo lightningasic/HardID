@@ -42,6 +42,7 @@ idf_component_register(
         ${HARDID_SE_SRCS}
         "secp256k1_s3.c"
         "font7.c"
+        "font8x16.c"
         "display.c"
         "touch.c"
         "inter.c"

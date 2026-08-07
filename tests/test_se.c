@@ -16,7 +16,7 @@ int main(void)
 	bool init = true;
 	se->is_initialized(&init);
 	if (init) { printf("FAIL t1 pre-init\n"); return 1; }
-	uint8_t seed[32]; memset(seed, 0x11, 32);
+	uint8_t seed[64]; memset(seed, 0x11, 64);
 	if (se->store_seed(seed) != SE_OK) { printf("FAIL t1 store\n"); return 1; }
 	if (se->store_seed(seed) != SE_ERR_STATE) { printf("FAIL t1 double-store\n"); return 1; }
 	se->is_initialized(&init);

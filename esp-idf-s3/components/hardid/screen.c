@@ -126,7 +126,7 @@ void screen_run_initialize(void)
 	se_mock_set_pin((const uint8_t *)pin, (size_t)pin_len);
 	os_secure_bzero(pin, sizeof(pin));
 
-	int rc = se->store_seed(seed32);
+	int rc = se->store_seed(seed64);
 	lcd_fill(C_BG);
 	if (rc != SE_OK) {
 		lcd_text_wrap(2, 10, "store seed failed", C_ERR, C_BG);
@@ -160,7 +160,8 @@ void screen_run_recover(void)
 		return;
 	}
 
-	/* Validate checksum + recover the original entropy (the seed). */
+	/* Validate checksum + recover the original entropy (used only to confirm
+	 * the mnemonic is well-formed; the provisioned key is the BIP39 seed). */
 	uint8_t seed32[OS_SEED_LEN];
 	memset(seed32, 0, sizeof seed32);
 	size_t elen = os_bip39_mnemonic_to_entropy(mnemonic, seed32, sizeof(seed32));
@@ -171,12 +172,12 @@ void screen_run_recover(void)
 		lcd_text_wrap(2, 10, "Invalid mnemonic.", C_ERR, C_BG);
 		return;
 	}
+	os_secure_bzero(seed32, sizeof(seed32));
 
 	lcd_fill(C_BG);
 	char pin[OS_PIN_MAX_LEN + 1];
 	int pin_len = ui_set_pin(pin, sizeof(pin));
 	if (pin_len < 0) {
-		os_secure_bzero(seed32, sizeof(seed32));
 		os_secure_bzero(mnemonic, sizeof(mnemonic));
 		lcd_text_wrap(2, 80, "PIN setup failed", C_ERR, C_BG);
 		return;
@@ -184,8 +185,27 @@ void screen_run_recover(void)
 	se_mock_set_pin((const uint8_t *)pin, (size_t)pin_len);
 	os_secure_bzero(pin, sizeof(pin));
 
-	int rc = se->store_seed(seed32);
-	os_secure_bzero(seed32, sizeof(seed32));
+	/* Optional BIP39 passphrase. An empty passphrase yields the plain seed;
+	 * a non-empty one yields a distinct key, so it must be re-entered on
+	 * repeat unlocks. Ask first so "skip" is a single tap, not typing. */
+	char passphrase[OS_BIP39_MNEMONIC_MAX];
+	passphrase[0] = '\0';
+	lcd_fill(C_BG);
+	lcd_text_wrap(2, 10, "Optional passphrase?", C_WARN, C_BG);
+	if (ui_confirm_overlay()) {
+		lcd_fill(C_BG);
+		kp_capture_alpha("PASSPHRASE (optional)", passphrase,
+		                 (int)sizeof(passphrase));
+	}
+
+	uint8_t seed64[OS_BIP39_SEED_LEN];
+	os_bip39_mnemonic_to_seed(mnemonic,
+	                          (passphrase[0] != '\0') ? passphrase : NULL,
+	                          seed64);
+	os_secure_bzero(passphrase, sizeof(passphrase));
+
+	int rc = se->store_seed(seed64);
+	os_secure_bzero(seed64, sizeof(seed64));
 	os_secure_bzero(mnemonic, sizeof(mnemonic));
 
 	lcd_fill(C_BG);

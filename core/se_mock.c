@@ -16,7 +16,7 @@
 
 /* ---- mock backend state (host tests / emulator only) ---- */
 static uint8_t  mock_seed_stored;
-static uint8_t  mock_seed[32];
+static uint8_t  mock_seed[64];
 static uint32_t mock_counter;
 static uint32_t mock_rng_seq;
 static uint8_t  mock_pin[8];
@@ -34,11 +34,11 @@ static int mock_get_random(uint8_t *buf, size_t len)
 	return SE_OK;
 }
 
-static int mock_store_seed(const uint8_t *seed32)
+static int mock_store_seed(const uint8_t *seed64)
 {
 	if (mock_seed_stored)
 		return SE_ERR_STATE;
-	memcpy(mock_seed, seed32, 32);
+	memcpy(mock_seed, seed64, 64);
 	mock_seed_stored = 1;
 	return SE_OK;
 }
@@ -63,7 +63,7 @@ static int mock_sign_digest(const uint32_t *path, size_t path_len,
 		return SE_ERR_AUTH;
 	(void)path; (void)path_len;
 	for (int i = 0; i < 64; i++)
-		sig64[i] = digest32[i % 32] ^ mock_seed[i % 32] ^ (uint8_t)i;
+		sig64[i] = digest32[i % 32] ^ mock_seed[i] ^ (uint8_t)i;
 	if (recid) *recid = 0;
 	return SE_OK;
 }
@@ -134,7 +134,7 @@ void se_mock_set_pin(const uint8_t *pin, size_t len)
 void se_mock_reset(void)
 {
 	mock_seed_stored = 0;
-	memset(mock_seed, 0, 32);
+	memset(mock_seed, 0, 64);
 	mock_counter = 0;
 	mock_rng_seq = 1;
 	mock_pin_len = 0;

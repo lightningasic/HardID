@@ -42,9 +42,12 @@ typedef struct se_driver {
 	int (*get_random)(uint8_t *buf, size_t len);
 
 	/* One-time seed provisioning. Fails SE_ERR_STATE if already set.
-	 * The seed is written to SE-internal secure storage; there is NO
-	 * read-back API by design. */
-	int (*store_seed)(const uint8_t *seed32);
+	 * `seed64` is the 64-byte BIP39 master seed
+	 * (PBKDF2-HMAC-SHA512(mnemonic, "mnemonic" + passphrase)), which is
+	 * what BIP32 derives keys from. The passphrase is therefore part of
+	 * the provisioned root of trust. The seed is written to SE-internal
+	 * secure storage; there is NO read-back API by design. */
+	int (*store_seed)(const uint8_t *seed64);
 
 	/* Returns true if a seed has been provisioned. */
 	int (*is_initialized)(bool *initialized);

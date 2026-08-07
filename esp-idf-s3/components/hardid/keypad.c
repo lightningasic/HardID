@@ -345,15 +345,27 @@ static void word_append(char *out, int *len, int max, int wi)
 	out[*len] = '\0';
 }
 
+/* True if `count` is a legal BIP39 mnemonic length (a mnemonic is 12, 15,
+ * 18, 21, or 24 words). */
+static bool kp_legal_word_count(int count)
+{
+	return count == 12 || count == 15 || count == 18 ||
+	       count == 21 || count == 24;
+}
+
 /* Draw the phrase header: title, word count, and a hint line. The current
  * prefix (and the hovered letter) live in the floating preview box, so we
- * keep the header to the two top lines (y<=30, above PREV_Y0=34). */
-static void kp_draw_phrase_header(const char *title, int nwords)
+ * keep the header to the two top lines (y<=30, above PREV_Y0=34). When
+ * `hint` is non-NULL it replaces the second line until the next redraw. */
+static void kp_draw_phrase_header(const char *title, int nwords,
+                                  const char *hint)
 {
 	lcd_fill(C_BG);
 	if (title) lcd_line(2, 2, title, C_LBL, C_BG);
 	char line[40];
-	if (nwords > 0) {
+	if (hint) {
+		lcd_line(2, 14, hint, C_ERR, C_BG);
+	} else if (nwords > 0) {
 		snprintf(line, sizeof line, "%d word%s in", nwords,
 		         nwords == 1 ? "" : "s");
 		lcd_line(2, 14, line, C_DIM, C_BG);
@@ -405,7 +417,7 @@ int kp_capture_phrase(const char *title, char *out, int max)
 	out[0] = '\0';
 
 	lcd_fill(C_BG);
-	kp_draw_phrase_header(title, 0);
+	kp_draw_phrase_header(title, 0, NULL);
 	kp_float_preview(KEY_SPACE, cur, ncur, prev_wi);
 	for (int i = 0; i < n; i++) kp_paint_cell(&cells[i], 0);
 
@@ -505,6 +517,16 @@ int kp_capture_phrase(const char *title, char *out, int max)
 						ncur = 0;
 					}
 				} else if (kind == KEY_ENTER) {
+					/* a BIP39 phrase must be 12/15/18/21/24 words; any
+					 * other count is still mid-entry, so prompt and stay */
+					if (!kp_legal_word_count(nwords)) {
+						kp_draw_phrase_header(
+							title, nwords,
+							"need 12/15/18/21/24 words");
+						for (int i = 0; i < n; i++)
+							kp_paint_cell(&cells[i], 0);
+						goto tick;
+					}
 					out[outlen] = '\0';
 					return (outlen > 0) ? 0 : -1;
 				} else if (kind >= 0) {
@@ -532,7 +554,7 @@ int kp_capture_phrase(const char *title, char *out, int max)
 				}
 			}
 			last_commit = xTaskGetTickCount();
-			kp_draw_phrase_header(title, nwords);
+			kp_draw_phrase_header(title, nwords, NULL);
 			kp_float_preview(KEY_SPACE, cur, ncur, prev_wi);
 			for (int i = 0; i < n; i++) kp_paint_cell(&cells[i], 0);
 		}

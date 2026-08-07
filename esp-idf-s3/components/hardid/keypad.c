@@ -413,7 +413,7 @@ int kp_capture_phrase(const char *title, char *out, int max)
 	bool down = false;
 	int settle = 0;              /* consecutive touch samples before a press */
 	int lost = 0;                /* consecutive misses before a release */
-	TickType_t last_commit = 0;  /* ghost-tap lockout */
+	TickType_t last_commit = 0;  /* ghost re-press lockout (short window) */
 
 	for (;;) {
 		int cx, cy;
@@ -426,8 +426,15 @@ int kp_capture_phrase(const char *title, char *out, int max)
 				int h = kp_hit(cells, n, cx, cy);
 				if (h >= 0) {
 					if (++settle >= 3) {
-						down = true;
 						settle = 0;
+						/* drop a press that starts within 60ms of the last
+						 * commit: the ghost "release -> immediate re-press"
+						 * lands milliseconds after the lift, while a real
+						 * next tap is deliberate and slower */
+						if (xTaskGetTickCount() - last_commit <
+						    pdMS_TO_TICKS(60))
+							continue;
+						down = true;
 						lost = 0;
 						hover = h;
 						kp_paint_cell(&cells[hover], 1);
@@ -460,12 +467,6 @@ int kp_capture_phrase(const char *title, char *out, int max)
 			settle = 0;
 			if (hover < 0)
 				goto tick;
-			/* ghost-tap lockout: ignore a release that follows the last
-			 * commit by less than 120ms — the CST816D re-reports the
-			 * same point as the finger lifts off a key */
-			if (xTaskGetTickCount() - last_commit < pdMS_TO_TICKS(120))
-				goto tick;
-			last_commit = xTaskGetTickCount();
 			{
 				int kind = cells[hover].kind;
 				kp_paint_cell(&cells[hover], 0);
@@ -522,8 +523,6 @@ int kp_capture_phrase(const char *title, char *out, int max)
 					ncur = 0;
 				}
 			}
-			if (xTaskGetTickCount() - last_commit < pdMS_TO_TICKS(120))
-				goto tick;
 			last_commit = xTaskGetTickCount();
 			kp_draw_phrase_header(title, nwords);
 			kp_float_preview(KEY_SPACE, cur, ncur, prev_wi);

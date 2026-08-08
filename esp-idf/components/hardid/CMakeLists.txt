@@ -41,6 +41,8 @@ idf_component_register(
         "${HARDID_ROOT}/core/pin.c"
         "${HARDID_ROOT}/core/policy.c"
         "${HARDID_ROOT}/core/multisig.c"
+        "${HARDID_ROOT}/core/app_registry.c"
+        "${HARDID_ROOT}/core/signsvc.c"
         "${HARDID_ROOT}/core/boot.c"
         "${HARDID_ROOT}/core/linkproto.c"
         "${HARDID_ROOT}/core/linksvc.c"

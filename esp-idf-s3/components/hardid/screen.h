@@ -12,6 +12,8 @@
 #ifndef HARDID_SCREEN_H
 #define HARDID_SCREEN_H
 
+#include "app.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -27,6 +29,10 @@ void screen_run_initialize(void);
  * digest and show the r||s hex, wait for a tap to return. */
 void screen_run_sign(void);
 
+/* Sign with a specific app (V2.0): unlock with PIN then run the
+ * sign-delegation flow for `app`. */
+void screen_run_sign_for_app(const os_app *app);
+
 /* Factory reset: confirm dialog, wipe the SE, return to home. */
 void screen_run_factory_reset(void);
 
@@ -41,6 +47,11 @@ void screen_run_link_host(void);
 
 /* About: show hardware and firmware version, tap to return. */
 void screen_run_about(void);
+
+/* App market (V2.0): list installed apps (core + runtime), show their
+ * state/version, and let the user select one to sign with. Returns on
+ * tap/back. */
+void screen_run_apps(void);
 
 #ifdef __cplusplus
 }

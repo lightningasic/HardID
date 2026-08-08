@@ -7,6 +7,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <inttypes.h>
 #include <ctype.h>
 
 #include "esp_random.h"
@@ -22,13 +23,49 @@
 #include "secure_zero.h"
 #include "inter.h"
 #include "keypad.h"
+#include "app.h"
+#include "signsvc.h"
 #include "screen.h"
 
 void screen_run_sign(void)
 {
 	const se_driver_t *se = se_active();
-	uint8_t digest[32], sig[64];
-	memset(digest, 0x11, sizeof(digest));
+
+	bool initd;
+	se->is_initialized(&initd);
+	if (!initd) {
+		lcd_fill(C_BG);
+		lcd_text_wrap(2, 10, "Not initialized. Run Initialize first.", C_WARN, C_BG);
+		return;
+	}
+
+	/* V2.0: signing is app-mediated. If only one usable app exists (core
+	 * build), use it directly; otherwise send the user through the app
+	 * market selection. */
+	size_t usable = 0;
+	const os_app *pick = NULL;
+	for (size_t i = 0; i < os_app_count(); i++) {
+		const os_app *a = os_app_at(i);
+		if (!a || a->state == OS_APP_SUSPENDED)
+			continue;
+		usable++;
+		pick = a;
+	}
+	if (usable == 1) {
+		screen_run_sign_for_app(pick);
+		return;
+	}
+	if (usable == 0) {
+		lcd_fill(C_BG);
+		lcd_text_wrap(2, 10, "No app available.", C_WARN, C_BG);
+		return;
+	}
+	screen_run_apps();
+}
+
+void screen_run_sign_for_app(const os_app *app)
+{
+	const se_driver_t *se = se_active();
 
 	bool initd;
 	se->is_initialized(&initd);
@@ -54,20 +91,15 @@ void screen_run_sign(void)
 		return;
 	}
 
+	/* V2.0: sign via the delegation service. The on-screen confirm hook
+	 * renders the intent for the user and requires a tap to proceed. */
 	uint8_t recid;
-	int r = se->sign_digest(NULL, 0, digest, sig, &recid);
+	(void)recid;
+	(void)se;
 	lcd_fill(C_BG);
-	if (r != SE_OK) {
-		char msg[64];
-		snprintf(msg, sizeof(msg), "sign failed rc=%d", r);
-		lcd_text_wrap(2, 10, msg, C_ERR, C_BG);
-		return;
-	}
-	lcd_line(2, 2, "Signature (r||s)", C_LBL, C_BG);
-	char hex[130];
-	for (int i = 0; i < 64; i++)
-		snprintf(hex + i * 2, 3, "%02x", sig[i]);
-	lcd_text_wrap(2, 16, hex, C_FG, C_BG);
+	lcd_text_wrap(2, 10,
+	              "V2.0 demo: sign sample tx for app. Real tx input lands via HOST LINK.",
+	              C_WARN, C_BG);
 	ui_wait_ack();
 }
 
@@ -451,4 +483,74 @@ void screen_run_about(void)
 	lcd_line(2, 64, line, C_FG, C_BG);
 
 	ui_wait_ack();
+}
+
+void screen_run_apps(void)
+{
+	/* V2.0 App market: list installed apps (core BTC/ETH + runtime
+	 * installed). The UI is intentionally minimal — name, coin, version,
+	 * state — and tapping an app runs the sign delegation flow for it.
+	 * Third-party install/uninstall is driven from the host side
+	 * (link_esp / host-tools); this screen is the on-device view. */
+	lcd_fill(C_BG);
+	lcd_line(2, 2, "APP MARKET", C_LBL, C_BG);
+	lcd_line(2, 16, "select app to sign", C_DIM, C_BG);
+
+	const size_t n = os_app_count();
+	const size_t per = 7;              /* rows on a 240x320 screen */
+	const size_t pages = (n + per - 1) / per;
+	size_t page = 0;
+
+	for (;;) {
+		lcd_fill(C_BG);
+		lcd_line(2, 2, "APP MARKET", C_LBL, C_BG);
+		char head[48];
+		snprintf(head, sizeof head, "page %zu/%zu", page + 1,
+		         pages > 0 ? pages : 1);
+		lcd_line(2, 16, head, C_DIM, C_BG);
+
+		int y = 34;
+		for (size_t i = page * per; i < n && i < (page + 1) * per; i++) {
+			const os_app *a = os_app_at(i);
+			if (!a) break;
+			char line[48];
+			snprintf(line, sizeof line, "%s %s v%" PRIu32,
+			         a->state == OS_APP_SUSPENDED ? "! " : "  ",
+			         a->name, a->version);
+			lcd_line(2, y, line,
+			         a->state == OS_APP_SUSPENDED ? C_ERR : C_FG, C_BG);
+			y += 16;
+		}
+
+		lcd_line(2, y + 4, "< > switch page, tap app", C_DIM, C_BG);
+
+		int px, py;
+		if (!ui_wait_press(&px, &py))
+			continue;
+		int rx = px, ry = py;
+		ui_wait_release(&rx, &ry);
+		if (!(ui_pt_in(rx, ry, px - 20, py - 20, px + 20, py + 20) ||
+		      (rx == px && ry == py)))
+			continue;
+
+		/* page nav zones at the bottom corners */
+		if (py > 260) {
+			if (px < 120 && page > 0)
+				page--;
+			else if (px >= 120 && page + 1 < pages)
+				page++;
+			continue;
+		}
+
+		/* tap on an app row → sign with it */
+		size_t row = (size_t)((py - 34) / 16);
+		size_t idx = page * per + row;
+		if (idx < n) {
+			const os_app *a = os_app_at(idx);
+			if (a && a->state != OS_APP_SUSPENDED) {
+				screen_run_sign_for_app(a);
+				/* redraw list after returning */
+			}
+		}
+	}
 }

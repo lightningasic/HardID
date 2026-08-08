@@ -165,8 +165,34 @@ int main(void)
 	if (os_signsvc_verify_intent("eth", tx, n, &it)) { printf("FAIL t9 verify tamper\n"); return 1; }
 	printf("PASS t9 intent verification\n");
 
+	/* 10 UNKNOWN-intent data_hash must be verified (anti-spoof) */
+	/* Build a tx with garbage calldata → UNKNOWN with data_hash set. */
+	uint8_t call[4] = { 0xab, 0xcd, 0xef, 0x01 };
+	uint8_t txu[2048];
+	size_t nu = build_legacy(txu, 20, 21000, to, 0, call, 4);
+	os_tx_intent iu;
+	if (os_clearsign_parse_evm(txu, nu, &iu) != 0) { printf("FAIL t10 parse\n"); return 1; }
+	if (iu.kind != OS_INTENT_UNKNOWN) { printf("FAIL t10 kind=%d\n", iu.kind); return 1; }
+	if (!os_signsvc_verify_intent("eth", txu, nu, &iu)) { printf("FAIL t10 verify ok\n"); return 1; }
+	iu.data_hash[0] ^= 0xff; /* tamper hash */
+	if (os_signsvc_verify_intent("eth", txu, nu, &iu)) { printf("FAIL t10 verify data_hash\n"); return 1; }
+	printf("PASS t10 unknown data_hash check\n");
+
+	/* 11 suspended app cannot be re-registered under same id */
+	os_app xrpp = { .app_id = "xrpl", .name = "XRPL", .coin_type = 144, .version = 1,
+	                .parse = eth->parse };
+	if (os_app_register(&xrpp) != 0) { printf("FAIL t11a register\n"); return 1; }
+	if (os_app_suspend("xrpl") != 0) { printf("FAIL t11b suspend\n"); return 1; }
+	os_app xrpp2 = { .app_id = "xrpl", .name = "XRPL2", .coin_type = 145, .version = 1,
+	                 .parse = eth->parse };
+	if (os_app_register(&xrpp2) != -1) { printf("FAIL t11c re-register suspended\n"); return 1; }
+	/* but uninstall first then re-register is allowed */
+	if (os_app_uninstall("xrpl") != 0) { printf("FAIL t11d uninstall\n"); return 1; }
+	if (os_app_register(&xrpp2) != 0) { printf("FAIL t11e re-register after uninstall\n"); return 1; }
+	printf("PASS t11 suspended re-register guard\n");
+
 	os_app_uninstall("usdt");
-	os_app_uninstall("xrp");
+	os_app_uninstall("xrpl2");
 	printf("ALL PASS\n");
 	return 0;
 }

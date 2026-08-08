@@ -49,7 +49,10 @@ bool os_signsvc_verify_intent(const char *app_id,
 
 	/* Compare the display-critical fields. The parser is deterministic
 	 * and clean-room, so a match here means "what we will render equals
-	 * what the raw tx actually encodes". */
+	 * what the raw tx actually encodes". For UNKNOWN intents the data
+	 * hash is the only thing the user sees — it MUST match too, or a
+	 * malicious/buggy app could show a benign-looking hash while the
+	 * bytes being signed encode something else. */
 	return fresh.kind == intent->kind &&
 	       fresh.risk == intent->risk &&
 	       fresh.chain == intent->chain &&
@@ -60,7 +63,9 @@ bool os_signsvc_verify_intent(const char *app_id,
 	       memcmp(fresh.method, intent->method, sizeof(fresh.method)) == 0 &&
 	       memcmp(fresh.symbol, intent->symbol, sizeof(fresh.symbol)) == 0 &&
 	       memcmp(fresh.amount_token, intent->amount_token,
-	              sizeof(fresh.amount_token)) == 0;
+	              sizeof(fresh.amount_token)) == 0 &&
+	       memcmp(fresh.data_hash, intent->data_hash,
+	              sizeof(fresh.data_hash)) == 0;
 }
 
 /* BIP44: the second path component (after the purpose) is the coin_type
@@ -149,8 +154,12 @@ os_sign_outcome os_signsvc_delegate(const char *app_id,
 		return out;
 	}
 	int r = se->sign_digest(path, path_len, digest, out.sig64, &out.recid);
+	if (r == SE_ERR_AUTH || r == SE_ERR_LOCKED) {
+		out.result = OS_SIGN_LOCKED;     /* needs PIN unlock, not dead */
+		return out;
+	}
 	if (r != SE_OK) {
-		out.result = OS_SIGN_DISABLED;
+		out.result = OS_SIGN_DISABLED;   /* transport/SE failure */
 		return out;
 	}
 

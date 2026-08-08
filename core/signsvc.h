@@ -35,6 +35,7 @@ typedef enum {
 	OS_SIGN_ABORT,       /* cancelled (UI back / PIN abort) */
 	OS_SIGN_DISABLED,    /* app suspended / not found / not initialized */
 	OS_SIGN_PARSE_ERR,   /* tx malformed */
+	OS_SIGN_LOCKED,      /* SE session not PIN-unlocked */
 } os_sign_result;
 
 /* Outcome of a sign request. */

@@ -151,8 +151,11 @@ int os_app_register(const os_app *desc)
 {
 	if (!desc || !desc->app_id[0] || !desc->parse)
 		return -1;
-	if (os_app_by_id(desc->app_id) != NULL)
-		return -1;                       /* id already taken (core or installed) */
+	/* id must be unique across ALL entries, including suspended ones —
+	 * otherwise a revoked app could be re-registered under the same id
+	 * and shadow a still-suspended slot (state inconsistency). */
+	if (find_installed(desc->app_id) != NULL)
+		return -1;
 	if (os_app_by_coin(desc->coin_type) != NULL)
 		return -1;                       /* coin_type already claimed */
 	if (s_installed_count >= OS_APP_MAX_INSTALLED)

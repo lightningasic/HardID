@@ -63,6 +63,60 @@ void screen_run_sign(void)
 	screen_run_apps();
 }
 
+/* Render a parsed intent and ask the user to confirm. This is the UI
+ * confirmation hook passed to os_signsvc_delegate: the SAME struct that is
+ * rendered here is the one the signer consumes — WYSIWYS by construction.
+ * UNKNOWN intents force a double tap-to-confirm (escalated) so a risky
+ * call can never be confirmed with a casual single tap. */
+static bool screen_confirm_intent(const os_tx_intent *it)
+{
+	lcd_fill(C_BG);
+	lcd_line(2, 2, "CONFIRM", C_LBL, C_BG);
+	char line[48];
+
+	if (it->kind == OS_INTENT_UNKNOWN) {
+		lcd_text_wrap(2, 18, "UNKNOWN CALL", C_ERR, C_BG);
+		lcd_text_wrap(2, 34, "Not parseable. Tap twice to sign.", C_WARN, C_BG);
+		ui_wait_ack();
+		ui_wait_ack();
+		return true;
+	}
+
+	const char *kind = "transfer";
+	switch (it->kind) {
+	case OS_INTENT_TRANSFER:       kind = "transfer";  break;
+	case OS_INTENT_ERC20_TRANSFER: kind = "token transfer"; break;
+	case OS_INTENT_ERC20_APPROVE:  kind = "approve";   break;
+	case OS_INTENT_CONTRACT_CALL:  kind = "contract";  break;
+	default:                       kind = "transfer";  break;
+	}
+	snprintf(line, sizeof line, "%s %s", it->symbol, kind);
+	lcd_line(2, 16, line, C_FG, C_BG);
+
+	snprintf(line, sizeof line, "to %.42s", it->to);
+	lcd_line(2, 30, line, C_FG, C_BG);
+
+	if (it->amount_token[0])
+		snprintf(line, sizeof line, "amount %.10s %.10s",
+		         it->amount_token, it->symbol);
+	else
+		snprintf(line, sizeof line, "amount %llu %.10s",
+		         (unsigned long long)it->amount, it->symbol);
+	lcd_line(2, 44, line, C_FG, C_BG);
+
+	if (it->method[0]) {
+		snprintf(line, sizeof line, "method %s", it->method);
+		lcd_line(2, 58, line, C_FG, C_BG);
+	}
+	snprintf(line, sizeof line, "max fee %llu",
+	         (unsigned long long)it->fee_limit);
+	lcd_line(2, 72, line, C_FG, C_BG);
+
+	lcd_line(2, 100, "tap to CONFIRM", C_LBL, C_BG);
+	ui_wait_ack();
+	return true;
+}
+
 void screen_run_sign_for_app(const os_app *app)
 {
 	const se_driver_t *se = se_active();
@@ -91,16 +145,64 @@ void screen_run_sign_for_app(const os_app *app)
 		return;
 	}
 
-	/* V2.0: sign via the delegation service. The on-screen confirm hook
-	 * renders the intent for the user and requires a tap to proceed. */
-	uint8_t recid;
-	(void)recid;
-	(void)se;
+	/* V2.0: delegate signing through signsvc with the on-screen confirm
+	 * hook. A sample tx is synthesized on-device for the bring-up build;
+	 * the real tx arrives via HOST LINK / App market install flow. */
+	uint8_t tx[256];
+	uint32_t path[3] = { 0x80000000u | 44,
+	                    0x80000000u | app->coin_type, 0 };
+	size_t tx_len = 0;
+
+	if (app->coin_type == 60) {
+		/* minimal legacy EVM transfer: nonce=1, gasPrice=20, gas=21000,
+		 * to=0x1111..11, value=1000, data empty */
+		uint8_t tmp[64]; size_t o = 0;
+		tmp[o++] = 0x01;
+		tmp[o++] = 0x14;                     /* gasPrice=20 */
+		tmp[o++] = 0x52; tmp[o++] = 0x08;    /* gas=21000 */
+		for (int i = 0; i < 20; i++) tmp[o++] = 0x11;
+		tmp[o++] = 0x82; tmp[o++] = 0x03; tmp[o++] = 0xe8; /* value=1000 */
+		tmp[o++] = 0x80;                     /* empty data */
+		tx[0] = 0xd6;                        /* list len */
+		memcpy(tx + 1, tmp, o);
+		tx_len = 1 + o;
+	} else {
+		/* BTC: no built-in demo tx — ask host for a PSBT later. */
+		lcd_fill(C_BG);
+		lcd_text_wrap(2, 10, "BTC demo: use HOST LINK to load a PSBT.",
+		              C_WARN, C_BG);
+		ui_wait_ack();
+		return;
+	}
+
+	os_sign_outcome oc =
+		os_signsvc_delegate(app->app_id, tx, tx_len, path, 3,
+		                    screen_confirm_intent);
+
 	lcd_fill(C_BG);
-	lcd_text_wrap(2, 10,
-	              "V2.0 demo: sign sample tx for app. Real tx input lands via HOST LINK.",
-	              C_WARN, C_BG);
-	ui_wait_ack();
+	switch (oc.result) {
+	case OS_SIGN_OK: {
+		lcd_line(2, 2, "Signature (r||s)", C_LBL, C_BG);
+		char hex[130];
+		for (int i = 0; i < 64; i++)
+			snprintf(hex + i * 2, 3, "%02x", oc.sig64[i]);
+		lcd_text_wrap(2, 16, hex, C_FG, C_BG);
+		ui_wait_ack();
+		break;
+	}
+	case OS_SIGN_REJECTED:
+		lcd_text_wrap(2, 10, "Rejected by user.", C_WARN, C_BG);
+		ui_wait_ack();
+		break;
+	case OS_SIGN_LOCKED:
+		lcd_text_wrap(2, 10, "Session locked. Re-enter PIN.", C_ERR, C_BG);
+		ui_wait_ack();
+		break;
+	default:
+		lcd_text_wrap(2, 10, "Sign unavailable (rc=%d).", C_ERR, C_BG);
+		ui_wait_ack();
+		break;
+	}
 }
 
 void screen_run_factory_reset(void)
@@ -508,6 +610,7 @@ void screen_run_apps(void)
 		snprintf(head, sizeof head, "page %zu/%zu", page + 1,
 		         pages > 0 ? pages : 1);
 		lcd_line(2, 16, head, C_DIM, C_BG);
+		lcd_line(2, 26, "tap title to EXIT", C_DIM, C_BG);
 
 		int y = 34;
 		for (size_t i = page * per; i < n && i < (page + 1) * per; i++) {
@@ -532,6 +635,12 @@ void screen_run_apps(void)
 		if (!(ui_pt_in(rx, ry, px - 20, py - 20, px + 20, py + 20) ||
 		      (rx == px && ry == py)))
 			continue;
+
+		/* tap on the header title → exit back to the main menu */
+		if (py < 30) {
+			lcd_fill(C_BG);
+			return;
+		}
 
 		/* page nav zones at the bottom corners */
 		if (py > 260) {

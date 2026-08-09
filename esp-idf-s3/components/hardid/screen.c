@@ -391,13 +391,37 @@ void screen_run_initialize(void)
 	uint8_t seed32[OS_SEED_LEN], seed64[OS_BIP39_SEED_LEN], host[32];
 	char mnemonic[OS_BIP39_MNEMONIC_MAX];
 
+	/* 0. Word-count choice: 12 words (128-bit entropy) or 24 words
+	 * (256-bit). Both are secure; 24 is the larger safety margin. The
+	 * entropy always comes from the SE+MCU+host HKDF — the choice only
+	 * selects how many bytes of it feed BIP39. */
+	lcd_fill(C_BG);
+	lcd_text_wrap(2, 10, "Phrase length?", C_LBL, C_BG);
+	lcd_text_wrap(2, 30, "12 words = 128-bit", C_FG, C_BG);
+	lcd_text_wrap(2, 46, "24 words = 256-bit", C_FG, C_BG);
+	lcd_rect_text(15, 250, 115, 300, "12", C_FG, C_BTN);
+	lcd_rect_text(125, 250, 225, 300, "24", C_FG, C_BTN);
+	size_t elen = 0;
+	for (;;) {
+		int px, py;
+		ui_wait_press(&px, &py);
+		int rx = px, ry = py;
+		ui_wait_release(&rx, &ry);
+		if (ui_pt_in(px, py, 15, 250, 115, 300) &&
+		    ui_pt_in(rx, ry, 15, 250, 115, 300)) { elen = 16; break; }
+		if (ui_pt_in(px, py, 125, 250, 225, 300) &&
+		    ui_pt_in(rx, ry, 125, 250, 225, 300)) { elen = 32; break; }
+	}
+
 	esp_fill_random(host, sizeof(host));
 	if (os_seed_generate(host, sizeof(host), seed32) != 0) {
 		lcd_text_wrap(2, 10, "seed gen failed", C_ERR, C_BG);
 		return;
 	}
 
-	os_bip39_entropy_to_mnemonic(seed32, sizeof(seed32),
+	/* 24-word uses all 32 bytes; 12-word uses the first 16 bytes of the
+	 * same strong entropy. */
+	os_bip39_entropy_to_mnemonic(seed32, elen,
 	                             mnemonic, sizeof(mnemonic));
 
 	/* 1. Walk the user through the phrase one word at a time. Each screen

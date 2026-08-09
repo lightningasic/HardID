@@ -97,16 +97,18 @@
 
 ## kimi 评审归档 (2026-08-10, 记录: eng passed, kimi-k3)
 
-**待用户拍板 (设计岔路)**:
-- **H-1 passphrase 派生不兼容 BIP39**: derive_session = PBKDF2(base_seed, salt),
-  标准 BIP39 = PBKDF2(mnemonic_text, salt)。同助记词+同 passphrase 在本机与
-  Trezor 等标准钱包得到**不同账户**。根因: SE 存 base seed 而非助记词, 无法
-  重组标准 KDF。空 passphrase 模式与 BIP39 一致, 不受影响。选择: (a) 文档化为
-  HardID 专属密钥空间 (不可第三方恢复); (b) 重设计 (SE 存助记词/每次开机输
-  助记词, 各有代价)。
-- **H-2 passphrase 字符集受限**: kp_capture_alpha 只接 A-Z+空格 (数字/小写/符号
-  全忽略)。BIP39 passphrase 任意 UTF-8 且区分大小写。即使 H-1 兼容, 键盘也
-  输不进标准 passphrase; 26+1 字符集暴力破解强度低。
+**已定案 (commit `1fc0da7`)**:
+- **H-1 passphrase 密钥空间 → HardID 专属两步派生, 已文档化为正式规范**
+  (se_driver.h derive_session 注释): base = PBKDF2(mnemonic,"mnemonic",2048)
+  [BIP39 标准], session = PBKDF2(base,"mnemonic"||pass,2048) [HardID]。
+  空 passphrase 账户与 BIP39 完全兼容; passphrase 账户为 HardID 专属密钥空间,
+  但可用任意 PBKDF2 工具离机恢复 (先算标准 base, 再做第二步 KDF)。
+  否决"SE 存助记词文本"方案 (静态秘密面更大)。参考向量: test_se t8
+  (官方 BIP39 base 向量 + Python 计算的 session, passphrase 'HardCase9!')。
+- **H-2 passphrase 字符集 → 已扩展三页键盘**: kp_capture_alpha 轮转
+  A-Z → a-z → 0-9+16符号 (!@#$%^&*()-_=+,.), 切换键标签显示下一页
+  (ABC/abc/1#$); 浮动预览对非 A-Z 字符回退 font7 (全 ASCII)。
+  PIN/助记词路径不变。
 
 **真机联调/真实资金前必修 (红线升级)**:
 - **M-1 目录链地址显示仍是 BTC 编码**: psbt.c script_to_addr 硬编码 bech32
@@ -119,6 +121,5 @@
 **已修复 (见上 ab08649)**: L-1/L-2/L-3。
 
 ## 待办
-- 用户拍板 H-1/H-2 (passphrase 密钥空间设计)。
 - M-1 per-coin 地址编码表; M-2 (M11) 真 sighash 落地。
-- 真机走查开机 passphrase 流 (esp-idf-s3 build 可烧)。
+- 真机走查开机 passphrase 流 + 三页键盘 (esp-idf-s3 build 可烧)。

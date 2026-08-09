@@ -22,6 +22,7 @@
  */
 
 #include <string.h>
+#include <stdio.h>
 
 #include "signsvc.h"
 #include "app.h"
@@ -38,6 +39,34 @@ static int reparse(const os_app *app, const uint8_t *tx, size_t tx_len,
 	return app->parse(tx, tx_len, out);
 }
 
+/* Canonical native-symbol for a coin_type. The firmware parsers only know
+ * their own native format (the BTC/PSBT parser hardcodes "BTC"; the EVM
+ * parser sets no symbol), but a catalog app (LTC/DOGE/BCH/ETC/POLYGON)
+ * reuses those parsers — so its intent would show the WRONG native symbol
+ * on the confirm screen. Normalize by BIP44 coin_type so what the user
+ * confirms matches the chain they selected. Applies AFTER both the App's
+ * parse and the firmware re-parse so the double-derivation stays in lockstep. */
+static const char *coin_native_symbol(uint32_t coin_type)
+{
+	switch (coin_type) {
+	case 0:    return "BTC";
+	case 2:    return "LTC";
+	case 3:    return "DOGE";
+	case 145:  return "BCH";
+	case 60:   return "ETH";
+	case 61:   return "ETC";
+	case 966:  return "POL";
+	default:   return NULL;
+	}
+}
+
+static void apply_native_symbol(uint32_t coin_type, os_tx_intent *o)
+{
+	const char *sym = coin_native_symbol(coin_type);
+	if (sym)
+		snprintf(o->symbol, sizeof(o->symbol), "%s", sym);
+}
+
 /* Firmware clean-room re-parse, INDEPENDENT of the App's parse(). This is
  * the WYSIWYS anchor: the intent the user confirms must match what the
  * firmware itself derives from the raw bytes, NOT merely what the App
@@ -50,11 +79,22 @@ static int fw_reparse(uint32_t coin_type, const uint8_t *tx, size_t tx_len,
                       os_tx_intent *out)
 {
 	memset(out, 0, sizeof(*out));
+	/* Dispatch by PARSER CAPABILITY, not by coin list: a catalog app that
+	 * reuses a firmware clean-room parser (e.g. LTC/DOGE/BCH share the PSBT
+	 * parser, ETC/POLYGON share the EVM parser) must be verified by the
+	 * SAME firmware parser, or the market would install apps that can never
+	 * sign. These parsers are all firmware-owned and officially reviewed,
+	 * so the WYSIWYS anchor holds for every listed chain. */
 	switch (coin_type) {
-	case 60: /* ETH / EVM */
-		return os_clearsign_parse_evm(tx, tx_len, out);
 	case 0:  /* BTC */
+	case 2:  /* LTC */
+	case 3:  /* DOGE */
+	case 145:/* BCH */
 		return os_clearsign_parse_btc(tx, tx_len, out);
+	case 60: /* ETH / EVM */
+	case 61: /* ETC */
+	case 966:/* POLYGON */
+		return os_clearsign_parse_evm(tx, tx_len, out);
 	default:
 		return -1;   /* no firmware parser → cannot independently verify */
 	}
@@ -77,6 +117,12 @@ bool os_signsvc_verify_intent(const char *app_id,
 	 * so it refuses. */
 	if (fw_reparse(app->coin_type, tx, tx_len, &fresh) != 0)
 		return false;
+
+	/* Normalize the native symbol on BOTH intents before comparing, so a
+	 * catalog chain (LTC via the BTC parser, ETC via the EVM parser) shows
+	 * its own token and the two derivations stay identical. */
+	apply_native_symbol(app->coin_type, &fresh);
+	apply_native_symbol(app->coin_type, (os_tx_intent *)intent);
 
 	/* Compare the display-critical fields. The parser is deterministic
 	 * and clean-room, so a match here means "what we will render equals
@@ -164,6 +210,9 @@ os_sign_outcome os_signsvc_delegate(const char *app_id,
 		out.result = OS_SIGN_PARSE_ERR;
 		return out;
 	}
+	/* Show the chain's native symbol, not the parser's (a catalog reuse of
+	 * the BTC/PSBT parser would otherwise render "BTC" for a Litecoin tx). */
+	apply_native_symbol(app->coin_type, &intent);
 
 	/* 2. Firmware INDEPENDENT re-derivation + exact-match check: the intent
 	 *    we render must equal what the firmware itself parses from the raw

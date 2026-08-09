@@ -63,6 +63,42 @@ static bool confirm_ui(const os_tx_intent *it)
 	return s_confirm_answer;
 }
 
+/* ---- minimal 1-in 1-out PSBT with a P2WPKH recipient ---- */
+static size_t pb_varint(uint8_t *o, uint64_t v)
+{
+	if (v < 0xfd) { o[0] = (uint8_t)v; return 1; }
+	o[0] = 0xfd; o[1] = (uint8_t)v; o[2] = (uint8_t)(v >> 8); return 3;
+}
+static size_t pb_psbt(uint8_t *o, uint64_t in_amt, uint64_t out_amt)
+{
+	static const uint8_t spk[22] = {0x00,0x14,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20};
+	size_t n = 0;
+	memcpy(o+n, "psbt\xff", 5); n += 5;
+	/* global map: 0x00 -> unsigned tx */
+	uint8_t tx[160]; size_t tn = 0;
+	tx[tn++]=1;tx[tn++]=0;tx[tn++]=0;tx[tn++]=0;            /* version */
+	tn += pb_varint(tx+tn, 1);                              /* 1 input */
+	memset(tx+tn, 0xaa, 32); tn += 32;
+	tx[tn++]=0;tx[tn++]=0;tx[tn++]=0;tx[tn++]=0;            /* vout */
+	tn += pb_varint(tx+tn, 0);                              /* empty scriptSig */
+	tx[tn++]=0xff;tx[tn++]=0xff;tx[tn++]=0xff;tx[tn++]=0xff;
+	tn += pb_varint(tx+tn, 1);                              /* 1 output */
+	for (int i=0;i<8;i++) tx[tn++]=(uint8_t)(out_amt>>(8*i));
+	tn += pb_varint(tx+tn, sizeof spk);
+	memcpy(tx+tn, spk, sizeof spk); tn += sizeof spk;
+	tx[tn++]=0;tx[tn++]=0;tx[tn++]=0;tx[tn++]=0;            /* locktime */
+	n += pb_varint(o+n, 1); o[n++] = 0x00;                  /* global key */
+	n += pb_varint(o+n, tn); memcpy(o+n, tx, tn); n += tn;
+	o[n++] = 0x00;                                          /* global sep */
+	/* input map: witness_utxo 0x01 -> amt+script */
+	n += pb_varint(o+n, 1); o[n++] = 0x01;
+	n += pb_varint(o+n, 8+sizeof spk);
+	for (int i=0;i<8;i++) o[n++]=(uint8_t)(in_amt>>(8*i));
+	memcpy(o+n, spk, sizeof spk); n += sizeof spk;
+	o[n++] = 0x00;                                          /* input sep */
+	return n;
+}
+
 int main(void)
 {
 	const se_driver_t *se = se_active();
@@ -282,6 +318,37 @@ int main(void)
 	if (os_app_uninstall("btc") != -1) { printf("FAIL t16j core deleted\n"); return 1; }
 	if (os_app_uninstall("eth") != -1) { printf("FAIL t16k core deleted\n"); return 1; }
 	printf("PASS t16 catalog install/delete + core protection\n");
+
+	/* t17: a catalog LTC chain (coin 2, reusing the firmware BTC/PSBT
+	 * parser) must actually be able to SIGN. Regression: fw_reparse only
+	 * dispatched coin 0/60, so catalog apps were installable but always
+	 * failed verify. se must be unlocked for delegation. */
+	se_mock_reset();
+	{
+		uint8_t seedz[64]; memset(seedz, 0x33, sizeof seedz);
+		if (se->store_seed(seedz) != SE_OK) { printf("FAIL t17 store\n"); return 1; }
+	}
+	if (os_app_catalog_install("ltc") != 0) { printf("FAIL t17 install ltc\n"); return 1; }
+	{
+		uint8_t psbt[1024];
+		size_t pn = pb_psbt(psbt, 100000, 90000);
+		uint32_t ltcpath[3] = { 0x80000000u|44, 0x80000000u|2, 0x80000000u|0 };
+		uint8_t pin[4] = {'1','2','3','4'};
+		se_mock_set_pin(pin, 4);
+		if (se->verify_pin(pin, 4, NULL, NULL) != SE_OK) { printf("FAIL t17 pin\n"); return 1; }
+		s_confirms = 0; s_confirm_answer = true;
+		os_sign_outcome o = os_signsvc_delegate("ltc", psbt, pn, ltcpath, 3, confirm_ui);
+		if (o.result != OS_SIGN_OK) { printf("FAIL t17 ltc sign rc=%d\n", o.result); return 1; }
+		if (s_confirms != 1) { printf("FAIL t17 confirm count\n"); return 1; }
+		if (strcmp(o.intent.symbol, "LTC") != 0) {
+			printf("FAIL t17 symbol '%s' != LTC\n", o.intent.symbol); return 1;
+		}
+		/* wrong path (ETH coin branch) must be refused */
+		uint32_t ethpath[3] = { 0x80000000u|44, 0x80000000u|60, 0x80000000u|0 };
+		o = os_signsvc_delegate("ltc", psbt, pn, ethpath, 3, confirm_ui);
+		if (o.result != OS_SIGN_PARSE_ERR) { printf("FAIL t17 ltc wrong-path\n"); return 1; }
+	}
+	printf("PASS t17 catalog LTC signs with native symbol + path isolation\n");
 
 	printf("ALL PASS\n");
 	return 0;

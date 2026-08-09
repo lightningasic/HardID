@@ -740,8 +740,9 @@ static void screen_app_install(void)
 		}
 
 		lcd_rect_text(15, 288, 70, 318, "<", C_FG, C_BTN);
+		lcd_rect_text(15, 288, 70, 318, "<", C_FG, C_BTN);
 		lcd_rect_text(80, 288, 160, 318, "OK", C_FG, C_BTN);
-		lcd_rect_text(170, 288, 225, 318, "BACK", C_FG, C_BTN);
+		lcd_rect_text(170, 288, 225, 318, ">", C_FG, C_BTN);
 
 		int px, py;
 		ui_wait_press(&px, &py);
@@ -752,9 +753,12 @@ static void screen_app_install(void)
 			continue;
 
 		if (ui_pt_in(px, py, 15, 288, 70, 318)) {
+			/* < : cursor up; on the first entry → BACK to the app list */
 			if (gsel > 0) gsel--;
+			else return;
 		} else if (ui_pt_in(px, py, 170, 288, 225, 318)) {
-			return;                          /* BACK */
+			/* > : cursor down through the catalog */
+			if (gsel + 1 < na) gsel++;
 		} else if (ui_pt_in(px, py, 80, 288, 160, 318)) {
 			if (na > 0) {
 				const os_app *pick = avail[gsel];

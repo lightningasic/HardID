@@ -47,10 +47,18 @@ void ui_wait_release(int *rx, int *ry)
 
 void ui_wait_ack(void)
 {
-	lcd_line(2, 308, "tap to return", C_DIM, C_BG);
+	/* Explicit BACK button instead of an invisible "tap anywhere": every
+	 * info screen gets a consistent, visible way back to the caller. */
+	lcd_rect_text(60, 288, 180, 318, "BACK", C_FG, C_BTN);
 	int x, y;
-	ui_wait_press(&x, &y);
-	ui_wait_release(&x, &y);
+	for (;;) {
+		ui_wait_press(&x, &y);
+		int rx = x, ry = y;
+		ui_wait_release(&rx, &ry);
+		if (ui_pt_in(x, y, 60, 288, 180, 318) &&
+		    ui_pt_in(rx, ry, 60, 288, 180, 318))
+			return;
+	}
 }
 
 bool ui_touch_now(int *px, int *py)

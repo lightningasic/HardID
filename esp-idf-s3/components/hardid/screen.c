@@ -664,7 +664,6 @@ void screen_run_apps(void)
 		snprintf(head, sizeof head, "page %zu/%zu", page + 1,
 		         pages > 0 ? pages : 1);
 		lcd_line(2, 16, head, C_DIM, C_BG);
-		lcd_line(2, 26, "tap title to EXIT", C_DIM, C_BG);
 
 		int y = 34;
 		for (size_t i = page * per; i < n && i < (page + 1) * per; i++) {
@@ -679,7 +678,12 @@ void screen_run_apps(void)
 			y += 16;
 		}
 
-		lcd_line(2, y + 4, "< > switch page, tap app", C_DIM, C_BG);
+		lcd_line(2, y + 4, "tap app to sign", C_DIM, C_BG);
+
+		/* bottom nav bar: BACK | prev-page | next-page */
+		lcd_rect_text(15, 288, 90, 318, "BACK", C_FG, C_BTN);
+		lcd_rect_text(100, 288, 160, 318, "PREV", C_FG, C_BTN);
+		lcd_rect_text(170, 288, 225, 318, "NEXT", C_FG, C_BTN);
 
 		int px, py;
 		if (!ui_wait_press(&px, &py))
@@ -690,17 +694,15 @@ void screen_run_apps(void)
 		      (rx == px && ry == py)))
 			continue;
 
-		/* tap on the header title → exit back to the main menu */
-		if (py < 30) {
-			lcd_fill(C_BG);
-			return;
-		}
-
-		/* page nav zones at the bottom corners */
-		if (py > 260) {
-			if (px < 120 && page > 0)
+		/* bottom nav bar */
+		if (py >= 288) {
+			if (ui_pt_in(px, py, 15, 288, 90, 318)) {
+				lcd_fill(C_BG);
+				return;                  /* BACK → main menu */
+			}
+			if (ui_pt_in(px, py, 100, 288, 160, 318) && page > 0)
 				page--;
-			else if (px >= 120 && page + 1 < pages)
+			else if (ui_pt_in(px, py, 170, 288, 225, 318) && page + 1 < pages)
 				page++;
 			continue;
 		}

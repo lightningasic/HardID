@@ -90,6 +90,7 @@ bool os_signsvc_verify_intent(const char *app_id,
 	       fresh.amount == intent->amount &&
 	       fresh.fee_limit == intent->fee_limit &&
 	       fresh.unlimited_approval == intent->unlimited_approval &&
+	       fresh.chain_id == intent->chain_id &&
 	       memcmp(fresh.to, intent->to, sizeof(fresh.to)) == 0 &&
 	       memcmp(fresh.method, intent->method, sizeof(fresh.method)) == 0 &&
 	       memcmp(fresh.symbol, intent->symbol, sizeof(fresh.symbol)) == 0 &&
@@ -99,22 +100,39 @@ bool os_signsvc_verify_intent(const char *app_id,
 	              sizeof(fresh.data_hash)) == 0;
 }
 
-/* BIP44: the second path component (after the purpose) is the coin_type
- * branch. Enforce the app's coin_type matches (m/44'/coin'/...). */
+/* BIP44-style isolation: require a hardened purpose from a whitelist, a
+ * hardened coin_type branch matching the app, and a hardened account.
+ * Accepted shapes (all three levels hardened):
+ *   m/44'/coin'/acct'/...   (legacy)
+ *   m/49'/coin'/acct'/...   (P2SH-SegWit)
+ *   m/84'/coin'/acct'/...   (native SegWit)
+ *   m/86'/coin'/acct'/...   (Taproot)
+ * Anything else — non-hardened levels, unknown purpose, bare m/coin — is
+ * rejected so a path can never escape the app's coin/account isolation. */
+#define OS_PATH_HARDENED 0x80000000u
+
 static bool path_matches_coin(const uint32_t *path, size_t path_len,
                               uint32_t coin_type)
 {
-	/* Accept m/44'/coin'/... and bare m/coin'/... (2 or more comps). */
-	if (path_len < 2)
+	if (!path || path_len < 3)
 		return false;
-	size_t idx;
-	if (path_len >= 3 && (path[0] & 0x80000000u) &&
-	    (path[0] & 0x7fffffffu) == 44)
-		idx = 1;                          /* purpose = 44' */
-	else
-		idx = 0;
-	uint32_t coin = path[idx] & 0x7fffffffu;
-	return coin == coin_type;
+	uint32_t purpose = path[0] & ~OS_PATH_HARDENED;
+	if ((path[0] & OS_PATH_HARDENED) == 0)
+		return false;                      /* purpose must be hardened */
+	switch (purpose) {
+	case 44: case 49: case 84: case 86:
+		break;
+	default:
+		return false;                      /* unknown purpose */
+	}
+	uint32_t coin = path[1];
+	if ((coin & OS_PATH_HARDENED) == 0)
+		return false;                      /* coin branch must be hardened */
+	if ((coin & ~OS_PATH_HARDENED) != coin_type)
+		return false;                      /* must match the app's coin_type */
+	if (path_len >= 3 && (path[2] & OS_PATH_HARDENED) == 0)
+		return false;                      /* account must be hardened */
+	return true;
 }
 
 os_sign_outcome os_signsvc_delegate(const char *app_id,

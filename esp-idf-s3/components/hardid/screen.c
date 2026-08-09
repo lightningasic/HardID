@@ -150,7 +150,8 @@ void screen_run_sign_for_app(const os_app *app)
 	 * the real tx arrives via HOST LINK / App market install flow. */
 	uint8_t tx[256];
 	uint32_t path[3] = { 0x80000000u | 44,
-	                    0x80000000u | app->coin_type, 0 };
+	                    0x80000000u | app->coin_type,
+	                    0x80000000u | 0 };       /* m/44'/coin'/0' (hardened) */
 	size_t tx_len = 0;
 
 	if (app->coin_type == 60) {

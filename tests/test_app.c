@@ -119,11 +119,13 @@ int main(void)
 	for (int i = 0; i < 20; i++) to[i] = 0x10 + i;
 	size_t n = build_legacy(tx, 20, 21000, to, 1000, NULL, 0);
 
-	uint32_t path[3] = { 0x80000000u | 44, 0x80000000u | 60, 0 }; /* m/44'/60'/0 */
+	uint32_t path[3] = { 0x80000000u | 44, 0x80000000u | 60,
+	                     0x80000000u | 0 };        /* m/44'/60'/0' */
 
 	/* wrong path (BTC coin branch) must be refused */
 	s_confirm_answer = 1; s_confirms = 0;
-	uint32_t bad_path[3] = { 0x80000000u | 44, 0x80000000u | 0, 0 };
+	uint32_t bad_path[3] = { 0x80000000u | 44, 0x80000000u | 0,
+	                         0x80000000u | 0 };
 	os_sign_outcome o = os_signsvc_delegate("eth", tx, n, bad_path, 3, confirm_ui);
 	if (o.result != OS_SIGN_PARSE_ERR) { printf("FAIL t6a wrong-path rc=%d\n", o.result); return 1; }
 
@@ -178,18 +180,24 @@ int main(void)
 	if (os_signsvc_verify_intent("eth", txu, nu, &iu)) { printf("FAIL t10 verify data_hash\n"); return 1; }
 	printf("PASS t10 unknown data_hash check\n");
 
-	/* 11 suspended app cannot be re-registered under same id */
-	os_app xrpp = { .app_id = "xrpl", .name = "XRPL", .coin_type = 144, .version = 1,
+	/* 11 suspended app cannot be re-registered under same id; a SUSPENDED
+	 * app's coin_type is also still reserved (M7). Use a distinct coin. */
+	os_app xrpp = { .app_id = "xrpl", .name = "XRPL", .coin_type = 501, .version = 1,
 	                .parse = eth->parse };
 	if (os_app_register(&xrpp) != 0) { printf("FAIL t11a register\n"); return 1; }
 	if (os_app_suspend("xrpl") != 0) { printf("FAIL t11b suspend\n"); return 1; }
-	os_app xrpp2 = { .app_id = "xrpl", .name = "XRPL2", .coin_type = 145, .version = 1,
+	/* suspended coin 501 must not be re-claimable by a different id */
+	os_app grab = { .app_id = "grabber", .name = "Grab", .coin_type = 501, .version = 1,
+	                .parse = eth->parse };
+	if (os_app_register(&grab) != -1) { printf("FAIL t11c suspended coin claimed\n"); return 1; }
+	/* same id also still blocked while suspended */
+	os_app xrpp2 = { .app_id = "xrpl", .name = "XRPL2", .coin_type = 502, .version = 1,
 	                 .parse = eth->parse };
-	if (os_app_register(&xrpp2) != -1) { printf("FAIL t11c re-register suspended\n"); return 1; }
-	/* but uninstall first then re-register is allowed */
-	if (os_app_uninstall("xrpl") != 0) { printf("FAIL t11d uninstall\n"); return 1; }
-	if (os_app_register(&xrpp2) != 0) { printf("FAIL t11e re-register after uninstall\n"); return 1; }
-	printf("PASS t11 suspended re-register guard\n");
+	if (os_app_register(&xrpp2) != -1) { printf("FAIL t11d re-register suspended\n"); return 1; }
+	/* uninstall first then re-register is allowed */
+	if (os_app_uninstall("xrpl") != 0) { printf("FAIL t11e uninstall\n"); return 1; }
+	if (os_app_register(&xrpp2) != 0) { printf("FAIL t11f re-register after uninstall\n"); return 1; }
+	printf("PASS t11 suspended id+coin guard\n");
 
 	os_app_uninstall("usdt");
 	os_app_uninstall("xrpl2");
@@ -233,6 +241,25 @@ int main(void)
 	notnul2.coin_type = 996; notnul2.version = 1; notnul2.parse = eth->parse;
 	if (os_app_register(&notnul2) != -1) { printf("FAIL t14b unterminated name allowed\n"); return 1; }
 	printf("PASS t14 unterminated buffers rejected\n");
+
+	/* 15 M13: path policy — purpose whitelist + hardened levels. */
+	s_confirm_answer = 1; s_confirms = 0;
+	uint32_t p84[3] = { 0x80000000u | 84, 0x80000000u | 60, 0x80000000u | 0 };
+	o = os_signsvc_delegate("eth", tx, n, p84, 3, confirm_ui);
+	if (o.result != OS_SIGN_OK) { printf("FAIL t15 purpose84 rc=%d\n", o.result); return 1; }
+	/* non-hardened coin must be refused */
+	uint32_t pnoh[3] = { 0x80000000u | 44, 60, 0x80000000u | 0 };
+	o = os_signsvc_delegate("eth", tx, n, pnoh, 3, confirm_ui);
+	if (o.result == OS_SIGN_OK) { printf("FAIL t15b non-hardened coin signed\n"); return 1; }
+	/* unknown purpose must be refused */
+	uint32_t pbogus[3] = { 0x80000000u | 99, 0x80000000u | 60, 0x80000000u | 0 };
+	o = os_signsvc_delegate("eth", tx, n, pbogus, 3, confirm_ui);
+	if (o.result == OS_SIGN_OK) { printf("FAIL t15c bogus purpose signed\n"); return 1; }
+	/* non-hardened account must be refused */
+	uint32_t pacct[3] = { 0x80000000u | 44, 0x80000000u | 60, 0 };
+	o = os_signsvc_delegate("eth", tx, n, pacct, 3, confirm_ui);
+	if (o.result == OS_SIGN_OK) { printf("FAIL t15d non-hardened account signed\n"); return 1; }
+	printf("PASS t15 path policy enforced\n");
 
 	printf("ALL PASS\n");
 	return 0;

@@ -143,7 +143,14 @@ int os_app_register(const os_app *desc)
 	if (os_app_by_id(desc->app_id) != NULL)
 		return -1;                       /* collides with a core app id */
 	if (os_app_by_coin(desc->coin_type) != NULL)
-		return -1;                       /* coin_type already claimed */
+		return -1;                       /* coin_type already claimed (core/active) */
+	/* a SUSPENDED app must also keep its coin_type — otherwise a revoked
+	 * malicious app could be replaced by a new app claiming the same BIP44
+	 * coin branch, inheriting the trust users placed in that coin. Scan
+	 * installed slots INCLUDING suspended ones (os_app_by_coin skips them). */
+	for (size_t i = 0; i < s_installed_count; i++)
+		if (s_installed[i].coin_type == desc->coin_type)
+			return -1;
 	if (s_installed_count >= OS_APP_MAX_INSTALLED)
 		return -1;
 

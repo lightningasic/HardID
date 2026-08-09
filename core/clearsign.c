@@ -220,20 +220,34 @@ int os_clearsign_parse_evm(const uint8_t *raw, size_t len, os_tx_intent *o)
 
 	if (rlp_read(&r, &top) != 0 || !top.is_list)
 		return -1;
+	if (r.len != 0)
+		return -1;   /* trailing bytes after the top list would enter the
+		              * digest but never be shown — reject non-canonical tx */
 	body.p = top.ptr;
 	body.len = top.len;
 
-	/* Field order (legacy): nonce, gasPrice, gasLimit, to, value, data, ...
-	 * Field order (1559):  chainId, nonce, maxPrio, maxFee, gasLimit, to, value, data, accessList,... */
+	/* Field order (legacy):  nonce, gasPrice, gasLimit, to, value, data, ...
+	 * Field order (1559 t2): chainId, nonce, maxPrio, maxFee, gasLimit, to, value, data, accessList,...
+	 * Field order (2930 t1): chainId, nonce, gasPrice, gasLimit, to, value, data, accessList,... */
 	uint64_t maxfee = 0, gaslimit = 0;
 
 	if (typed == 2) {
-		/* skip chainId(0), nonce(1), maxPrio(2), capture maxFee(3), gasLimit(4) */
+		/* chainId(0), nonce(1), maxPrio(2), capture maxFee(3), gasLimit(4) */
 		rlp_item f;
 		for (int i = 0; i <= 4; i++) {
 			if (rlp_read(&body, &f) != 0) return -1;
+			if (i == 0 && rlp_u64(&f, &o->chain_id) != 0) return -1;
 			if (i == 3 && rlp_u64(&f, &maxfee) != 0) return -1;
 			if (i == 4 && rlp_u64(&f, &gaslimit) != 0) return -1;
+		}
+	} else if (typed == 1) {
+		/* EIP-2930: chainId(0), nonce(1), gasPrice(2), gasLimit(3) */
+		rlp_item f;
+		for (int i = 0; i <= 3; i++) {
+			if (rlp_read(&body, &f) != 0) return -1;
+			if (i == 0 && rlp_u64(&f, &o->chain_id) != 0) return -1;
+			if (i == 2 && rlp_u64(&f, &maxfee) != 0) return -1;
+			if (i == 3 && rlp_u64(&f, &gaslimit) != 0) return -1;
 		}
 	} else {
 		rlp_item f;
@@ -241,6 +255,16 @@ int os_clearsign_parse_evm(const uint8_t *raw, size_t len, os_tx_intent *o)
 			if (rlp_read(&body, &f) != 0) return -1;
 			if (i == 1 && rlp_u64(&f, &maxfee) != 0) return -1;
 			if (i == 2 && rlp_u64(&f, &gaslimit) != 0) return -1;
+		}
+		/* legacy: EIP-155 chainId is recoverable from v = 35 + 2*id + parity.
+		 * v is the 7th field (after data); read it if present. */
+		rlp rsave = body;                 /* position after gasLimit */
+		rlp_item t2, v2, d2, vv;
+		if (rlp_read(&rsave, &t2) == 0 && rlp_read(&rsave, &v2) == 0 &&
+		    rlp_read(&rsave, &d2) == 0 && rlp_read(&rsave, &vv) == 0) {
+			uint64_t v;
+			if (rlp_u64(&vv, &v) == 0 && v >= 35)
+				o->chain_id = (v - 35) / 2;
 		}
 	}
 	/* fee_limit = maxfee * gaslimit, saturated: a malicious huge maxFee must
@@ -339,19 +363,32 @@ int os_clearsign_parse_btc(const uint8_t *psbt, size_t len, os_tx_intent *o)
 	o->risk = OS_RISK_LOW;
 	o->fee_limit = s.fee;
 
-	/* Surface the first non-change output as "to"; sum the rest. */
-	if (s.spend_count == 0 && s.output_count > 0) {
+	/* Zero-output tx burns the entire input as fee — flag HIGH. */
+	if (s.output_count == 0) {
+		snprintf(o->to, sizeof(o->to), "(no outputs)");
+		o->amount = 0;
+		o->risk = OS_RISK_HIGH;
+	} else if (s.spend_count == 0 && s.output_count > 0) {
 		/* only change outputs — treat as low-risk self-send */
 		snprintf(o->to, sizeof(o->to), "self (change only)");
 		o->amount = s.total_out;
-	} else if (s.spend_count > 0) {
+	} else if (s.spend_count == 1) {
 		snprintf(o->to, sizeof(o->to), "%.47s", s.outputs[0].address);
 		o->amount = s.outputs[0].amount;
-		o->risk = (s.spend_count > 1) ? OS_RISK_MEDIUM : OS_RISK_LOW;
+		o->risk = OS_RISK_LOW;
 	} else {
-		snprintf(o->to, sizeof(o->to), "N/A");
+		/* MULTI-OUTPUT: never hide subsequent outputs. Show the TOTAL and
+		 * force HIGH risk so the user cannot casually confirm a tx whose
+		 * later outputs (not individually shown) drain funds elsewhere. */
+		snprintf(o->to, sizeof(o->to), "MULTI-OUTPUT (%u)",
+		         (unsigned)s.spend_count);
+		o->amount = s.total_out;
+		o->risk = OS_RISK_HIGH;
 	}
-	snprintf(o->amount_token, sizeof(o->amount_token), "sats");
 	snprintf(o->symbol, sizeof(o->symbol), "BTC");
+	/* put the NUMERIC amount on screen: amount_token carries the satoshi
+	 * figure so the UI token branch shows a number, not a bare "sats". */
+	snprintf(o->amount_token, sizeof(o->amount_token), "%llu",
+	         (unsigned long long)o->amount);
 	return 0;
 }

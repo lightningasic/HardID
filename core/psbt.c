@@ -184,6 +184,7 @@ static int tx_outputs(const uint8_t *tx, size_t txn, os_psbt_summary *o,
 		out->is_change = chg ? chg(r.p, sl) : false;
 		if (!out->is_change)
 			o->spend_count++;
+		if (amt > UINT64_MAX - o->total_out) return -1;  /* overflow guard */
 		o->total_out += amt;
 		r.p += sl; r.n -= sl;
 	}
@@ -238,6 +239,7 @@ int os_psbt_parse(const uint8_t *psbt, size_t len,
 		const uint8_t *mp = p;
 		size_t mn = n;
 		size_t consumed = 0;
+		bool seen_witness_utxo = false;
 		for (;;) {
 			uint64_t klen;
 			if (rd_varint(&mp, &mn, &klen) != 0) return -1;
@@ -248,8 +250,13 @@ int os_psbt_parse(const uint8_t *psbt, size_t len,
 			uint64_t vlen;
 			if (rd_varint(&mp, &mn, &vlen) != 0 || mn < vlen) return -1;
 			if (klen == 1 && key[0] == 0x01 && vlen >= 8) {
-				/* witness_utxo: amount(8le) + script */
-				o->total_in += rd_u64le(mp);
+				/* duplicate witness_utxo would double-count total_in and
+				 * fake the fee — reject a repeated key within one map. */
+				if (seen_witness_utxo) return -1;
+				seen_witness_utxo = true;
+				uint64_t a = rd_u64le(mp);
+				if (a > UINT64_MAX - o->total_in) return -1;  /* overflow */
+				o->total_in += a;
 			}
 			mp += vlen; mn -= vlen;
 		}

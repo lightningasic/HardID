@@ -55,6 +55,7 @@ typedef struct {
 	char     method[32];      /* contract method name, or "" */
 	char     symbol[12];      /* token symbol, or "" */
 	bool     unlimited_approval;
+	uint64_t chain_id;        /* EIP-155 chain id; 0 if unknown/legacy-unparsed */
 
 	/* raw calldata hash for UNKNOWN (first 4 bytes = selector) */
 	uint8_t  data_hash[32];

@@ -111,7 +111,8 @@ int main(void)
 		if (os_clearsign_parse_evm(buf, o, &it) != 0) { printf("FAIL t5 parse\n"); return 1; }
 		if (it.kind != OS_INTENT_TRANSFER || it.amount != 5000 || it.fee_limit != 30ull*21000) {
 			printf("FAIL t5 amt=%llu fee=%llu\n", (unsigned long long)it.amount, (unsigned long long)it.fee_limit); return 1; }
-		printf("PASS t5 eip-1559 transfer parsed\n");
+		if (it.chain_id != 1) { printf("FAIL t5 chain_id=%llu\n", (unsigned long long)it.chain_id); return 1; }
+		printf("PASS t5 eip-1559 transfer parsed (chainId extracted)\n");
 	}
 
 	/* 6 malformed input -> -1 */
@@ -166,6 +167,51 @@ int main(void)
 		if (os_clearsign_parse_evm(buf, n, &it) != 0) { printf("FAIL t9 parse\n"); return 1; }
 		if (strcmp(it.amount_token, "500") != 0) { printf("FAIL t9 amount_token=%s\n", it.amount_token); return 1; }
 		printf("PASS t9 token amount surfaced in amount_token\n");
+	}
+
+	/* 10 M1: legacy tx with EIP-155 v -> chain_id recovered. v=37+2*56+1
+	 * is chain 56 (BSC); build a legacy tx with explicit v/r/s so the
+	 * parser can recover chain_id = (v-35)/2 = 56. */
+	{
+		uint8_t tmp[1024]; size_t o = 0;
+		o += rlp_u(tmp + o, 1);            /* nonce */
+		o += rlp_u(tmp + o, 20);           /* gasPrice */
+		o += rlp_u(tmp + o, 21000);        /* gasLimit */
+		o += rlp_str(tmp + o, to, 20);     /* to */
+		o += rlp_u(tmp + o, 1000);         /* value */
+		o += rlp_str(tmp + o, NULL, 0);    /* data */
+		o += rlp_u(tmp + o, 35 + 2*56 + 1);/* v = 148 -> chain 56 */
+		o += rlp_u(tmp + o, 1);            /* r (dummy) */
+		o += rlp_u(tmp + o, 2);            /* s (dummy) */
+		size_t h = rlp_hdr(buf, 1, o);
+		memcpy(buf + h, tmp, o);
+		if (os_clearsign_parse_evm(buf, h + o, &it) != 0) { printf("FAIL t10 parse\n"); return 1; }
+		if (it.chain_id != 56) { printf("FAIL t10 chain_id=%llu\n", (unsigned long long)it.chain_id); return 1; }
+		printf("PASS t10 legacy EIP-155 chain_id recovered\n");
+	}
+
+	/* 11 M2: EIP-2930 (type 0x01) fields in the right order, not misread
+	 * as legacy. chainId=1, gasPrice=20, gasLimit=21000, value=777. */
+	{
+		uint8_t inner[1024]; size_t io = 0;
+		io += rlp_u(inner + io, 1);        /* chainId */
+		io += rlp_u(inner + io, 1);        /* nonce */
+		io += rlp_u(inner + io, 20);       /* gasPrice */
+		io += rlp_u(inner + io, 21000);    /* gasLimit */
+		io += rlp_str(inner + io, to, 20); /* to */
+		io += rlp_u(inner + io, 777);      /* value */
+		io += rlp_str(inner + io, NULL, 0);/* data */
+		io += rlp_hdr(inner + io, 1, 0);   /* accessList: empty list */
+		size_t h = rlp_hdr(buf + 1, 1, io);
+		memcpy(buf + 1 + h, inner, io);
+		buf[0] = 0x01;
+		size_t n2 = 1 + h + io;
+		if (os_clearsign_parse_evm(buf, n2, &it) != 0) { printf("FAIL t11 parse\n"); return 1; }
+		if (it.chain_id != 1 || it.amount != 777 || it.fee_limit != 20ull*21000) {
+			printf("FAIL t11 chain=%llu amt=%llu fee=%llu\n",
+			       (unsigned long long)it.chain_id, (unsigned long long)it.amount,
+			       (unsigned long long)it.fee_limit); return 1; }
+		printf("PASS t11 eip-2930 parsed in correct field order\n");
 	}
 
 	printf("\nALL CLEARSIGN TESTS PASSED\n");

@@ -72,6 +72,14 @@ const char *os_clearsign_method_name(const uint8_t selector[4]);
 /* Convenience: is this an unlimited (uint256 max) approval amount? */
 bool os_clearsign_is_unlimited_amount(const uint8_t amount32[32]);
 
+/* Build a minimal legacy EVM demo tx (nonce=1, gasPrice=<gp>, gasLimit=<gl>,
+ * to=<to20>, value=<value>, data empty) with correct RLP encoding. Writes
+ * into `out` (>=64 bytes) and returns the length, or 0 on overflow.
+ * Used by the on-device demo flow and by tests so the two can never drift. */
+size_t os_clearsign_build_demo_legacy(uint8_t *out, uint64_t gasPrice,
+                                      uint64_t gasLimit,
+                                      const uint8_t to[20], uint64_t value);
+
 #ifdef __cplusplus
 }
 #endif

@@ -16,8 +16,7 @@
 #include <stdio.h>
 #include <stdint.h>
 
-/* ---- tiny RLP reader ---- */
-typedef struct {
+/* ---- tiny RLP reader ---- */typedef struct {
 	const uint8_t *p;
 	size_t len;
 } rlp;
@@ -233,6 +232,39 @@ int os_clearsign_parse_evm(const uint8_t *raw, size_t len, os_tx_intent *o)
 	decode_erc20(dat.ptr, dat.len, o);
 	if (o->kind == OS_INTENT_UNKNOWN) {
 		/* keep recipient address; data_hash already set */
+	}
+	return 0;
+}
+
+/* ---- legacy tx builder (RLP) ---- */
+
+/* RLP single uint64, returns bytes written. */
+static size_t rlp_uint(uint8_t *out, uint64_t v)
+{
+	if (v < 0x80) { out[0] = (uint8_t)v; return 1; }
+	uint8_t be[8]; size_t nb = 0;
+	while (v) { be[7 - nb] = (uint8_t)(v & 0xff); v >>= 8; nb++; }
+	out[0] = (uint8_t)(0x80 + nb);
+	memcpy(out + 1, be + (8 - nb), nb);
+	return 1 + nb;
+}
+
+size_t os_clearsign_build_demo_legacy(uint8_t *out, uint64_t gasPrice,
+                                      uint64_t gasLimit,
+                                      const uint8_t to[20], uint64_t value)
+{
+	uint8_t body[64]; size_t o = 0;
+	o += rlp_uint(body + o, 1);               /* nonce */
+	o += rlp_uint(body + o, gasPrice);        /* gasPrice */
+	o += rlp_uint(body + o, gasLimit);        /* gasLimit */
+	body[o++] = (uint8_t)(0x80 + 20);         /* 20-byte to */
+	memcpy(body + o, to, 20); o += 20;
+	o += rlp_uint(body + o, value);           /* value */
+	body[o++] = 0x80;                         /* empty data */
+	if (o < 56) {
+		out[0] = (uint8_t)(0xc0 + o);         /* short list header */
+		memcpy(out + 1, body, o);
+		return 1 + o;
 	}
 	return 0;
 }

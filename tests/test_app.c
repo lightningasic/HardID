@@ -193,6 +193,23 @@ int main(void)
 
 	os_app_uninstall("usdt");
 	os_app_uninstall("xrpl2");
+
+	/* 12 shared core demo-tx builder parity: the tx the on-device demo
+	 * signs must parse to the same intent the RLP test harness builds. */
+	uint8_t dt[64]; uint8_t to11[20]; memset(to11, 0x11, sizeof to11);
+	size_t dlen = os_clearsign_build_demo_legacy(dt, 20, 21000, to11, 1000);
+	if (dlen == 0) { printf("FAIL t12 builder\n"); return 1; }
+	os_tx_intent di;
+	if (os_clearsign_parse_evm(dt, dlen, &di) != 0) { printf("FAIL t12 parse\n"); return 1; }
+	if (di.kind != OS_INTENT_TRANSFER || di.amount != 1000 ||
+	    di.fee_limit != 21000ULL * 20ULL) {
+		printf("FAIL t12 intent kind=%d amt=%llu fee=%llu\n",
+		       di.kind, (unsigned long long)di.amount,
+		       (unsigned long long)di.fee_limit); return 1;
+	}
+	if (!os_signsvc_verify_intent("eth", dt, dlen, &di)) { printf("FAIL t12 verify\n"); return 1; }
+	printf("PASS t12 demo-tx parity\n");
+
 	printf("ALL PASS\n");
 	return 0;
 }

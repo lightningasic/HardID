@@ -154,18 +154,11 @@ void screen_run_sign_for_app(const os_app *app)
 	size_t tx_len = 0;
 
 	if (app->coin_type == 60) {
-		/* minimal legacy EVM transfer: nonce=1, gasPrice=20, gas=21000,
-		 * to=0x1111..11, value=1000, data empty */
-		uint8_t tmp[64]; size_t o = 0;
-		tmp[o++] = 0x01;
-		tmp[o++] = 0x14;                     /* gasPrice=20 */
-		tmp[o++] = 0x52; tmp[o++] = 0x08;    /* gas=21000 */
-		for (int i = 0; i < 20; i++) tmp[o++] = 0x11;
-		tmp[o++] = 0x82; tmp[o++] = 0x03; tmp[o++] = 0xe8; /* value=1000 */
-		tmp[o++] = 0x80;                     /* empty data */
-		tx[0] = 0xd6;                        /* list len */
-		memcpy(tx + 1, tmp, o);
-		tx_len = 1 + o;
+		/* minimal legacy EVM transfer via shared core builder so the
+		 * on-device demo can never drift from the test harness */
+		uint8_t to[20];
+		memset(to, 0x11, sizeof to);
+		tx_len = os_clearsign_build_demo_legacy(tx, 20, 21000, to, 1000);
 	} else {
 		/* BTC: no built-in demo tx — ask host for a PSBT later. */
 		lcd_fill(C_BG);

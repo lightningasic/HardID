@@ -154,16 +154,18 @@ void screen_run_sign_for_app(const os_app *app)
 	size_t tx_len = 0;
 
 	if (app->coin_type == 60) {
-		/* minimal legacy EVM transfer: nonce=1, gasPrice=20, gas=21000,
-		 * to=0x1111..11, value=1000, data empty */
+		/* minimal legacy EVM transfer built with correct RLP:
+		 * [nonce=1, gasPrice=20, gasLimit=21000, to=0x11..11,
+		 *  value=1000, data=] */
 		uint8_t tmp[64]; size_t o = 0;
-		tmp[o++] = 0x01;
-		tmp[o++] = 0x14;                     /* gasPrice=20 */
-		tmp[o++] = 0x52; tmp[o++] = 0x08;    /* gas=21000 */
+		tmp[o++] = 0x01;                          /* nonce 1 */
+		tmp[o++] = 0x14;                          /* gasPrice 20 */
+		tmp[o++] = 0x82; tmp[o++] = 0x52; tmp[o++] = 0x08; /* gas=21000 */
+		tmp[o++] = 0x94;                          /* 20-byte string hdr */
 		for (int i = 0; i < 20; i++) tmp[o++] = 0x11;
 		tmp[o++] = 0x82; tmp[o++] = 0x03; tmp[o++] = 0xe8; /* value=1000 */
-		tmp[o++] = 0x80;                     /* empty data */
-		tx[0] = 0xd6;                        /* list len */
+		tmp[o++] = 0x80;                          /* empty data */
+		tx[0] = (uint8_t)(0xc0 + o);             /* list hdr */
 		memcpy(tx + 1, tmp, o);
 		tx_len = 1 + o;
 	} else {

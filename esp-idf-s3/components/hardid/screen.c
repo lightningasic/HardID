@@ -41,9 +41,12 @@ void screen_run_splash(void)
 	int x = (LCD_H_RES - LOGO_W) / 2;
 	lcd_bitmap(x, 60, LOGO_W, LOGO_H, logo_rgb565);
 
-	/* "HardID" wordmark, 2x scale, centered under the mark. */
+/* "HardID" wordmark, 2x scale, centered under the mark. */
 	lcd_line_scaled((LCD_H_RES - 6 * (FONT_CHAR_W + 1) * 2) / 2,
 	                60 + LOGO_H + 18, "HardID", C_LBL, C_BG, 2);
+
+	/* Hold the splash for 2 s before handing over to the menu. */
+	vTaskDelay(pdMS_TO_TICKS(2000));
 }
 
 void screen_run_sign(void)

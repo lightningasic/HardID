@@ -31,6 +31,20 @@
 #include "app_catalog.h"
 #include "signsvc.h"
 #include "screen.h"
+#include "logo.h"
+#include "font7.h"
+
+void screen_run_splash(void)
+{
+	/* Boot logo bitmap centered, HardID wordmark below it. */
+	lcd_fill(C_BG);
+	int x = (LCD_H_RES - LOGO_W) / 2;
+	lcd_bitmap(x, 60, LOGO_W, LOGO_H, logo_rgb565);
+
+	/* "HardID" wordmark, 2x scale, centered under the mark. */
+	lcd_line_scaled((LCD_H_RES - 6 * (FONT_CHAR_W + 1) * 2) / 2,
+	                60 + LOGO_H + 18, "HardID", C_LBL, C_BG, 2);
+}
 
 void screen_run_sign(void)
 {

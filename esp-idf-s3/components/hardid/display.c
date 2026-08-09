@@ -34,11 +34,9 @@
 #include "esp_log.h"
 
 #include "boot.h"
+#include "display.h"
 #include "font7.h"
 #include "font8x16.h"
-
-#define LCD_H_RES 240
-#define LCD_V_RES 320
 
 /* board pins */
 #define PIN_LCD_SCK  39
@@ -262,6 +260,28 @@ void lcd_rect_text(int x0, int y0, int x1, int y1, const char *s,
 	int cy = y0 + ((y1 - y0) - FONT_CHAR_H) / 2;
 	if (cy < 0) cy = 0;
 	lcd_line(cx, cy, s, fg, bg);
+}
+
+void lcd_bitmap(int x, int y, int w, int h, const uint16_t *rgb565)
+{
+	if (!rgb565 || w <= 0 || h <= 0)
+		return;
+	/* per-row commit, clipped to the panel */
+	uint16_t row[LCD_H_RES];
+	for (int r = 0; r < h; r++) {
+		int yy = y + r;
+		if (yy < 0 || yy >= LCD_V_RES)
+			continue;
+		int x0 = (x < 0) ? 0 : x;
+		int x1 = x + w;
+		if (x1 > LCD_H_RES) x1 = LCD_H_RES;
+		if (x0 >= x1)
+			continue;
+		const uint16_t *src = rgb565 + (size_t)r * w;
+		for (int cc = x0 - x; cc < x1 - x; cc++)
+			row[cc] = src[cc];
+		esp_lcd_panel_draw_bitmap(s_panel, x0, yy, x1, yy + 1, &row[x0 - x]);
+	}
 }
 
 int lcd_text_wrap(int x, int y, const char *s, uint16_t fg, uint16_t bg)

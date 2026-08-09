@@ -48,6 +48,9 @@ void screen_run_link_host(void);
 /* About: show hardware and firmware version, tap to return. */
 void screen_run_about(void);
 
+/* Boot splash: draw the HardID logo bitmap with the wordmark below it. */
+void screen_run_splash(void);
+
 /* App market (V2.0): list installed apps (core + runtime), show their
  * state/version, and let the user select one to sign with. Returns on
  * tap/back. */

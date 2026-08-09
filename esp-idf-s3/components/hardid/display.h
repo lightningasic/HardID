@@ -20,6 +20,10 @@
 #define C_ERR  0xF800
 #define C_WARN 0xFD20
 
+/* Panel resolution (ST7789 portrait). */
+#define LCD_H_RES 240
+#define LCD_V_RES 320
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -58,6 +62,10 @@ void lcd_rect(int x0, int y0, int x1, int y1, uint16_t color);
 /* Draw a text label centered horizontally on a filled rect, clipped to it. */
 void lcd_rect_text(int x0, int y0, int x1, int y1, const char *s,
                    uint16_t fg, uint16_t bg);
+
+/* Draw a w x h RGB565 bitmap (row-major) with (x,y) as its top-left corner.
+ * Clips to the panel. Used by the boot logo. */
+void lcd_bitmap(int x, int y, int w, int h, const uint16_t *rgb565);
 
 #ifdef __cplusplus
 }

@@ -166,6 +166,7 @@ static void boot_pin_gate(void)
 
 void ui_run(void)
 {
+	screen_run_splash();
 	boot_pin_gate();
 	for (;;) {
 		menu_draw();

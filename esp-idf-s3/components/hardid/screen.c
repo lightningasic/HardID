@@ -25,6 +25,7 @@
 #include "inter.h"
 #include "keypad.h"
 #include "app.h"
+#include "app_catalog.h"
 #include "signsvc.h"
 #include "screen.h"
 
@@ -641,6 +642,126 @@ void screen_run_about(void)
 	ui_wait_ack();
 }
 
+/* Per-app action page: SIGN (delegate flow) / DELETE (optional apps only)
+ * / BACK. Core apps are pre-installed and cannot be deleted. */
+static void screen_app_action(const os_app *app)
+{
+	for (;;) {
+		lcd_fill(C_BG);
+		lcd_line(2, 2, app->name, C_LBL, C_BG);
+		char line[48];
+		snprintf(line, sizeof line, "id %s coin %" PRIu32,
+		         app->app_id, app->coin_type);
+		lcd_line(2, 18, line, C_DIM, C_BG);
+		snprintf(line, sizeof line, "v%" PRIu32 " %s", app->version,
+		         app->is_core ? "CORE (preinstalled)" : "installed");
+		lcd_line(2, 32, line, C_DIM, C_BG);
+
+		lcd_rect_text(15, 240, 225, 278, "SIGN", C_FG, C_BTN);
+		if (!app->is_core)
+			lcd_rect_text(15, 288, 100, 318, "DELETE", C_FG, C_ERR);
+		lcd_rect_text(140, 288, 225, 318, "BACK", C_FG, C_BTN);
+
+		int px, py;
+		ui_wait_press(&px, &py);
+		int rx = px, ry = py;
+		ui_wait_release(&rx, &ry);
+		if (!(ui_pt_in(rx, ry, px - 20, py - 20, px + 20, py + 20) ||
+		      (rx == px && ry == py)))
+			continue;
+
+		if (ui_pt_in(px, py, 15, 240, 225, 278)) {
+			screen_run_sign_for_app(app);
+			return;
+		}
+		if (!app->is_core && ui_pt_in(px, py, 15, 288, 100, 318)) {
+			lcd_fill(C_BG);
+			lcd_text_wrap(2, 10, "Delete this app?", C_WARN, C_BG);
+			lcd_rect_text(15, 250, 110, 300, "DELETE", C_FG, C_ERR);
+			lcd_rect_text(130, 250, 225, 300, "CANCEL", C_FG, C_BTN);
+			for (;;) {
+				int qx, qy;
+				ui_wait_press(&qx, &qy);
+				int qrx = qx, qry = qy;
+				ui_wait_release(&qrx, &qry);
+				if (ui_pt_in(qx, qy, 15, 250, 110, 300) &&
+				    ui_pt_in(qrx, qry, 15, 250, 110, 300)) {
+					os_app_uninstall(app->app_id);
+					return;
+				}
+				if (ui_pt_in(qx, qy, 130, 250, 225, 300) &&
+				    ui_pt_in(qrx, qry, 130, 250, 225, 300))
+					break;                 /* cancel → action page */
+			}
+			continue;
+		}
+		if (ui_pt_in(px, py, 140, 288, 225, 318))
+			return;                          /* BACK */
+	}
+}
+
+/* Catalog picker: list officially reviewed apps not yet installed, OK to
+ * install, BACK to return. */
+static void screen_app_install(void)
+{
+	size_t gsel = 0;
+	for (;;) {
+		/* build the not-yet-installed subset */
+		const os_app *avail[OS_APP_MAX_INSTALLED];
+		size_t na = 0;
+		for (size_t i = 0; i < os_app_catalog_count(); i++) {
+			const os_app *c = os_app_catalog_at(i);
+			if (c && !os_app_by_id(c->app_id))
+				avail[na++] = c;
+		}
+		if (gsel >= na && na > 0)
+			gsel = na - 1;
+
+		lcd_fill(C_BG);
+		lcd_line(2, 2, "INSTALL APP", C_LBL, C_BG);
+		if (na == 0) {
+			lcd_text_wrap(2, 30, "All catalog apps installed.", C_DIM, C_BG);
+		} else {
+			int y = 34;
+			for (size_t i = 0; i < na; i++) {
+				char line[48];
+				snprintf(line, sizeof line, "%s (coin %" PRIu32 ")",
+				         avail[i]->name, avail[i]->coin_type);
+				if (i == gsel) {
+					lcd_rect(0, y - 1, 240, y + 15, C_BTN);
+					lcd_line(2, y, line, C_FG, C_BTN);
+				} else {
+					lcd_line(2, y, line, C_FG, C_BG);
+				}
+				y += 16;
+			}
+		}
+
+		lcd_rect_text(15, 288, 70, 318, "<", C_FG, C_BTN);
+		lcd_rect_text(80, 288, 160, 318, "OK", C_FG, C_BTN);
+		lcd_rect_text(170, 288, 225, 318, "BACK", C_FG, C_BTN);
+
+		int px, py;
+		ui_wait_press(&px, &py);
+		int rx = px, ry = py;
+		ui_wait_release(&rx, &ry);
+		if (!(ui_pt_in(rx, ry, px - 20, py - 20, px + 20, py + 20) ||
+		      (rx == px && ry == py)))
+			continue;
+
+		if (ui_pt_in(px, py, 15, 288, 70, 318)) {
+			if (gsel > 0) gsel--;
+		} else if (ui_pt_in(px, py, 170, 288, 225, 318)) {
+			return;                          /* BACK */
+		} else if (ui_pt_in(px, py, 80, 288, 160, 318)) {
+			if (na > 0) {
+				os_app_catalog_install(avail[gsel]->app_id);
+				/* stay; the installed app drops out of the list */
+			}
+		}
+	}
+}
+
 void screen_run_apps(void)
 {
 	/* V2.0 App market: list installed apps (core BTC/ETH + runtime
@@ -650,16 +771,18 @@ void screen_run_apps(void)
 	 * (link_esp / host-tools); this screen is the on-device view. */
 	lcd_fill(C_BG);
 	lcd_line(2, 2, "APP MARKET", C_LBL, C_BG);
-	lcd_line(2, 16, "select app to sign", C_DIM, C_BG);
+	lcd_line(2, 16, "OK: manage  [+]: install", C_DIM, C_BG);
 
 	const size_t n = os_app_count();
 	const size_t per = 7;              /* rows on a 240x320 screen */
-	size_t gsel = 0;                   /* absolute selected app index */
+	/* total selectable rows = installed apps + one "[+ INSTALL APP]" row */
+	const size_t total = n + 1;
+	size_t gsel = 0;                   /* absolute selected row index */
 
 	for (;;) {
 		size_t page = gsel / per;
 		size_t sel = gsel % per;
-		size_t pages = (n + per - 1) / per;
+		size_t pages = (total + per - 1) / per;
 
 		lcd_fill(C_BG);
 		lcd_line(2, 2, "APP MARKET", C_LBL, C_BG);
@@ -670,16 +793,23 @@ void screen_run_apps(void)
 
 		size_t rows = 0;
 		int y = 34;
-		for (size_t i = page * per; i < n && i < (page + 1) * per; i++) {
-			const os_app *a = os_app_at(i);
-			if (!a) break;
+		for (size_t i = page * per; i < total && i < (page + 1) * per; i++) {
 			char line[48];
-			snprintf(line, sizeof line, "%s %s v%" PRIu32,
-			         a->state == OS_APP_SUSPENDED ? "! " : "  ",
-			         a->name, a->version);
-			uint16_t fg = (a->state == OS_APP_SUSPENDED) ? C_ERR : C_FG;
+			uint16_t fg = C_FG;
+			if (i < n) {
+				const os_app *a = os_app_at(i);
+				if (!a) break;
+				/* [C]=preinstalled core, [+]=optional installed */
+				snprintf(line, sizeof line, "%s %s%s v%" PRIu32,
+				         a->is_core ? "[C]" : "[+]",
+				         a->state == OS_APP_SUSPENDED ? "!" : "",
+				         a->name, a->version);
+				fg = (a->state == OS_APP_SUSPENDED) ? C_ERR : C_FG;
+			} else {
+				snprintf(line, sizeof line, "+ INSTALL APP");
+				fg = C_OK;
+			}
 			if (rows == sel) {
-				/* cursor: inverted bar so OK's target is visible */
 				lcd_rect(0, y - 1, 240, y + 15, C_BTN);
 				lcd_line(2, y, line, C_FG, C_BTN);
 			} else {
@@ -689,11 +819,11 @@ void screen_run_apps(void)
 			rows++;
 		}
 
-		lcd_line(2, y + 4, "< > move cursor, OK open", C_DIM, C_BG);
+		lcd_line(2, y + 4, "< > move cursor, OK select", C_DIM, C_BG);
 
-		/* bottom nav bar: < | OK | >. The left/right keys move the cursor
-		 * through the installed apps (wrapping pages); OK opens it. On the
-		 * first app, < exits to the main menu. */
+		/* bottom nav bar: < | OK | >. Left/right move the cursor across
+		 * apps AND the install row; OK opens the app action page (or the
+		 * installer). On the first row, < exits to the main menu. */
 		lcd_rect_text(15, 288, 70, 318, "<", C_FG, C_BTN);
 		lcd_rect_text(80, 288, 160, 318, "OK", C_FG, C_BTN);
 		lcd_rect_text(170, 288, 225, 318, ">", C_FG, C_BTN);
@@ -710,27 +840,32 @@ void screen_run_apps(void)
 		/* bottom nav bar */
 		if (py >= 288) {
 			if (ui_pt_in(px, py, 15, 288, 70, 318)) {
-				/* < : cursor left/up; at the first app → exit */
 				if (gsel > 0) gsel--;
 				else { lcd_fill(C_BG); return; }
 			} else if (ui_pt_in(px, py, 170, 288, 225, 318)) {
-				if (gsel + 1 < n) gsel++;
+				if (gsel + 1 < total) gsel++;
 			} else if (ui_pt_in(px, py, 80, 288, 160, 318)) {
-				const os_app *a = os_app_at(gsel);
-				if (a && a->state != OS_APP_SUSPENDED)
-					screen_run_sign_for_app(a);
+				if (gsel < n) {
+					const os_app *a = os_app_at(gsel);
+					if (a) screen_app_action(a);
+				} else {
+					screen_app_install();
+				}
 			}
 			continue;
 		}
 
-		/* tap on an app row → move cursor there and open it directly */
+		/* tap on a row → move cursor there and open it directly */
 		size_t row = (size_t)((py - 34) / 16);
 		size_t idx = page * per + row;
-		if (row < rows && idx < n) {
+		if (row < rows && idx < total) {
 			gsel = idx;
-			const os_app *a = os_app_at(idx);
-			if (a && a->state != OS_APP_SUSPENDED)
-				screen_run_sign_for_app(a);
+			if (idx < n) {
+				const os_app *a = os_app_at(idx);
+				if (a) screen_app_action(a);
+			} else {
+				screen_app_install();
+			}
 		}
 	}
 }

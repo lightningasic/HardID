@@ -29,6 +29,10 @@
 extern "C" {
 #endif
 
+/* Upper bound on runtime-installed (non-core) apps. Shared by the registry
+ * and by the on-device install UI. */
+#define OS_APP_MAX_INSTALLED 16
+
 /* App state on the device. */
 typedef enum {
 	OS_APP_CORE,      /* built-in core app (BTC/ETH), cannot be uninstalled */

@@ -61,8 +61,6 @@ static const os_app app_eth = {
 static const os_app *s_core[OS_APP_CORE_COUNT] = { &app_btc, &app_eth };
 
 /* Runtime-installed apps (third-party). Bounded. */
-#define OS_APP_MAX_INSTALLED 16
-
 static os_app s_installed[OS_APP_MAX_INSTALLED];
 static size_t s_installed_count;
 

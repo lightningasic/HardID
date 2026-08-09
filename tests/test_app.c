@@ -7,6 +7,7 @@
 
 #include "../core/se_mock.c"
 #include "../core/app_registry.c"
+#include "../core/app_catalog.c"
 #include "../core/signsvc.c"
 #include "../core/keccak.c"
 #include "../core/clearsign.c"
@@ -260,6 +261,26 @@ int main(void)
 	o = os_signsvc_delegate("eth", tx, n, pacct, 3, confirm_ui);
 	if (o.result == OS_SIGN_OK) { printf("FAIL t15d non-hardened account signed\n"); return 1; }
 	printf("PASS t15 path policy enforced\n");
+
+	/* 16 catalog: list, install an optional app, coin/id guards, delete */
+	if (os_app_catalog_count() == 0) { printf("FAIL t16 empty catalog\n"); return 1; }
+	if (os_app_catalog_by_id("ltc") == NULL) { printf("FAIL t16a no ltc\n"); return 1; }
+	if (os_app_by_id("ltc") != NULL) { printf("FAIL t16b ltc preinstalled?\n"); return 1; }
+	/* install ltc (BTC-like, coin 2) */
+	if (os_app_catalog_install("ltc") != 0) { printf("FAIL t16c install\n"); return 1; }
+	if (os_app_by_id("ltc") == NULL) { printf("FAIL t16d not visible\n"); return 1; }
+	if (os_app_by_coin(2) == NULL) { printf("FAIL t16e coin not claimed\n"); return 1; }
+	/* re-install same id must fail (already installed) */
+	if (os_app_catalog_install("ltc") != -1) { printf("FAIL t16f dup install\n"); return 1; }
+	/* unknown catalog id */
+	if (os_app_catalog_install("nosuch") != -1) { printf("FAIL t16g unknown id\n"); return 1; }
+	/* installed catalog app is not core → deletable */
+	if (os_app_uninstall("ltc") != 0) { printf("FAIL t16h delete\n"); return 1; }
+	if (os_app_by_id("ltc") != NULL) { printf("FAIL t16i still visible\n"); return 1; }
+	/* core apps must NOT be deletable */
+	if (os_app_uninstall("btc") != -1) { printf("FAIL t16j core deleted\n"); return 1; }
+	if (os_app_uninstall("eth") != -1) { printf("FAIL t16k core deleted\n"); return 1; }
+	printf("PASS t16 catalog install/delete + core protection\n");
 
 	printf("ALL PASS\n");
 	return 0;

@@ -91,6 +91,11 @@ typedef struct se_driver {
 	int (*monotonic_read)(uint32_t *counter);
 	int (*monotonic_increment)(void);
 
+	/* DEV-ONLY: release the signing session lock without PIN entry. Real
+	 * secure elements must set this to NULL — the build is only allowed to
+	 * skip PINs when the backend actually supports re-gating. */
+	int (*dev_unlock)(void);
+
 	/* Genuine-check: sign a host challenge with the factory key so the
 	 * host can verify against the vendor certificate chain. */
 	int (*attest)(const uint8_t *challenge32, uint8_t *response, size_t *resp_len);

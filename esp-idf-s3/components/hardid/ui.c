@@ -13,6 +13,7 @@
 
 #include <string.h>
 
+#include "devcfg.h"
 #include "display.h"
 #include "inter.h"
 #include "keypad.h"
@@ -142,6 +143,16 @@ static void menu_run_sel(void)
 static void boot_pin_gate(void)
 {
 	const se_driver_t *se = se_active();
+
+	/* DEV-ONLY: no-PIN builds skip the gate entirely and pre-unlock the
+	 * SE session so signing works without any prompt. Real hardware must
+	 * keep HARDID_DEV_NO_PIN off (backend's dev_unlock stays NULL). */
+	if (os_dev_no_pin_enabled()) {
+		if (se->dev_unlock)
+			se->dev_unlock();
+		return;
+	}
+
 	bool pin_set = false;
 	if (se->is_pin_set && se->is_pin_set(&pin_set) == SE_OK && pin_set)
 		return;

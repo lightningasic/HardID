@@ -136,6 +136,15 @@ static int mock_attest(const uint8_t *ch32, uint8_t *resp, size_t *resp_len)
 	return SE_OK;
 }
 
+/* DEV-ONLY: release the session lock with no PIN. Only wired for the mock
+ * backend; production SEs must leave dev_unlock NULL so the build refuses
+ * to compile a no-PIN image over real hardware. */
+static int mock_dev_unlock(void)
+{
+	mock_unlocked = true;
+	return SE_OK;
+}
+
 static const se_driver_t mock_driver = {
 	.name = "MOCK",
 	.init = mock_init,
@@ -152,6 +161,7 @@ static const se_driver_t mock_driver = {
 	.monotonic_read = mock_mono_read,
 	.monotonic_increment = mock_mono_inc,
 	.attest = mock_attest,
+	.dev_unlock = mock_dev_unlock,
 };
 
 /* test helpers */

@@ -19,6 +19,7 @@
 
 #include "display.h"
 #include "boot.h"
+#include "devcfg.h"
 #include "pin.h"
 #include "se_driver.h"
 #include "seed.h"
@@ -135,18 +136,25 @@ void screen_run_sign_for_app(const os_app *app)
 
 	lcd_fill(C_BG);
 	lcd_line(2, 2, "Unlock to sign", C_LBL, C_BG);
-	char pin[OS_PIN_MAX_LEN + 1];
-	int n = ui_enter_pin(pin, sizeof(pin));
-	if (n < 0) { lcd_text_wrap(2, 16, "cancelled", C_ERR, C_BG); return; }
 
-	uint32_t wait;
-	bool duress;
-	int vr = se->verify_pin((const uint8_t *)pin, n, &wait, &duress);
-	os_secure_bzero(pin, sizeof(pin));
-	if (vr != SE_OK) {
-		lcd_fill(C_BG);
-		lcd_text_wrap(2, 10, "wrong PIN", C_ERR, C_BG);
-		return;
+	/* DEV-ONLY: no-PIN builds skip the unlock prompt entirely. */
+	if (os_dev_no_pin_enabled()) {
+		if (se->dev_unlock)
+			se->dev_unlock();
+	} else {
+		char pin[OS_PIN_MAX_LEN + 1];
+		int n = ui_enter_pin(pin, sizeof(pin));
+		if (n < 0) { lcd_text_wrap(2, 16, "cancelled", C_ERR, C_BG); return; }
+
+		uint32_t wait;
+		bool duress;
+		int vr = se->verify_pin((const uint8_t *)pin, n, &wait, &duress);
+		os_secure_bzero(pin, sizeof(pin));
+		if (vr != SE_OK) {
+			lcd_fill(C_BG);
+			lcd_text_wrap(2, 10, "wrong PIN", C_ERR, C_BG);
+			return;
+		}
 	}
 
 	/* V2.0: delegate signing through signsvc with the on-screen confirm
@@ -228,12 +236,14 @@ void screen_run_factory_reset(void)
 	const se_driver_t *se = se_active();
 	bool initd;
 	se->is_initialized(&initd);
-	char pin[OS_PIN_MAX_LEN + 1];
-	int pin_len;
-	if (initd) {
+
+	/* DEV-ONLY: no-PIN builds skip the ownership PIN gate (the typed
+	 * "RESET" word above is still required). */
+	if (!os_dev_no_pin_enabled() && initd) {
 		/* a PIN exists: entering the correct one proves ownership */
 		lcd_fill(C_BG);
-		pin_len = ui_enter_pin(pin, sizeof(pin));
+		char pin[OS_PIN_MAX_LEN + 1];
+		int pin_len = ui_enter_pin(pin, sizeof(pin));
 		if (pin_len < 0) {
 			lcd_text_wrap(2, 100, "cancelled", C_FG, C_BG);
 			return;
@@ -248,11 +258,12 @@ void screen_run_factory_reset(void)
 			lcd_text_wrap(2, 10, "Wrong PIN. Wipe aborted.", C_ERR, C_BG);
 			return;
 		}
-	} else {
+	} else if (!os_dev_no_pin_enabled()) {
 		/* no PIN ever set: force one before allowing a wipe so the
 		 * device cannot be wiped while unprotected */
 		lcd_fill(C_BG);
-		pin_len = ui_set_pin(pin, sizeof(pin));
+		char pin[OS_PIN_MAX_LEN + 1];
+		int pin_len = ui_set_pin(pin, sizeof(pin));
 		if (pin_len < 0) {
 			lcd_text_wrap(2, 80, "PIN setup failed", C_ERR, C_BG);
 			return;
@@ -503,24 +514,27 @@ void screen_run_initialize(void)
 	os_secure_bzero(passphrase, sizeof(passphrase));
 
 	lcd_fill(C_BG);
-	char pin[OS_PIN_MAX_LEN + 1];
-	int pin_len = ui_set_pin(pin, sizeof(pin));
-	if (pin_len < 0) {
-		os_secure_bzero(seed32, sizeof(seed32));
-		os_secure_bzero(seed64, sizeof(seed64));
-		os_secure_bzero(mnemonic, sizeof(mnemonic));
-		lcd_text_wrap(2, 80, "PIN setup failed", C_ERR, C_BG);
-		return;
+	/* PIN is optional in DEV-ONLY no-PIN builds: nothing to set. */
+	if (!os_dev_no_pin_enabled()) {
+		char pin[OS_PIN_MAX_LEN + 1];
+		int pin_len = ui_set_pin(pin, sizeof(pin));
+		if (pin_len < 0) {
+			os_secure_bzero(seed32, sizeof(seed32));
+			os_secure_bzero(seed64, sizeof(seed64));
+			os_secure_bzero(mnemonic, sizeof(mnemonic));
+			lcd_text_wrap(2, 80, "PIN setup failed", C_ERR, C_BG);
+			return;
+		}
+		se->set_pin((const uint8_t *)pin, (size_t)pin_len);
+		os_secure_bzero(pin, sizeof(pin));
 	}
-	se->set_pin((const uint8_t *)pin, (size_t)pin_len);
-	os_secure_bzero(pin, sizeof(pin));
 
 	int rc = se->store_seed(seed64);
 	lcd_fill(C_BG);
 	if (rc != SE_OK) {
 		lcd_text_wrap(2, 10, "store seed failed", C_ERR, C_BG);
 	} else {
-		lcd_text_wrap(2, 10, "Initialized OK. Seed + PIN stored.", C_OK, C_BG);
+		lcd_text_wrap(2, 10, "Initialized OK. Seed stored.", C_OK, C_BG);
 		ui_wait_ack();
 	}
 	os_secure_bzero(seed32, sizeof(seed32));
@@ -565,15 +579,18 @@ void screen_run_recover(void)
 	os_secure_bzero(seed32, sizeof(seed32));
 
 	lcd_fill(C_BG);
-	char pin[OS_PIN_MAX_LEN + 1];
-	int pin_len = ui_set_pin(pin, sizeof(pin));
-	if (pin_len < 0) {
-		os_secure_bzero(mnemonic, sizeof(mnemonic));
-		lcd_text_wrap(2, 80, "PIN setup failed", C_ERR, C_BG);
-		return;
+	/* PIN is optional in DEV-ONLY no-PIN builds: nothing to set. */
+	if (!os_dev_no_pin_enabled()) {
+		char pin[OS_PIN_MAX_LEN + 1];
+		int pin_len = ui_set_pin(pin, sizeof(pin));
+		if (pin_len < 0) {
+			os_secure_bzero(mnemonic, sizeof(mnemonic));
+			lcd_text_wrap(2, 80, "PIN setup failed", C_ERR, C_BG);
+			return;
+		}
+		se->set_pin((const uint8_t *)pin, (size_t)pin_len);
+		os_secure_bzero(pin, sizeof(pin));
 	}
-	se->set_pin((const uint8_t *)pin, (size_t)pin_len);
-	os_secure_bzero(pin, sizeof(pin));
 
 	/* Optional BIP39 passphrase. An empty passphrase yields the plain seed;
 	 * a non-empty one yields a distinct key, so it must be re-entered on
@@ -601,7 +618,7 @@ void screen_run_recover(void)
 	if (rc != SE_OK) {
 		lcd_text_wrap(2, 10, "store seed failed", C_ERR, C_BG);
 	} else {
-		lcd_text_wrap(2, 10, "Recovered. Seed + PIN stored.", C_OK, C_BG);
+		lcd_text_wrap(2, 10, "Recovered. Seed stored.", C_OK, C_BG);
 		ui_wait_ack();
 	}
 }

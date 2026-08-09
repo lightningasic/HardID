@@ -33,3 +33,17 @@ config HARDID_SE_ACL16_FULL
         S3 build. Only meaningful when the ACL16 hardware is present.
 
 endmenu
+
+menu "HardID development options"
+
+config HARDID_DEV_NO_PIN
+    bool "Development: disable PIN prompts AND PIN gating"
+    depends on HARDID_SE_MOCK
+    default n
+    help
+        Bring-up convenience: skips every on-screen PIN prompt and treats
+        the secure element as already unlocked. DEVELOPMENT ONLY — real
+        devices must ship with this off. When enabled the sign/watch flows
+        run without any PIN entry. Requires the mock SE backend.
+
+endmenu

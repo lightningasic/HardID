@@ -24,6 +24,7 @@
 #include "driver/usb_serial_jtag.h"
 
 #include "display.h"
+#include "devcfg.h"
 #include "pin.h"
 #include "se_driver.h"
 #include "secure_zero.h"
@@ -65,18 +66,24 @@ void screen_run_link_host(void)
 {
 	s_se = se_active();
 
-	/* require a successful PIN unlock before serving any request */
-	char pin[OS_PIN_MAX_LEN + 1];
-	int n = ui_enter_pin(pin, sizeof(pin));
-	if (n < 0) { lcd_text_wrap(2, 80, "cancelled", C_ERR, C_BG); return; }
-	uint32_t wait; bool duress;
-	int vr = s_se->verify_pin((const uint8_t *)pin, (size_t)n, &wait, &duress);
-	os_secure_bzero(pin, sizeof(pin));
-	if (vr != SE_OK) {
-		lcd_fill(C_BG);
-		lcd_text_wrap(2, 10, "wrong PIN", C_ERR, C_BG);
-		ui_wait_ack();
-		return;
+	/* DEV-ONLY: no-PIN builds skip the unlock prompt (mock auto-unlocks). */
+	if (os_dev_no_pin_enabled()) {
+		if (s_se->dev_unlock)
+			s_se->dev_unlock();
+	} else {
+		/* require a successful PIN unlock before serving any request */
+		char pin[OS_PIN_MAX_LEN + 1];
+		int n = ui_enter_pin(pin, sizeof(pin));
+		if (n < 0) { lcd_text_wrap(2, 80, "cancelled", C_ERR, C_BG); return; }
+		uint32_t wait; bool duress;
+		int vr = s_se->verify_pin((const uint8_t *)pin, (size_t)n, &wait, &duress);
+		os_secure_bzero(pin, sizeof(pin));
+		if (vr != SE_OK) {
+			lcd_fill(C_BG);
+			lcd_text_wrap(2, 10, "wrong PIN", C_ERR, C_BG);
+			ui_wait_ack();
+			return;
+		}
 	}
 
 	hd_link_se_t lse;

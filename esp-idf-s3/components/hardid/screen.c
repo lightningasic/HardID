@@ -789,13 +789,17 @@ void screen_run_apps(void)
 	lcd_line(2, 2, "APP MARKET", C_LBL, C_BG);
 	lcd_line(2, 16, "OK: manage  [+]: install", C_DIM, C_BG);
 
-	const size_t n = os_app_count();
 	const size_t per = 7;              /* rows on a 240x320 screen */
-	/* total selectable rows = installed apps + one "[+ INSTALL APP]" row */
-	const size_t total = n + 1;
 	size_t gsel = 0;                   /* absolute selected row index */
 
 	for (;;) {
+		/* re-read the live count each pass so apps installed via the
+		 * catalog (or deleted) appear/disappear immediately. */
+		const size_t n = os_app_count();
+		/* selectable rows = installed apps + one "[+ INSTALL APP]" row */
+		const size_t total = n + 1;
+		if (gsel >= total)
+			gsel = total - 1;
 		size_t page = gsel / per;
 		size_t sel = gsel % per;
 		size_t pages = (total + per - 1) / per;

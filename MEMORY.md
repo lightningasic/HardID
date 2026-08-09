@@ -1,5 +1,45 @@
 # MEMORY.md
 
+## V2.0 架构升级与多轮循环审计 (当前主线, 2026-08)
+
+### 架构决策 (用户确认)
+- 主私钥 = BIP32 根种子; App 部署 = 运行期动态安装; 市场 = 官方审查制;
+  签名 = 委派给系统固件 (App 永不接触私钥); App = 官方核心+三方提交;
+  Clear Sign 解析 = App 自带解析器。
+- 签名唯一入口 `os_signsvc_delegate`; WYSIWYS 用固件 clean-room 独立解析器
+  fw_reparse (按 coin_type 分派) 与 App intent 精确比对, 不是重跑 App.parse。
+- 无固件解析器的链拒绝签名 (与官方审查制一致)。
+
+### 提交链 (本地 main, 领先 origin)
+- `0af3021` V2.0 app 架构 (core/app.h, app_registry, signsvc) + S3/P4 + 测试
+- `af0dcc7` 自审计轮1 (verify data_hash, 防重注册, OS_SIGN_LOCKED, UI接入)
+- `9524843` 自审计轮2 (EVM demo tx RLP 修复 + 统一 demo builder + t12 parity)
+- `260cc42` kimi轮1: H1(>8B整数拒绝) H2(长度回绕) H3(固件独立解析) M3/M4/M5/M6/M9/M12
+- `b236233` kimi轮2: M7(suspended coin保留) M13(path白名单+硬化) M1(chainId) M2(2930) L2/L3/L4/L5/L6/L10
+
+### 测试
+- host 全回归 20 套件绿, 除 **test_composite t3 (pin) 预存失败** — 与审计修复无关,
+  只依赖 hal/se_* (se_transport/se_acl16/se_composite), 自 bb5db78 未改, 脚本化交互问题。
+- test_app 已入 CI (.github/workflows/host-tests.yml)。
+- 双固件 S3 (ilp32f) + P4 构建过。
+
+### 阻塞项 (真机联调/真实资金/发布前必须解决)
+- **M10b BTC 多输出隐藏**: 已在固件解析器用保守方案 (多输出显示总额+HIGH risk)。
+  彻底方案 (逐笔翻页确认) 待 UI 支持。
+- **M11 签名 digest 占位**: BTC 对 PSBT 字节 double-SHA256 (非 BIP143 sighash),
+  EVM legacy 缺 EIP-155 chainId 注入 + v/r/s 组装。当前签名无链上语义, 真机联调阻塞。
+  witness_utxo amount 已在 psbt.c 读出未保存 (BIP143 需要)。
+- **M8 防降级根治**: 版本墓碑持久化 (NVS) + SE 单调计数器接线 (hal/se_acl16 已实现
+  但无固件调用者) + OTA 升级通道。当前 s_installed 是 RAM 数组, 重启即清空。
+- **M14 App 沙箱**: parse() 与固件同特权级, 无 MPU/沙箱 trampoline。V2.0 隔离声明
+  需文档标注为未完成项。
+
+### 可延后项
+- M10a BTC 找零检测 (change_check=NULL 恒 false, "self change" 分支死代码,
+  失效方向安全: 找零被当外部支付多显示, 不藏钱)。
+- L8/L9 并发项 (registry 无锁, uninstall 指针悬垂 — 取决并发模型, 当前单任务安全)。
+- L12/L13/L14 (死代码/枚举语义/demo builder 长列表头)。
+
 ## 状态:恢复键盘流畅度调试中,彩条问题暂搁置
 
 ## 已完成 (本次会话)

@@ -82,14 +82,31 @@ typedef struct se_driver {
 	 * device is now blank. Must be PIN/PROVENANCE gated by the caller. */
 	int (*wipe)(void);
 
-	/* Derive an ephemeral session key from the stored base seed plus a
-	 * user-supplied passphrase (Trezor-style). The base seed stored by
-	 * store_seed is the passphrase-less BIP39 seed; this op folds the
-	 * passphrase in to produce the session seed actually used for signing
-	 * and xpub derivation. The derived key is volatile — it is NOT stored
-	 * in SE NVM and is gone after wipe/power-cycle, so the passphrase must
-	 * be re-entered on every unlock. Passing NULL/empty passphrase clears
-	 * the session back to the plain base seed. SE_OK on success. */
+	/* HardID passphrase derivation spec (design decision H-1, 2026-08-10):
+	 *
+	 *   base    = PBKDF2-HMAC-SHA512(mnemonic, "mnemonic", 2048)  [BIP39 std]
+	 *   session = PBKDF2-HMAC-SHA512(base, "mnemonic" || pass, 2048) [HardID]
+	 *
+	 * The SE stores ONLY `base` (the passphrase-less BIP39 seed). This op
+	 * folds the user passphrase into a VOLATILE session seed used for
+	 * signing and xpub derivation. The session seed is never written to SE
+	 * NVM — gone after wipe/power-cycle, so the passphrase is re-entered
+	 * on every boot. NULL/empty passphrase clears the session back to the
+	 * plain base seed. SE_OK on success.
+	 *
+	 * NOT BIP39-standard: BIP39 defines seed = PBKDF2(mnemonic_text, salt),
+	 * while HardID chains PBKDF2(base, salt). The mnemonic text is never
+	 * stored, so the standard one-shot KDF cannot be recomputed on boot.
+	 * Consequences:
+	 *   - Empty-passphrase accounts are FULLY BIP39-compatible (recoverable
+	 *     in any standard wallet).
+	 *   - Passphrase accounts live in a HardID-specific keyspace. Recovery
+	 *     off-device is still possible with any PBKDF2 tool: compute base
+	 *     from the mnemonic (standard BIP39, empty passphrase), then apply
+	 *     the second KDF above. Reference vector: tests/test_se.c t8.
+	 * The security properties (per-passphrase keyspaces, plausible
+	 * deniability, wrong-passphrase -> valid-but-empty wallet) are
+	 * preserved; only cross-vendor one-step recovery is given up. */
 	int (*derive_session)(const uint8_t *passphrase, size_t len);
 
 	/* Auto-sign policy: authorize amount under policy_id, or report that

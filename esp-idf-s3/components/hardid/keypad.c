@@ -45,7 +45,8 @@ typedef struct {
 	int x0, y0, x1, y1;
 } kp_cell;
 
-static int s_mode = 0;   /* 0 numeric, 1 alpha */
+static int s_mode = 0;   /* 0 numeric, 1 upper, 2 lower, 3 digits+symbols */
+static int s_cycle3 = 0; /* passphrase capture cycles pages 1->2->3->1 */
 
 static int kp_build(kp_cell *cells, int maxcells)
 {
@@ -88,7 +89,18 @@ static int kp_build(kp_cell *cells, int maxcells)
 			n++;
 		}
 	} else {
-		static const char alpha[26] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+		/* Character pages: 1 = A-Z, 2 = a-z, 3 = digits + symbols.
+		 * kp_capture (PIN/RESET) only ever uses modes 0/1; the 3-page
+		 * cycle is armed by kp_capture_alpha (passphrase entry), where
+		 * the toggle key rotates 1 -> 2 -> 3 -> 1. BIP39 passphrases are
+		 * case-sensitive arbitrary UTF-8, so an uppercase-only page would
+		 * silently shrink the user's keyspace. Page 3 holds 26 chars:
+		 * 10 digits + 16 common symbols. */
+		static const char page_upper[26] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+		static const char page_lower[26] = "abcdefghijklmnopqrstuvwxyz";
+		static const char page_sym[26]   = "0123456789!@#$%^&*()-_=+,.";
+		const char *alpha = (s_mode == 2) ? page_lower :
+		                    (s_mode == 3) ? page_sym : page_upper;
 		int idx = 0;
 		for (int r = 0; r < 5; r++) {
 			for (int c = 0; c < KP_ALPHA_COLS; c++) {
@@ -128,7 +140,15 @@ static const char *kp_label(int kind)
 	switch (kind) {
 	case KEY_BACK:   return "DEL";
 	case KEY_ENTER:  return "OK";
-	case KEY_TOGGLE: return s_mode ? "123" : "ABC";
+	case KEY_TOGGLE:
+		/* label names the page the toggle will move TO */
+		if (s_mode == 0) return "ABC";
+		if (s_cycle3) {
+			if (s_mode == 1) return "abc";
+			if (s_mode == 2) return "1#$";
+			return "ABC";
+		}
+		return "123";
 	case KEY_SPACE:  return "SPC";
 	default:
 		{
@@ -241,17 +261,34 @@ static void kp_paint_cell(const kp_cell *c, int highlight)
 	lcd_rect_text(c->x0, c->y0, c->x1, c->y1, lbl, C_FG, bg);
 }
 
+/* Render one character big, centered in the preview box. font8x16 only
+ * covers A-Z/space; lowercase, digits and symbols fall back to font7
+ * (full printable ASCII) at a matching scale so every passphrase page
+ * previews what is under the finger. */
+static void kp_big_char(int x0, int y0, int x1, int y1, int ch)
+{
+	if (ch >= 'A' && ch <= 'Z') {
+		int scale = 3;
+		int tw = F8_W * scale, th = F8_H * scale;
+		int cx = x0 + ((x1 - x0) - tw) / 2;
+		int cy = y0 + ((y1 - y0) - th) / 2;
+		lcd_gl8x16(cx, cy, (char)ch, C_FG, C_BG, scale);
+	} else {
+		int scale = 6;   /* font7: 5x7 -> 30x42, fits the 84x78 box */
+		int tw = FONT_CHAR_W * scale, th = FONT_CHAR_H * scale;
+		int cx = x0 + ((x1 - x0) - tw) / 2;
+		int cy = y0 + ((y1 - y0) - th) / 2;
+		char s[2] = { (char)ch, '\0' };
+		lcd_line_scaled(cx, cy, s, C_FG, C_BG, scale);
+	}
+}
+
 static void kp_float_box(int ch)
 {
 	/* clear the preview region; no colored outline block */
 	lcd_rect(PREV_X0, PREV_Y0, PREV_X1, PREV_Y1, C_BG);
 	if (ch < 0 || ch == KEY_SPACE) return;
-	/* high-res 8x16 glyph at scale 3 -> 24x48, centered in 84x78 box */
-	int scale = 3;
-	int tw = F8_W * scale, th = F8_H * scale;
-	int cx = PREV_X0 + ((PREV_X1 - PREV_X0) - tw) / 2;
-	int cy = PREV_Y0 + ((PREV_Y1 - PREV_Y0) - th) / 2;
-	lcd_gl8x16(cx, cy, (char)ch, C_FG, C_BG, scale);
+	kp_big_char(PREV_X0, PREV_Y0, PREV_X1, PREV_Y1, ch);
 }
 
 static int kp_hit(kp_cell *cells, int n, int x, int y)
@@ -264,7 +301,8 @@ static int kp_hit(kp_cell *cells, int n, int x, int y)
 
 int kp_capture_alpha(const char *title, char *out, int max)
 {
-	s_mode = 1;   /* force the alphabetic keypad layout */
+	s_mode = 1;     /* start on the uppercase page */
+	s_cycle3 = 1;   /* toggle cycles upper -> lower -> digits/symbols */
 	kp_cell cells[40];
 	int n = kp_build(cells, 40);
 	int len = 0;
@@ -301,8 +339,15 @@ int kp_capture_alpha(const char *title, char *out, int max)
 				int kind = cells[hover].kind;
 				kp_paint_cell(&cells[hover], 0);
 				hover = -1;
-				if (kind == KEY_ENTER) { out[len] = '\0'; return 0; }
-				if (kind == KEY_BACK) {
+				if (kind == KEY_ENTER) {
+					out[len] = '\0';
+					s_mode = 1; s_cycle3 = 0;
+					return 0;
+				}
+				if (kind == KEY_TOGGLE) {
+					s_mode = (s_mode % 3) + 1;   /* 1->2->3->1 */
+					n = kp_build(cells, 40);
+				} else if (kind == KEY_BACK) {
 					if (len > 0) len--;
 					out[len] = '\0';
 				} else if (kind == KEY_SPACE) {
@@ -389,12 +434,7 @@ static void kp_float_preview(int ch, const char *cur, int ncur, int prev_wi)
 {
 	lcd_rect(PREV_X0, PREV_Y0, PREV_X1, PREV_Y1, C_BG);
 	if (ch > 0 && ch != KEY_SPACE) {           /* hovered key */
-		char s[2] = { (char)ch, '\0' };
-		int scale = 3;
-		int tw = F8_W * scale, th = F8_H * scale;
-		int cx = PREV_X0 + ((PREV_X1 - PREV_X0) - tw) / 2;
-		int cy = PREV_Y0 + ((PREV_Y1 - PREV_Y0) - th) / 2;
-		lcd_gl8x16(cx, cy, s[0], C_FG, C_BG, scale);
+		kp_big_char(PREV_X0, PREV_Y0, PREV_X1, PREV_Y1, ch);
 	} else if (ncur > 0) {           /* prefix in progress */
 		char s[5];
 		int n = ncur < 4 ? ncur : 4;

@@ -13,6 +13,7 @@
 #include "esp_random.h"
 #include "esp_chip_info.h"
 #include "esp_flash.h"
+#include "esp_app_desc.h"
 
 #include "display.h"
 #include "boot.h"
@@ -575,8 +576,14 @@ void screen_run_about(void)
 	snprintf(line, sizeof line, "Cores %d", ci.cores);
 	lcd_line(2, 50, line, C_FG, C_BG);
 
+	/* semantic version + git commit (from the app descriptor, so the
+	 * on-device screen can always be matched to the exact source build) */
 	snprintf(line, sizeof line, "Firmware " HARDID_FW_VERSION);
 	lcd_line(2, 64, line, C_FG, C_BG);
+
+	const esp_app_desc_t *ad = esp_app_get_description();
+	snprintf(line, sizeof line, "Build %s", ad->version);
+	lcd_line(2, 78, line, C_FG, C_BG);
 
 	ui_wait_ack();
 }

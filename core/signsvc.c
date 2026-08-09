@@ -118,11 +118,13 @@ bool os_signsvc_verify_intent(const char *app_id,
 	if (fw_reparse(app->coin_type, tx, tx_len, &fresh) != 0)
 		return false;
 
-	/* Normalize the native symbol on BOTH intents before comparing, so a
+	/* Normalize the native symbol on LOCAL COPIES before comparing, so a
 	 * catalog chain (LTC via the BTC parser, ETC via the EVM parser) shows
-	 * its own token and the two derivations stay identical. */
+	 * its own token and the two derivations stay identical. The caller's
+	 * intent is never mutated. */
+	os_tx_intent shown = *intent;
 	apply_native_symbol(app->coin_type, &fresh);
-	apply_native_symbol(app->coin_type, (os_tx_intent *)intent);
+	apply_native_symbol(app->coin_type, &shown);
 
 	/* Compare the display-critical fields. The parser is deterministic
 	 * and clean-room, so a match here means "what we will render equals
@@ -130,19 +132,19 @@ bool os_signsvc_verify_intent(const char *app_id,
 	 * hash is the only thing the user sees — it MUST match too, or a
 	 * malicious/buggy app could show a benign-looking hash while the
 	 * bytes being signed encode something else. */
-	return fresh.kind == intent->kind &&
-	       fresh.risk == intent->risk &&
-	       fresh.chain == intent->chain &&
-	       fresh.amount == intent->amount &&
-	       fresh.fee_limit == intent->fee_limit &&
-	       fresh.unlimited_approval == intent->unlimited_approval &&
-	       fresh.chain_id == intent->chain_id &&
-	       memcmp(fresh.to, intent->to, sizeof(fresh.to)) == 0 &&
-	       memcmp(fresh.method, intent->method, sizeof(fresh.method)) == 0 &&
-	       memcmp(fresh.symbol, intent->symbol, sizeof(fresh.symbol)) == 0 &&
-	       memcmp(fresh.amount_token, intent->amount_token,
+	return fresh.kind == shown.kind &&
+	       fresh.risk == shown.risk &&
+	       fresh.chain == shown.chain &&
+	       fresh.amount == shown.amount &&
+	       fresh.fee_limit == shown.fee_limit &&
+	       fresh.unlimited_approval == shown.unlimited_approval &&
+	       fresh.chain_id == shown.chain_id &&
+	       memcmp(fresh.to, shown.to, sizeof(fresh.to)) == 0 &&
+	       memcmp(fresh.method, shown.method, sizeof(fresh.method)) == 0 &&
+	       memcmp(fresh.symbol, shown.symbol, sizeof(fresh.symbol)) == 0 &&
+	       memcmp(fresh.amount_token, shown.amount_token,
 	              sizeof(fresh.amount_token)) == 0 &&
-	       memcmp(fresh.data_hash, intent->data_hash,
+	       memcmp(fresh.data_hash, shown.data_hash,
 	              sizeof(fresh.data_hash)) == 0;
 }
 
@@ -223,24 +225,17 @@ os_sign_outcome os_signsvc_delegate(const char *app_id,
 		return out;
 	}
 
-	/* 3. Render + user confirmation (UI hook). A NULL confirm is a
-	 *    test-only bypass and is compiled out of production builds; it must
-	 *    never be reachable from a real UI path. */
-#if defined(CONFIG_SIGNSVC_ALLOW_NULL_CONFIRM) || defined(HARDID_HOST_TEST)
-	if (confirm && !confirm(&intent)) {
-		out.result = OS_SIGN_REJECTED;
-		return out;
-	}
-#else
+	/* 3. Render + user confirmation (UI hook). A NULL confirm is ALWAYS a
+	 *    hard abort: there is no test bypass, and no build configuration
+	 *    compiles in signing without an explicit on-device confirmation. */
 	if (!confirm) {
-		out.result = OS_SIGN_ABORT;      /* production: no confirm hook, abort */
+		out.result = OS_SIGN_ABORT;
 		return out;
 	}
 	if (!confirm(&intent)) {
 		out.result = OS_SIGN_REJECTED;
 		return out;
 	}
-#endif
 
 	/* 4. Hash the raw tx with the app's chain context. EVM-family: keccak256
 	 *    of raw tx. BTC-family: double-SHA256 of the serialized tx to sign.

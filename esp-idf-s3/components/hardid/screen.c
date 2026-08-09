@@ -417,13 +417,31 @@ static int prompt_passphrase(char *out, size_t out_max)
 void screen_boot_passphrase_gate(void)
 {
 	const se_driver_t *se = se_active();
-	if (!se || !se->derive_session)
+	if (!se || !se->is_initialized)
 		return;
+
 	bool initd = false;
-	if (se->is_initialized && se->is_initialized(&initd) != SE_OK)
+	if (se->is_initialized(&initd) != SE_OK) {
+		/* Cannot determine state: fail LOUD, not open. Silently skipping
+		 * would run the device on the base seed while the user believes a
+		 * passphrase session is armed. */
+		lcd_fill(C_BG);
+		lcd_text_wrap(2, 10, "SE status error — passphrase gate failed",
+		              C_ERR, C_BG);
+		ui_wait_ack();
 		return;
+	}
 	if (!initd)
 		return;
+	if (!se->derive_session) {
+		/* An initialized device whose backend cannot arm a passphrase
+		 * session must say so — never run on the base seed in silence. */
+		lcd_fill(C_BG);
+		lcd_text_wrap(2, 10, "Backend lacks passphrase support",
+		              C_ERR, C_BG);
+		ui_wait_ack();
+		return;
+	}
 
 	char pass[OS_BIP39_MNEMONIC_MAX];
 	int prc = prompt_passphrase(pass, sizeof(pass));

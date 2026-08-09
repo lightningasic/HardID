@@ -57,11 +57,10 @@ typedef struct {
  *              coin_type branch must match the app's coin_type.
  *  path_len  — number of path components.
  *  confirm   — UI callback that renders `intent` and asks the user;
- *              returns true if confirmed, false if rejected. NULL is a
- *              TEST-ONLY bypass, compiled out of production builds (see
- *              CONFIG_SIGNSVC_ALLOW_NULL_CONFIRM / HARDID_HOST_TEST); a
- *              production build passes NULL → OS_SIGN_ABORT, it never
- *              silently signs.
+ *              returns true if confirmed, false if rejected. NULL is
+ *              NEVER a bypass: every build (host tests included) maps
+ *              NULL → OS_SIGN_ABORT. Signing without an explicit
+ *              on-device confirmation is not compilable.
  *
  * The SE must already be PIN-unlocked by the caller (boot/UI policy).
  * Returns the outcome; signature present iff result == OS_SIGN_OK.

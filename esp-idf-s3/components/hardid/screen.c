@@ -680,9 +680,11 @@ void screen_run_apps(void)
 
 		lcd_line(2, y + 4, "tap app to sign", C_DIM, C_BG);
 
-		/* bottom nav bar: BACK | prev-page | next-page */
-		lcd_rect_text(15, 288, 90, 318, "BACK", C_FG, C_BTN);
-		lcd_rect_text(100, 288, 160, 318, "PREV", C_FG, C_BTN);
+		/* bottom nav bar: PREV | BACK | NEXT. BACK is centered to match
+		 * every other screen's nav; PREV/NEXT only matter when the app
+		 * list spans more than one page (currently it fits on one). */
+		lcd_rect_text(15, 288, 70, 318, "PREV", C_FG, C_BTN);
+		lcd_rect_text(80, 288, 160, 318, "BACK", C_FG, C_BTN);
 		lcd_rect_text(170, 288, 225, 318, "NEXT", C_FG, C_BTN);
 
 		int px, py;
@@ -696,11 +698,11 @@ void screen_run_apps(void)
 
 		/* bottom nav bar */
 		if (py >= 288) {
-			if (ui_pt_in(px, py, 15, 288, 90, 318)) {
+			if (ui_pt_in(px, py, 80, 288, 160, 318)) {
 				lcd_fill(C_BG);
 				return;                  /* BACK → main menu */
 			}
-			if (ui_pt_in(px, py, 100, 288, 160, 318) && page > 0)
+			if (ui_pt_in(px, py, 15, 288, 70, 318) && page > 0)
 				page--;
 			else if (ui_pt_in(px, py, 170, 288, 225, 318) && page + 1 < pages)
 				page++;

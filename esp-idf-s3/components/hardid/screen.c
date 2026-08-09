@@ -654,11 +654,13 @@ void screen_run_apps(void)
 
 	const size_t n = os_app_count();
 	const size_t per = 7;              /* rows on a 240x320 screen */
-	const size_t pages = (n + per - 1) / per;
-	size_t page = 0;
-	size_t sel = 0;                    /* selected row within the page */
+	size_t gsel = 0;                   /* absolute selected app index */
 
 	for (;;) {
+		size_t page = gsel / per;
+		size_t sel = gsel % per;
+		size_t pages = (n + per - 1) / per;
+
 		lcd_fill(C_BG);
 		lcd_line(2, 2, "APP MARKET", C_LBL, C_BG);
 		char head[48];
@@ -666,7 +668,7 @@ void screen_run_apps(void)
 		         pages > 0 ? pages : 1);
 		lcd_line(2, 16, head, C_DIM, C_BG);
 
-		size_t rows = 0;               /* rows actually on this page */
+		size_t rows = 0;
 		int y = 34;
 		for (size_t i = page * per; i < n && i < (page + 1) * per; i++) {
 			const os_app *a = os_app_at(i);
@@ -677,7 +679,7 @@ void screen_run_apps(void)
 			         a->name, a->version);
 			uint16_t fg = (a->state == OS_APP_SUSPENDED) ? C_ERR : C_FG;
 			if (rows == sel) {
-				/* selected row: inverted bar so OK's target is visible */
+				/* cursor: inverted bar so OK's target is visible */
 				lcd_rect(0, y - 1, 240, y + 15, C_BTN);
 				lcd_line(2, y, line, C_FG, C_BTN);
 			} else {
@@ -686,16 +688,15 @@ void screen_run_apps(void)
 			y += 16;
 			rows++;
 		}
-		if (sel >= rows && rows > 0)
-			sel = rows - 1;
 
-		lcd_line(2, y + 4, "tap row / OK to open", C_DIM, C_BG);
+		lcd_line(2, y + 4, "< > move cursor, OK open", C_DIM, C_BG);
 
-		/* bottom nav bar: BACK | OK | NEXT. BACK doubles as PREV (goes to
-		 * the previous page; on page 0 it returns to the main menu). */
-		lcd_rect_text(15, 288, 70, 318, "BACK", C_FG, C_BTN);
+		/* bottom nav bar: < | OK | >. The left/right keys move the cursor
+		 * through the installed apps (wrapping pages); OK opens it. On the
+		 * first app, < exits to the main menu. */
+		lcd_rect_text(15, 288, 70, 318, "<", C_FG, C_BTN);
 		lcd_rect_text(80, 288, 160, 318, "OK", C_FG, C_BTN);
-		lcd_rect_text(170, 288, 225, 318, "NEXT", C_FG, C_BTN);
+		lcd_rect_text(170, 288, 225, 318, ">", C_FG, C_BTN);
 
 		int px, py;
 		if (!ui_wait_press(&px, &py))
@@ -709,35 +710,27 @@ void screen_run_apps(void)
 		/* bottom nav bar */
 		if (py >= 288) {
 			if (ui_pt_in(px, py, 15, 288, 70, 318)) {
-				/* BACK: previous page, or exit on the first page */
-				if (page > 0) { page--; sel = 0; }
+				/* < : cursor left/up; at the first app → exit */
+				if (gsel > 0) gsel--;
 				else { lcd_fill(C_BG); return; }
 			} else if (ui_pt_in(px, py, 170, 288, 225, 318)) {
-				if (page + 1 < pages) { page++; sel = 0; }
+				if (gsel + 1 < n) gsel++;
 			} else if (ui_pt_in(px, py, 80, 288, 160, 318)) {
-				/* OK: open the selected app */
-				size_t idx = page * per + sel;
-				if (idx < n) {
-					const os_app *a = os_app_at(idx);
-					if (a && a->state != OS_APP_SUSPENDED)
-						screen_run_sign_for_app(a);
-				}
+				const os_app *a = os_app_at(gsel);
+				if (a && a->state != OS_APP_SUSPENDED)
+					screen_run_sign_for_app(a);
 			}
 			continue;
 		}
 
-		/* tap on an app row → select it (shows the highlight); a second
-		 * tap on the same row opens it. */
+		/* tap on an app row → move cursor there and open it directly */
 		size_t row = (size_t)((py - 34) / 16);
 		size_t idx = page * per + row;
 		if (row < rows && idx < n) {
-			if (row == sel) {
-				const os_app *a = os_app_at(idx);
-				if (a && a->state != OS_APP_SUSPENDED)
-					screen_run_sign_for_app(a);
-			} else {
-				sel = row;
-			}
+			gsel = idx;
+			const os_app *a = os_app_at(idx);
+			if (a && a->state != OS_APP_SUSPENDED)
+				screen_run_sign_for_app(a);
 		}
 	}
 }

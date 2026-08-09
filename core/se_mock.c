@@ -121,6 +121,7 @@ static int mock_wipe(void)
 	mock_session_active = 0;
 	mock_counter = 0;
 	mock_rng_seq = 1;
+	memset(mock_pin, 0, sizeof(mock_pin));
 	mock_pin_len = 0;
 	mock_unlocked = false;
 	return SE_OK;

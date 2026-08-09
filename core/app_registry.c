@@ -21,34 +21,10 @@
 
 static int btc_parse(const uint8_t *tx, size_t len, os_tx_intent *o)
 {
-	os_psbt_summary s;
-
-	/* No change-check callback here: the caller (signsvc) can pass one
-	 * through if it can derive addresses; keep it simple + strict. */
-	if (os_psbt_parse(tx, len, NULL, &s) != 0)
-		return -1;
-
-	memset(o, 0, sizeof(*o));
-	o->chain = OS_CHAIN_BTC;
-	o->kind = OS_INTENT_TRANSFER;
-	o->risk = OS_RISK_LOW;
-	o->fee_limit = s.fee;
-
-	/* Surface the first non-change output as "to"; sum the rest. */
-	if (s.spend_count == 0 && s.output_count > 0) {
-		/* only change outputs — treat as low-risk self-send */
-		snprintf(o->to, sizeof(o->to), "self (change only)");
-		o->amount = s.total_out;
-	} else if (s.spend_count > 0) {
-		snprintf(o->to, sizeof(o->to), "%.47s", s.outputs[0].address);
-		o->amount = s.outputs[0].amount;
-		o->risk = (s.spend_count > 1) ? OS_RISK_MEDIUM : OS_RISK_LOW;
-	} else {
-		snprintf(o->to, sizeof(o->to), "N/A");
-	}
-	snprintf(o->amount_token, sizeof(o->amount_token), "sats");
-	snprintf(o->symbol, sizeof(o->symbol), "BTC");
-	return 0;
+	/* Core BTC app delegates to the FIRMWARE clean-room parser. signsvc
+	 * independently re-checks with the same firmware implementation, so a
+	 * (hypothetical) bug in this app cannot be the sole source of truth. */
+	return os_clearsign_parse_btc(tx, len, o);
 }
 
 static const os_app app_btc = {
@@ -151,11 +127,21 @@ int os_app_register(const os_app *desc)
 {
 	if (!desc || !desc->app_id[0] || !desc->parse)
 		return -1;
-	/* id must be unique across ALL entries, including suspended ones —
+	/* app_id and name MUST be NUL-terminated inside their fixed buffers,
+	 * otherwise find_installed's strcmp would read out of bounds. */
+	if (memchr(desc->app_id, '\0', sizeof(desc->app_id)) == NULL)
+		return -1;
+	if (memchr(desc->name, '\0', sizeof(desc->name)) == NULL)
+		return -1;
+	/* id must be unique across core + installed + suspended entries —
 	 * otherwise a revoked app could be re-registered under the same id
-	 * and shadow a still-suspended slot (state inconsistency). */
+	 * and shadow a still-suspended slot (state inconsistency). A core id
+	 * is likewise rejected so the market view never shows two entries
+	 * sharing one id. */
 	if (find_installed(desc->app_id) != NULL)
 		return -1;
+	if (os_app_by_id(desc->app_id) != NULL)
+		return -1;                       /* collides with a core app id */
 	if (os_app_by_coin(desc->coin_type) != NULL)
 		return -1;                       /* coin_type already claimed */
 	if (s_installed_count >= OS_APP_MAX_INSTALLED)

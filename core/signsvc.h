@@ -71,10 +71,13 @@ os_sign_outcome os_signsvc_delegate(const char *app_id,
 
 /*
  * Verify a parsed intent is consistent with the raw tx WITHOUT signing.
- * This is the firmware-side intent check: re-derives key fields from the
- * tx via the app's parser and compares to `intent`. Returns true if the
- * tx parses cleanly and matches, false if the app reported a mismatched
- * intent (defense in depth against a malicious/buggy app).
+ * This is the firmware-side INDEPENDENT intent check: it re-derives the
+ * intent from the tx with the firmware's own clean-room parser (dispatched
+ * by coin_type) — NOT the App's parse() — and requires an exact match.
+ * Returns true only if the firmware can parse the chain AND the App's
+ * reported intent matches the firmware's independent derivation. Chains
+ * with no firmware parser are refused (returns false): WYSIWYS cannot be
+ * proven, so such chains must land a firmware parser before signing.
  */
 bool os_signsvc_verify_intent(const char *app_id,
                               const uint8_t *tx, size_t tx_len,

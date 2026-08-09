@@ -44,6 +44,9 @@ static size_t build_legacy(uint8_t *out, uint64_t gasPrice, uint64_t gasLimit,
 }
 
 #include "../core/keccak.c"
+#include "../core/hkdf.c"
+#include "../core/psbt.c"
+#include "../core/base58.c"
 #include "../core/clearsign.c"
 
 int main(void)
@@ -114,6 +117,56 @@ int main(void)
 	/* 6 malformed input -> -1 */
 	if (os_clearsign_parse_evm((const uint8_t *)"\x01\x02", 2, &it) == 0) { printf("FAIL t6\n"); return 1; }
 	printf("PASS t6 malformed rejected\n");
+
+	/* 7 H1: a >8-byte scalar (9-byte value) must be REFUSED, never
+	 * silently truncated to a fake small amount. Build a legacy tx whose
+	 * value field is a 9-byte integer. */
+	{
+		uint8_t val9[9] = { 0x01, 0,0,0,0, 0,0,0,0 }; /* 1 followed by 8 zeros */
+		uint8_t tmp[1024]; size_t o = 0;
+		o += rlp_u(tmp + o, 1);
+		o += rlp_u(tmp + o, 20);
+		o += rlp_u(tmp + o, 21000);
+		o += rlp_str(tmp + o, to, 20);
+		o += rlp_str(tmp + o, val9, 9);    /* 9-byte value → must reject */
+		o += rlp_str(tmp + o, NULL, 0);
+		size_t h = rlp_hdr(buf, 1, o);
+		memcpy(buf + h, tmp, o);
+		if (os_clearsign_parse_evm(buf, h + o, &it) == 0) {
+			printf("FAIL t7 oversized integer not refused\n"); return 1; }
+		printf("PASS t7 oversized scalar refused (no truncating)\n");
+	}
+
+	/* 8 M3: transferFrom(from,to,value) — recipient is the SECOND word,
+	 * amount the THIRD. The payer (first word) must NOT be shown as to. */
+	{
+		uint8_t from[20], rcpt[20];
+		for (int i = 0; i < 20; i++) { from[i] = 0xa0 + i; rcpt[i] = 0xb0 + i; }
+		uint8_t cd3[4 + 32 + 32 + 32];
+		memcpy(cd3, "\x23\xb8\x72\xdd", 4);
+		memset(cd3 + 4, 0, 12);            memcpy(cd3 + 4 + 12, from, 20);  /* word1: from */
+		memset(cd3 + 4 + 32, 0, 12);       memcpy(cd3 + 4 + 32 + 12, rcpt, 20); /* word2: to */
+		memset(cd3 + 4 + 64, 0, 31);       cd3[4 + 64 + 31] = 0x64;         /* word3: 100 */
+		n = build_legacy(buf, 20, 50000, to, 0, cd3, sizeof cd3);
+		if (os_clearsign_parse_evm(buf, n, &it) != 0) { printf("FAIL t8 parse\n"); return 1; }
+		if (it.kind != OS_INTENT_ERC20_TRANSFER) { printf("FAIL t8 kind=%d\n", it.kind); return 1; }
+		/* displayed recipient must be rcpt (word2), not from (word1) */
+		if (strstr(it.to, "0xa0") != NULL) { printf("FAIL t8 showed payer as to: %s\n", it.to); return 1; }
+		if (strcmp(it.amount_token, "100") != 0) { printf("FAIL t8 amount_token=%s\n", it.amount_token); return 1; }
+		printf("PASS t8 transferFrom recipient/amount decoded correctly\n");
+	}
+
+	/* 9 M4: ERC20 transfer amount must surface in amount_token. */
+	{
+		uint8_t cd2[4 + 32 + 32];
+		memcpy(cd2, "\xa9\x05\x9c\xbb", 4);
+		memset(cd2 + 4, 0, 12); memcpy(cd2 + 4 + 12, to, 20);
+		memset(cd2 + 4 + 32, 0, 30); cd2[4 + 32 + 30] = 0x01; cd2[4 + 32 + 31] = 0xf4; /* 500 */
+		n = build_legacy(buf, 20, 50000, to, 0, cd2, sizeof cd2);
+		if (os_clearsign_parse_evm(buf, n, &it) != 0) { printf("FAIL t9 parse\n"); return 1; }
+		if (strcmp(it.amount_token, "500") != 0) { printf("FAIL t9 amount_token=%s\n", it.amount_token); return 1; }
+		printf("PASS t9 token amount surfaced in amount_token\n");
+	}
 
 	printf("\nALL CLEARSIGN TESTS PASSED\n");
 	return 0;

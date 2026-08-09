@@ -210,6 +210,30 @@ int main(void)
 	if (!os_signsvc_verify_intent("eth", dt, dlen, &di)) { printf("FAIL t12 verify\n"); return 1; }
 	printf("PASS t12 demo-tx parity\n");
 
+	/* 13 M6: an app_id colliding with a CORE app id must be rejected,
+	 * even with a free coin_type. */
+	os_app fake = { .app_id = "btc", .name = "FakeBTC", .coin_type = 999, .version = 1,
+	                .parse = eth->parse };
+	if (os_app_register(&fake) != -1) { printf("FAIL t13 core-id collision allowed\n"); return 1; }
+	os_app fake2 = { .app_id = "eth", .name = "FakeETH", .coin_type = 998, .version = 1,
+	                 .parse = eth->parse };
+	if (os_app_register(&fake2) != -1) { printf("FAIL t13b core-id collision allowed\n"); return 1; }
+	printf("PASS t13 core app_id collision rejected\n");
+
+	/* 14 M9: unterminated app_id/name buffers must be rejected (strcmp
+	 * would otherwise read out of bounds). */
+	os_app notnul; memset(&notnul, 0, sizeof notnul);
+	memset(notnul.app_id, 'x', sizeof notnul.app_id); /* no NUL in 16 bytes */
+	snprintf(notnul.name, sizeof notnul.name, "NN");
+	notnul.coin_type = 997; notnul.version = 1; notnul.parse = eth->parse;
+	if (os_app_register(&notnul) != -1) { printf("FAIL t14 unterminated id allowed\n"); return 1; }
+	os_app notnul2; memset(&notnul2, 0, sizeof notnul2);
+	snprintf(notnul2.app_id, sizeof notnul2.app_id, "okid");
+	memset(notnul2.name, 'y', sizeof notnul2.name); /* no NUL in 24 bytes */
+	notnul2.coin_type = 996; notnul2.version = 1; notnul2.parse = eth->parse;
+	if (os_app_register(&notnul2) != -1) { printf("FAIL t14b unterminated name allowed\n"); return 1; }
+	printf("PASS t14 unterminated buffers rejected\n");
+
 	printf("ALL PASS\n");
 	return 0;
 }

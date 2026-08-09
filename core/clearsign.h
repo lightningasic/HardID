@@ -66,6 +66,14 @@ typedef struct {
 int os_clearsign_parse_evm(const uint8_t *raw_tx, size_t len,
                            os_tx_intent *out);
 
+/* Firmware clean-room parser for a BTC PSBT into a Clear Sign intent.
+ * This is the FIRMWARE-side BTC parser used both by the core BTC app and
+ * by signsvc's independent re-check (WYSIWYS). It is intentionally
+ * separate from any App-provided parse() so a malicious third-party app
+ * cannot be the sole source of the displayed intent. Returns 0 / -1. */
+int os_clearsign_parse_btc(const uint8_t *psbt, size_t len,
+                           os_tx_intent *out);
+
 /* Well-known 4-byte selectors we can name. Extend as needed. */
 const char *os_clearsign_method_name(const uint8_t selector[4]);
 

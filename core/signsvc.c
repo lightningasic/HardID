@@ -7,11 +7,16 @@
  *
  * Security contract:
  *  - Only an ACTIVE app (core or installed, not suspended) may sign.
- *  - The App's parse() produces the intent; the firmware re-parses the raw
- *    tx (verify_intent) so a malicious/buggy app cannot report an intent
- *    that doesn't match the bytes we actually sign (WYSIWYS by double
- *    derivation). For core apps the double-check is cheap insurance; for
- *    installed apps it is the defense in depth against a bad app.
+ *  - The App's parse() produces the candidate intent; the firmware then
+ *    INDEPENDENTLY re-derives the intent from the raw bytes with its own
+ *    clean-room parser (fw_reparse, dispatched by coin_type) and requires
+ *    an exact match. A malicious/buggy App therefore cannot cause the user
+ *    to confirm an intent that does not match the bytes actually signed
+ *    (WYSIWYS by independent double-derivation, NOT by re-running the
+ *    App's own parser).
+ *  - Chains without a firmware parser are refused: the official-review
+ *    market requires a firmware-side parser to land before a new chain's
+ *    App can sign.
  *  - The SE must be PIN-unlocked by the caller before delegation.
  *  - The path's coin_type branch must match the App (BIP44 isolation).
  */
@@ -33,6 +38,28 @@ static int reparse(const os_app *app, const uint8_t *tx, size_t tx_len,
 	return app->parse(tx, tx_len, out);
 }
 
+/* Firmware clean-room re-parse, INDEPENDENT of the App's parse(). This is
+ * the WYSIWYS anchor: the intent the user confirms must match what the
+ * firmware itself derives from the raw bytes, NOT merely what the App
+ * claims. Dispatched by coin_type so a malicious/buggy App parser can never
+ * be the sole source of the displayed intent. Returns 0 on success, -1 if
+ * the firmware has no parser for this chain (unknown third-party chain —
+ * refuse to sign; such chains require a firmware-side parser landing first,
+ * consistent with the official-review market model). */
+static int fw_reparse(uint32_t coin_type, const uint8_t *tx, size_t tx_len,
+                      os_tx_intent *out)
+{
+	memset(out, 0, sizeof(*out));
+	switch (coin_type) {
+	case 60: /* ETH / EVM */
+		return os_clearsign_parse_evm(tx, tx_len, out);
+	case 0:  /* BTC */
+		return os_clearsign_parse_btc(tx, tx_len, out);
+	default:
+		return -1;   /* no firmware parser → cannot independently verify */
+	}
+}
+
 bool os_signsvc_verify_intent(const char *app_id,
                               const uint8_t *tx, size_t tx_len,
                               const os_tx_intent *intent)
@@ -44,7 +71,11 @@ bool os_signsvc_verify_intent(const char *app_id,
 		return false;
 
 	os_tx_intent fresh;
-	if (reparse(app, tx, tx_len, &fresh) != 0)
+	/* INDEPENDENT firmware re-derivation: never re-run the App's own
+	 * parser here, or a malicious App would trivially "verify" itself.
+	 * If the firmware cannot parse this chain it cannot prove WYSIWYS,
+	 * so it refuses. */
+	if (fw_reparse(app->coin_type, tx, tx_len, &fresh) != 0)
 		return false;
 
 	/* Compare the display-critical fields. The parser is deterministic
@@ -109,25 +140,40 @@ os_sign_outcome os_signsvc_delegate(const char *app_id,
 		return out;
 	}
 
-	/* 1. Parse via the app's own parser. */
+	/* 1. Parse via the app's own parser → the CANDIDATE intent. */
 	os_tx_intent intent;
 	if (reparse(app, tx, tx_len, &intent) != 0) {
 		out.result = OS_SIGN_PARSE_ERR;
 		return out;
 	}
 
-	/* 2. Firmware-side re-check: the intent we'll render == what the raw
-	 *    tx encodes. If the app is lying or buggy, refuse to sign. */
+	/* 2. Firmware INDEPENDENT re-derivation + exact-match check: the intent
+	 *    we render must equal what the firmware itself parses from the raw
+	 *    bytes. If the app is lying or buggy, refuse to sign. Chains with
+	 *    no firmware parser are refused inside verify_intent. */
 	if (!os_signsvc_verify_intent(app_id, tx, tx_len, &intent)) {
 		out.result = OS_SIGN_PARSE_ERR;
 		return out;
 	}
 
-	/* 3. Render + user confirmation (UI hook). NULL → proceed (tests). */
+	/* 3. Render + user confirmation (UI hook). A NULL confirm is a
+	 *    test-only bypass and is compiled out of production builds; it must
+	 *    never be reachable from a real UI path. */
+#if defined(CONFIG_SIGNSVC_ALLOW_NULL_CONFIRM) || defined(HARDID_HOST_TEST)
 	if (confirm && !confirm(&intent)) {
 		out.result = OS_SIGN_REJECTED;
 		return out;
 	}
+#else
+	if (!confirm) {
+		out.result = OS_SIGN_ABORT;      /* production: no confirm hook, abort */
+		return out;
+	}
+	if (!confirm(&intent)) {
+		out.result = OS_SIGN_REJECTED;
+		return out;
+	}
+#endif
 
 	/* 4. Hash the raw tx with the app's chain context. EVM: keccak256 of
 	 *    raw tx. BTC: double-SHA256 of the serialized tx to sign. The

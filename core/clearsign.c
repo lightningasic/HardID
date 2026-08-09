@@ -12,6 +12,7 @@
 
 #include "clearsign.h"
 #include "keccak.h"
+#include "psbt.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdint.h>
@@ -55,7 +56,9 @@ static int rlp_read(rlp *r, rlp_item *it)
 		hdr = 1 + ll; is_list = 1;
 	}
 str:
-	if (r->len < hdr + l)
+	/* length overflow guard for 32-bit size_t: hdr+l may wrap on ESP32.
+	 * use subtraction so a 0xFFFFFFFF length can never pass the check. */
+	if (l > r->len || hdr > r->len - l)
 		return -1;
 	it->ptr = r->p + hdr;
 	it->len = l;
@@ -67,14 +70,18 @@ done:
 	return 0;
 }
 
-/* interpret an RLP string as uint64 (big-endian, <=8 bytes) */
-static uint64_t rlp_u64(const rlp_item *it)
+/* interpret an RLP string as uint64 (big-endian). Returns 0 on success,
+ * -1 if the integer exceeds 8 bytes — refusing instead of truncating the
+ * high bytes, which would let a crafted tx show a fake small amount/fee. */
+static int rlp_u64(const rlp_item *it, uint64_t *v)
 {
-	uint64_t v = 0;
-	size_t n = it->len > 8 ? 8 : it->len;
-	for (size_t i = 0; i < n; i++)
-		v = (v << 8) | it->ptr[i];
-	return v;
+	if (it->len > 8)
+		return -1;
+	uint64_t x = 0;
+	for (size_t i = 0; i < it->len; i++)
+		x = (x << 8) | it->ptr[i];
+	*v = x;
+	return 0;
 }
 
 static void to_hex0x(const uint8_t *addr20, char *out /*>=43*/)
@@ -105,6 +112,25 @@ bool os_clearsign_is_unlimited_amount(const uint8_t a[32])
 	return true;
 }
 
+/* format the low-8-bytes of a 32-byte uint256 as a decimal string into out.
+ * saturates: if the high 24 bytes are non-zero the amount is beyond uint64,
+ * so we render "MAX" — never silently show a truncated small number. */
+static void token_amount_str(const uint8_t amt32[32], char *out, size_t cap)
+{
+	for (int i = 0; i < 24; i++)
+		if (amt32[i] != 0) { snprintf(out, cap, "MAX"); return; }
+	uint64_t v = 0;
+	for (int i = 24; i < 32; i++)
+		v = (v << 8) | amt32[i];
+	if (v == 0) { snprintf(out, cap, "0"); return; }
+	/* uint64 -> decimal */
+	char tmp[24]; int n = 0;
+	while (v) { tmp[n++] = (char)('0' + v % 10); v /= 10; }
+	size_t k = 0;
+	while (n && k + 1 < cap) out[k++] = tmp[--n];
+	out[k] = 0;
+}
+
 /* decode calldata for ERC20 transfer/approve to fill intent */
 static void decode_erc20(const uint8_t *data, size_t dlen, os_tx_intent *o)
 {
@@ -115,6 +141,27 @@ static void decode_erc20(const uint8_t *data, size_t dlen, os_tx_intent *o)
 		os_keccak256(data, dlen, o->data_hash);
 		return;
 	}
+
+	/* transferFrom(from,to,value) is a 3-word call: decode it separately so
+	 * the recipient (word 2) is never mis-shown as the payer (word 1). */
+	if (memcmp(data, "\x23\xb8\x72\xdd", 4) == 0) {
+		if (dlen < 4 + 32 + 32 + 32) {
+			o->kind = OS_INTENT_UNKNOWN;
+			o->risk = OS_RISK_HIGH;
+			os_keccak256(data, dlen, o->data_hash);
+			return;
+		}
+		const uint8_t *rcpt = data + 4 + 32 + 12; /* 2nd word, last 20B */
+		const uint8_t *amt  = data + 4 + 64;      /* 3rd word */
+		o->kind = OS_INTENT_ERC20_TRANSFER;
+		o->risk = OS_RISK_MEDIUM;
+		to_hex0x(rcpt, o->to);
+		snprintf(o->method, sizeof o->method, "transferFrom");
+		token_amount_str(amt, o->amount_token, sizeof o->amount_token);
+		os_keccak256(amt, 32, o->data_hash);
+		return;
+	}
+
 	const char *m = os_clearsign_method_name(data);
 	if (!m || dlen < 4 + 32 + 32) {
 		o->kind = OS_INTENT_UNKNOWN;
@@ -129,12 +176,16 @@ static void decode_erc20(const uint8_t *data, size_t dlen, os_tx_intent *o)
 	if (memcmp(data, "\xa9\x05\x9c\xbb", 4) == 0) { /* transfer */
 		o->kind = OS_INTENT_ERC20_TRANSFER;
 		o->risk = OS_RISK_LOW;
+		token_amount_str(amt, o->amount_token, sizeof o->amount_token);
 	} else if (memcmp(data, "\x09\x5e\xa7\xb3", 4) == 0) { /* approve */
 		o->kind = OS_INTENT_ERC20_APPROVE;
 		o->risk = OS_RISK_MEDIUM;
 		if (os_clearsign_is_unlimited_amount(amt)) {
 			o->unlimited_approval = true;
 			o->risk = OS_RISK_HIGH;
+			snprintf(o->amount_token, sizeof o->amount_token, "UNLIMITED");
+		} else {
+			token_amount_str(amt, o->amount_token, sizeof o->amount_token);
 		}
 	} else {
 		o->kind = OS_INTENT_CONTRACT_CALL;
@@ -142,7 +193,7 @@ static void decode_erc20(const uint8_t *data, size_t dlen, os_tx_intent *o)
 	}
 	to_hex0x(addr, o->to);        /* token recipient/spender */
 	snprintf(o->method, sizeof o->method, "%s", m);
-	/* token amount: UI formats; hash raw 32-byte word for audit */
+	/* hash raw 32-byte amount word for audit */
 	os_keccak256(amt, 32, o->data_hash);
 }
 
@@ -181,15 +232,15 @@ int os_clearsign_parse_evm(const uint8_t *raw, size_t len, os_tx_intent *o)
 		rlp_item f;
 		for (int i = 0; i <= 4; i++) {
 			if (rlp_read(&body, &f) != 0) return -1;
-			if (i == 3) maxfee = rlp_u64(&f);
-			if (i == 4) gaslimit = rlp_u64(&f);
+			if (i == 3 && rlp_u64(&f, &maxfee) != 0) return -1;
+			if (i == 4 && rlp_u64(&f, &gaslimit) != 0) return -1;
 		}
 	} else {
 		rlp_item f;
 		for (int i = 0; i <= 2; i++) { /* nonce, gasPrice, gasLimit */
 			if (rlp_read(&body, &f) != 0) return -1;
-			if (i == 1) maxfee = rlp_u64(&f);
-			if (i == 2) gaslimit = rlp_u64(&f);
+			if (i == 1 && rlp_u64(&f, &maxfee) != 0) return -1;
+			if (i == 2 && rlp_u64(&f, &gaslimit) != 0) return -1;
 		}
 	}
 	/* fee_limit = maxfee * gaslimit, saturated: a malicious huge maxFee must
@@ -205,7 +256,7 @@ int os_clearsign_parse_evm(const uint8_t *raw, size_t len, os_tx_intent *o)
 	if (rlp_read(&body, &val) != 0) return -1;
 	if (rlp_read(&body, &dat) != 0) return -1;
 
-	o->amount = rlp_u64(&val);
+	if (rlp_u64(&val, &o->amount) != 0) return -1;
 
 	if (to.len == 20) {
 		to_hex0x(to.ptr, o->to);
@@ -241,6 +292,8 @@ int os_clearsign_parse_evm(const uint8_t *raw, size_t len, os_tx_intent *o)
 /* RLP single uint64, returns bytes written. */
 static size_t rlp_uint(uint8_t *out, uint64_t v)
 {
+	/* RLP integer 0 must be the empty string (0x80), not 0x00. */
+	if (v == 0) { out[0] = 0x80; return 1; }
 	if (v < 0x80) { out[0] = (uint8_t)v; return 1; }
 	uint8_t be[8]; size_t nb = 0;
 	while (v) { be[7 - nb] = (uint8_t)(v & 0xff); v >>= 8; nb++; }
@@ -266,5 +319,39 @@ size_t os_clearsign_build_demo_legacy(uint8_t *out, uint64_t gasPrice,
 		memcpy(out + 1, body, o);
 		return 1 + o;
 	}
+	return 0;
+}
+
+/* ---- firmware BTC (PSBT) clean-room parser ---- */
+
+int os_clearsign_parse_btc(const uint8_t *psbt, size_t len, os_tx_intent *o)
+{
+	os_psbt_summary s;
+
+	/* No change-check callback: the caller (signsvc) can pass one through
+	 * if it can derive addresses; keep it simple + strict. */
+	if (os_psbt_parse(psbt, len, NULL, &s) != 0)
+		return -1;
+
+	memset(o, 0, sizeof(*o));
+	o->chain = OS_CHAIN_BTC;
+	o->kind = OS_INTENT_TRANSFER;
+	o->risk = OS_RISK_LOW;
+	o->fee_limit = s.fee;
+
+	/* Surface the first non-change output as "to"; sum the rest. */
+	if (s.spend_count == 0 && s.output_count > 0) {
+		/* only change outputs — treat as low-risk self-send */
+		snprintf(o->to, sizeof(o->to), "self (change only)");
+		o->amount = s.total_out;
+	} else if (s.spend_count > 0) {
+		snprintf(o->to, sizeof(o->to), "%.47s", s.outputs[0].address);
+		o->amount = s.outputs[0].amount;
+		o->risk = (s.spend_count > 1) ? OS_RISK_MEDIUM : OS_RISK_LOW;
+	} else {
+		snprintf(o->to, sizeof(o->to), "N/A");
+	}
+	snprintf(o->amount_token, sizeof(o->amount_token), "sats");
+	snprintf(o->symbol, sizeof(o->symbol), "BTC");
 	return 0;
 }

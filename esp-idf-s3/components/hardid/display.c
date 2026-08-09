@@ -102,7 +102,10 @@ int lcd_init(void)
 
 	esp_lcd_panel_dev_config_t panel_cfg = {
 		.reset_gpio_num = -1,   /* no hw reset: RST shares BOOT/GPIO0 */
-		.color_space = ESP_LCD_COLOR_SPACE_RGB,
+		/* This panel's ST7789 RAM is wired BGR — the boot logo (our first
+		 * strongly colored element) showed its blue as another color until
+		 * the MADCTL BGR bit was set here. */
+		.color_space = ESP_LCD_COLOR_SPACE_BGR,
 		.bits_per_pixel = 16,
 	};
 	rc = esp_lcd_new_panel_st7789(s_io, &panel_cfg, &s_panel);

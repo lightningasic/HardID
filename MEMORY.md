@@ -30,10 +30,8 @@
 ### 阻塞项 (真机联调/真实资金/发布前必须解决)
 
 **红线 (放行真实资金前必修)** — kimi 审计四轮收尾确认:
-- **M11 真实 sighash**: EVM 签 keccak256(raw) 而非 EIP-155 sighash; BTC 签
-  double-SHA256(PSBT) 而非 BIP143。签名无链上语义=无重放保护。连带: v/r/s 组装、
-  chainId 注入、拒绝已签名 legacy 输入 (r/s 非空)、chain_id 上屏、body 耗尽校验、
-  to/data is_list 校验。真网资金第一红线。
+- ~~M11 真实 sighash~~ → **核心已落地 (commit `a47626e`)**: EIP-155 + BIP143
+  官方测试向量双过。剩余子项见下方"kimi 评审归档"区 M-2 条目。
 - **link_esp.c:50 盲签入口**: HD_CMD_SIGN 收裸 32B digest, sign_digest(NULL,0,...),
   完全绕过 signsvc parse/path/WYSIWYS。真机联调前删除或改为走 os_signsvc_delegate。
 - **M8 防降级根治** (OTA 前): 版本墓碑持久化 (NVS) + SE 单调计数器消费方
@@ -111,12 +109,19 @@
   PIN/助记词路径不变。
 
 **真机联调/真实资金前必修 (红线升级)**:
-- **M-1 目录链地址显示仍是 BTC 编码**: psbt.c script_to_addr 硬编码 bech32
-  "bc1" + base58 0x00/0x05。LTC/DOGE/BCH 输出渲染成 BTC 格式地址
-  (bc1q… 而非 ltc1q…)。签名锚定原始字节资金不打错, 但用户所见地址与收款方
-  给的永远对不上 → WYSIWYS 确认流程失效。需 per-coin 地址编码表。
-- **M-2 digest 占位管线升级为阻断级**: 目录链能签后, keccak256(raw) /
-  double-SHA256(raw) 占位摘要 = 真网资金第一红线 (原 M11, 已列入上方红线)。
+- ~~M-1 目录链地址 BTC 编码~~ → **已修 (commit `f6e7ee1`)**: parse vtable 加
+  coin_type (4-arg), psbt.c per-coin 地址表 (BTC bc/0x00/0x05, LTC ltc/0x30/0x32,
+  DOGE 无 segwit 0x1e/0x16, BCH legacy base58; cashaddr 待后续)。test_psbt t6 +
+  Python BIP173 参考交叉验证。
+- ~~M-2 digest 占位管线~~ → **已修 (commit `a47626e`)**: EVM 真 EIP-155 sighash
+  (os_evm_sighash: 6 字段注入 chainId / 9 字段校验 v / typed 校验 chainId /
+  拒绝已签名 r/s 非空; 链表 ETH=1 ETC=61 POLYGON=137); BTC 真 BIP143 sighash
+  (os_btc_sighash_from_psbt: 原生 P2WPKH + SIGHASH_ALL 限定, 逐输入签名,
+  outcome 加 sigs[16][64]+recids+sig_count)。官方测试向量双过: EIP-155
+  daf5a779… (test_clearsign t13), BIP143 c37af311… (test_psbt t7)。
+  剩余子项 (真机联调前): v/r/s 组装与 witness 注入在 host 侧 (设备出 r||s+recid),
+  chain_id 上屏, BTC 多路径输入 (当前单 path 签所有输入), P2SH-P2WPKH/P2WSH
+  扩展, link_esp 盲签改走 signsvc。
 
 **已修复 (见上 ab08649)**: L-1/L-2/L-3。
 

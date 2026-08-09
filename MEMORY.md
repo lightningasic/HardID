@@ -126,5 +126,8 @@
 **已修复 (见上 ab08649)**: L-1/L-2/L-3。
 
 ## 待办
-- M-1 per-coin 地址编码表; M-2 (M11) 真 sighash 落地。
-- 真机走查开机 passphrase 流 + 三页键盘 (esp-idf-s3 build 可烧)。
+- M-2 剩余子项: host 侧 v/r/s 组装与 witness 注入 (设备出 r||s+recid),
+  chain_id 上屏, BTC 多路径输入, P2SH-P2WPKH/P2WSH 扩展, link_esp 盲签改走 signsvc。
+- 真机走查 (板回线后): 开机 passphrase 流 + 三页键盘 + 新 LOGO 颜色
+  (core/logo.h 已由 logo/gen_logo.py 从 PNG 真图重新生成, commit `a218ecb`;
+  DeepSeek 盲写的旧值缺亮蓝闪电/白钥匙)。

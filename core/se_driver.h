@@ -42,10 +42,10 @@ typedef struct se_driver {
 	int (*get_random)(uint8_t *buf, size_t len);
 
 	/* One-time seed provisioning. Fails SE_ERR_STATE if already set.
-	 * `seed64` is the 64-byte BIP39 master seed
-	 * (PBKDF2-HMAC-SHA512(mnemonic, "mnemonic" + passphrase)), which is
-	 * what BIP32 derives keys from. The passphrase is therefore part of
-	 * the provisioned root of trust. The seed is written to SE-internal
+	 * `seed64` is the 64-byte passphrase-less BIP39 master seed
+	 * (PBKDF2-HMAC-SHA512(mnemonic, "mnemonic")), i.e. the TREZOR base
+	 * seed. A user passphrase is folded in later by derive_session() so it
+	 * never touches persistent storage. The seed is written to SE-internal
 	 * secure storage; there is NO read-back API by design. */
 	int (*store_seed)(const uint8_t *seed64);
 
@@ -81,6 +81,16 @@ typedef struct se_driver {
 	/* Full device wipe: erase seed AND PIN (factory reset). SE_OK if the
 	 * device is now blank. Must be PIN/PROVENANCE gated by the caller. */
 	int (*wipe)(void);
+
+	/* Derive an ephemeral session key from the stored base seed plus a
+	 * user-supplied passphrase (Trezor-style). The base seed stored by
+	 * store_seed is the passphrase-less BIP39 seed; this op folds the
+	 * passphrase in to produce the session seed actually used for signing
+	 * and xpub derivation. The derived key is volatile — it is NOT stored
+	 * in SE NVM and is gone after wipe/power-cycle, so the passphrase must
+	 * be re-entered on every unlock. Passing NULL/empty passphrase clears
+	 * the session back to the plain base seed. SE_OK on success. */
+	int (*derive_session)(const uint8_t *passphrase, size_t len);
 
 	/* Auto-sign policy: authorize amount under policy_id, or report that
 	 * manual confirmation is required. Returns SE_OK if auto-approved,

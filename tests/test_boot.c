@@ -30,6 +30,7 @@ void os_rng_hw_recover(void) {}
 #define OS_RNG_NO_DEFAULT_FATAL
 #include "../core/rng.c"
 #include "../core/se_mock.c"
+#include "../core/sha512.c"
 #include "../core/boot.c"
 
 static void reset_all(void)

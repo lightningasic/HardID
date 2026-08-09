@@ -6,6 +6,7 @@
 #include "../core/se_driver.h"
 
 #include "../core/se_mock.c"
+#include "../core/sha512.c"
 #include "../core/app_registry.c"
 #include "../core/app_catalog.c"
 #include "../core/signsvc.c"

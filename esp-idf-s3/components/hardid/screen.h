@@ -51,6 +51,11 @@ void screen_run_about(void);
 /* Boot splash: draw the HardID logo bitmap with the wordmark below it. */
 void screen_run_splash(void);
 
+/* Boot-time passphrase gate (TREZOR model): asked on every power-on of an
+ * initialized device; folds the entered passphrase into a volatile session
+ * seed. A blank/wiped device skips. See screen.c. */
+void screen_boot_passphrase_gate(void);
+
 /* App market (V2.0): list installed apps (core + runtime), show their
  * state/version, and let the user select one to sign with. Returns on
  * tap/back. */

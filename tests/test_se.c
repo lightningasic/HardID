@@ -5,6 +5,7 @@
 #include <stdbool.h>
 #include "../core/se_driver.h"
 
+#include "../core/sha512.c"
 #include "../core/se_mock.c"
 
 int main(void)
@@ -63,6 +64,33 @@ int main(void)
 	/* 6 policy default = manual confirm */
 	if (se->policy_authorize(0, 100) != SE_ERR_AUTH) { printf("FAIL t6\n"); return 1; }
 	printf("PASS t6 policy defaults to manual\n");
+
+	/* 7 derive_session: base seed signs base sig; a passphrase folds into a
+	 * different session sig; empty passphrase returns to base. */
+	uint8_t sig_base[64], sig_pp[64], sig_pp2[64], sig_back[64];
+	if (se->derive_session(NULL, 0) != SE_OK) { printf("FAIL t7 clear\n"); return 1; }
+	if (se->sign_digest(NULL, 0, digest, sig_base, NULL) != SE_OK) { printf("FAIL t7 base sign\n"); return 1; }
+	const uint8_t pp[5] = {'h','u','n','t','e'};
+	if (se->derive_session(pp, 5) != SE_OK) { printf("FAIL t7 derive\n"); return 1; }
+	if (se->sign_digest(NULL, 0, digest, sig_pp, NULL) != SE_OK) { printf("FAIL t7 pp sign\n"); return 1; }
+	if (memcmp(sig_pp, sig_base, 64) == 0) { printf("FAIL t7 pp != base\n"); return 1; }
+	/* same passphrase is deterministic */
+	if (se->derive_session(pp, 5) != SE_OK) { printf("FAIL t7 rederive\n"); return 1; }
+	if (se->sign_digest(NULL, 0, digest, sig_pp2, NULL) != SE_OK) { printf("FAIL t7 pp2 sign\n"); return 1; }
+	if (memcmp(sig_pp, sig_pp2, 64) != 0) { printf("FAIL t7 pp determinism\n"); return 1; }
+	/* different passphrase => different sig */
+	const uint8_t pp2[5] = {'t','o','o','r','y'};
+	if (se->derive_session(pp2, 5) != SE_OK) { printf("FAIL t7 derive2\n"); return 1; }
+	if (se->sign_digest(NULL, 0, digest, sig_pp2, NULL) != SE_OK) { printf("FAIL t7 derive2 sign\n"); return 1; }
+	if (memcmp(sig_pp2, sig_pp, 64) == 0) { printf("FAIL t7 differ\n"); return 1; }
+	/* empty clears back to base */
+	if (se->derive_session(NULL, 0) != SE_OK) { printf("FAIL t7 clear2\n"); return 1; }
+	if (se->sign_digest(NULL, 0, digest, sig_back, NULL) != SE_OK) { printf("FAIL t7 back sign\n"); return 1; }
+	if (memcmp(sig_back, sig_base, 64) != 0) { printf("FAIL t7 back == base\n"); return 1; }
+	/* derive before provisioning is refused */
+	se_mock_reset();
+	if (se->derive_session(pp, 5) != SE_ERR_STATE) { printf("FAIL t7 derive-before-store\n"); return 1; }
+	printf("PASS t7 passphrase session derive\n");
 
 	printf("\nALL SE MOCK TESTS PASSED\n");
 	return 0;

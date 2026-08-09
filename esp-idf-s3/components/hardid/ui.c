@@ -168,6 +168,7 @@ void ui_run(void)
 {
 	screen_run_splash();
 	boot_pin_gate();
+	screen_boot_passphrase_gate();
 	for (;;) {
 		menu_draw();
 		int px, py;

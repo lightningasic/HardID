@@ -12,11 +12,14 @@
 
 #include "se_driver.h"
 #include "secure_zero.h"
+#include "sha512.h"
 #include <string.h>
 
 /* ---- mock backend state (host tests / emulator only) ---- */
 static uint8_t  mock_seed_stored;
-static uint8_t  mock_seed[64];
+static uint8_t  mock_seed[64];        /* passphrase-less base seed */
+static uint8_t  mock_session[64];     /* volatile derived session seed */
+static uint8_t  mock_session_active;  /* session seed in effect */
 static uint32_t mock_counter;
 static uint32_t mock_rng_seq;
 static uint8_t  mock_pin[8];
@@ -68,8 +71,9 @@ static int mock_sign_digest(const uint32_t *path, size_t path_len,
 	if (!mock_unlocked)
 		return SE_ERR_AUTH;
 	(void)path; (void)path_len;
+	const uint8_t *k = mock_session_active ? mock_session : mock_seed;
 	for (int i = 0; i < 64; i++)
-		sig64[i] = digest32[i % 32] ^ mock_seed[i] ^ (uint8_t)i;
+		sig64[i] = digest32[i % 32] ^ k[i] ^ (uint8_t)i;
 	if (recid) *recid = 0;
 	return SE_OK;
 }
@@ -113,10 +117,37 @@ static int mock_wipe(void)
 {
 	mock_seed_stored = 0;
 	memset(mock_seed, 0, sizeof(mock_seed));
+	memset(mock_session, 0, sizeof(mock_session));
+	mock_session_active = 0;
 	mock_counter = 0;
 	mock_rng_seq = 1;
 	mock_pin_len = 0;
 	mock_unlocked = false;
+	return SE_OK;
+}
+
+static int mock_derive_session(const uint8_t *passphrase, size_t len)
+{
+	/* Session seed = PBKDF2-HMAC-SHA512(base_seed, "mnemonic" + passphrase),
+	 * mirroring the BIP39 salt convention so a recovered device with the
+	 * same words + passphrase lands on the same keys. Volatile: kept in
+	 * mock RAM only, cleared by wipe, never written to SE NVM. */
+	if (!mock_seed_stored)
+		return SE_ERR_STATE;
+	memset(mock_session, 0, sizeof(mock_session));
+	mock_session_active = 0;
+	if (len == 0)
+		return SE_OK;
+	char salt[8 + 256];
+	size_t sl = 8;
+	memcpy(salt, "mnemonic", 8);
+	if (len > sizeof(salt) - sl) len = sizeof(salt) - sl;
+	memcpy(salt + sl, passphrase, len);
+	sl += len;
+	os_pbkdf2_sha512(mock_seed, sizeof(mock_seed),
+	                 (const uint8_t *)salt, sl, 2048,
+	                 mock_session, sizeof(mock_session));
+	mock_session_active = 1;
 	return SE_OK;
 }
 
@@ -157,6 +188,7 @@ static const se_driver_t mock_driver = {
 	.verify_pin = mock_verify_pin,
 	.set_pin = mock_set_pin,
 	.wipe = mock_wipe,
+	.derive_session = mock_derive_session,
 	.policy_authorize = mock_policy_authorize,
 	.monotonic_read = mock_mono_read,
 	.monotonic_increment = mock_mono_inc,

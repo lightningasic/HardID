@@ -408,6 +408,32 @@ static int prompt_passphrase(char *out, size_t out_max)
 	}
 }
 
+/* Boot-time passphrase gate (TREZOR model). Every power-on on an
+ * initialized device asks whether the user wants a passphrase; if yes it
+ * is captured + confirmed and folded into a volatile session seed via
+ * se->derive_session(). The passphrase itself is never stored — it only
+ * exists in the operator's memory, so this gate runs on every boot. A
+ * wiped/blank device has nothing to protect yet and skips straight past. */
+void screen_boot_passphrase_gate(void)
+{
+	const se_driver_t *se = se_active();
+	if (!se || !se->derive_session)
+		return;
+	bool initd = false;
+	if (se->is_initialized && se->is_initialized(&initd) != SE_OK)
+		return;
+	if (!initd)
+		return;
+
+	char pass[OS_BIP39_MNEMONIC_MAX];
+	int prc = prompt_passphrase(pass, sizeof(pass));
+	if (prc == 1 && pass[0] != '\0')
+		se->derive_session((const uint8_t *)pass, strlen(pass));
+	else
+		se->derive_session(NULL, 0);   /* back to the plain base seed */
+	os_secure_bzero(pass, sizeof(pass));
+}
+
 void screen_run_initialize(void)
 {
 	const se_driver_t *se = se_active();
@@ -464,18 +490,9 @@ void screen_run_initialize(void)
 		return;
 	}
 
-	/* 2. Optional BIP39 passphrase. Empty yields the plain seed; a
-	 * non-empty one yields a distinct key that must be re-entered on every
-	 * unlock, so ask up front and require a confirmation re-entry. */
-	char passphrase[OS_BIP39_MNEMONIC_MAX];
-	passphrase[0] = '\0';
-	int prc = prompt_passphrase(passphrase, sizeof(passphrase));
-	if (prc < 0) {
-		os_secure_bzero(passphrase, sizeof(passphrase));
-		os_secure_bzero(seed32, sizeof(seed32));
-		os_secure_bzero(mnemonic, sizeof(mnemonic));
-		return;
-	}
+	/* 2. No passphrase prompt at provisioning. In the TREZOR model the
+	 * stored root is the passphrase-LESS base seed; a passphrase is folded
+	 * in at every boot via se->derive_session() and never persisted. */
 
 	/* 3. Mandatory second confirmation: re-enter the phrase word-by-word
 	 * and check it matches what was shown. A misrecorded seed becomes a
@@ -525,10 +542,7 @@ void screen_run_initialize(void)
 		}
 	}
 
-	os_bip39_mnemonic_to_seed(mnemonic,
-	                          (passphrase[0] != '\0') ? passphrase : NULL,
-	                          seed64);
-	os_secure_bzero(passphrase, sizeof(passphrase));
+	os_bip39_mnemonic_to_seed(mnemonic, NULL, seed64);
 
 	lcd_fill(C_BG);
 	/* PIN is optional in DEV-ONLY no-PIN builds: nothing to set. */
@@ -609,23 +623,12 @@ void screen_run_recover(void)
 		os_secure_bzero(pin, sizeof(pin));
 	}
 
-	/* Optional BIP39 passphrase. An empty passphrase yields the plain seed;
-	 * a non-empty one yields a distinct key, so it must be re-entered on
-	 * repeat unlocks. Ask first so "skip" is a single tap, and require a
-	 * confirmation re-entry so a typo can't lock the wallet to a wrong key. */
-	char passphrase[OS_BIP39_MNEMONIC_MAX];
-	passphrase[0] = '\0';
-	if (prompt_passphrase(passphrase, sizeof(passphrase)) < 0) {
-		os_secure_bzero(passphrase, sizeof(passphrase));
-		os_secure_bzero(mnemonic, sizeof(mnemonic));
-		return;
-	}
+	/* No passphrase prompt at provisioning. In the TREZOR model the stored
+	 * root is the passphrase-LESS base seed; a passphrase is folded in at
+	 * every boot via se->derive_session() and never persisted. */
 
 	uint8_t seed64[OS_BIP39_SEED_LEN];
-	os_bip39_mnemonic_to_seed(mnemonic,
-	                          (passphrase[0] != '\0') ? passphrase : NULL,
-	                          seed64);
-	os_secure_bzero(passphrase, sizeof(passphrase));
+	os_bip39_mnemonic_to_seed(mnemonic, NULL, seed64);
 
 	int rc = se->store_seed(seed64);
 	os_secure_bzero(seed64, sizeof(seed64));

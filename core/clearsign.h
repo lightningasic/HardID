@@ -83,6 +83,16 @@ int os_clearsign_parse_btc_coin(const uint8_t *psbt, size_t len,
 int os_clearsign_parse_evm_coin(const uint8_t *raw_tx, size_t len,
                                 uint32_t coin_type, os_tx_intent *out);
 
+/* Real EVM chain sighash (M-2): EIP-155 injection for legacy 6-field
+ * txs, chainId verification for 9-field payloads and typed envelopes.
+ * chain_id = app's expected chain (os_evm_chain_id_for_coin). Refuses
+ * already-signed txs and wrong-chain payloads. Returns 0 / -1. */
+int os_evm_sighash(const uint8_t *raw_tx, size_t len, uint64_t chain_id,
+                   uint8_t out32[32]);
+
+/* Expected EIP-155 chain ID for an EVM coin_type (0 = unknown). */
+uint64_t os_evm_chain_id_for_coin(uint32_t coin_type);
+
 /* Well-known 4-byte selectors we can name. Extend as needed. */
 const char *os_clearsign_method_name(const uint8_t selector[4]);
 

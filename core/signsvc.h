@@ -23,6 +23,7 @@
 #include <stdbool.h>
 
 #include "clearsign.h"
+#include "psbt.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -41,8 +42,14 @@ typedef enum {
 /* Outcome of a sign request. */
 typedef struct {
 	os_sign_result result;
-	uint8_t        sig64[64];  /* valid when result == OS_SIGN_OK */
+	uint8_t        sig64[64];  /* valid when result == OS_SIGN_OK (EVM: the
+	                            * signature; BTC: first input's signature) */
 	uint8_t        recid;
+	/* BTC-family: one BIP143 signature per input. sig_count == number of
+	 * inputs signed (EVM: 1, sig in sig64). The host assembles witnesses. */
+	uint32_t       sig_count;
+	uint8_t        sigs[OS_PSBT_MAX_INPUTS][64];
+	uint8_t        recids[OS_PSBT_MAX_INPUTS];
 	os_tx_intent   intent;     /* the intent that was confirmed/signed */
 } os_sign_outcome;
 

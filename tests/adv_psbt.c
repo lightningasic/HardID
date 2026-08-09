@@ -41,10 +41,11 @@ int main(void)
     n+=put_varint(psbt+n,txn);
     memcpy(psbt+n,tx,txn); n+=txn;
     psbt[n++]=0x00; /* global sep */
-    /* input map 0: witness_utxo 100000 */
+    /* input map 0: witness_utxo 100000 (canonical CTxOut) */
     n+=put_varint(psbt+n,1); psbt[n++]=0x01;
-    n+=put_varint(psbt+n, 8+sizeof SPK);
+    n+=put_varint(psbt+n, 8+1+sizeof SPK);
     n+=put_u64le(psbt+n, 100000);
+    n+=put_varint(psbt+n, sizeof SPK);
     memcpy(psbt+n,SPK,sizeof SPK); n+=sizeof SPK;
     psbt[n++]=0x00; /* input map sep */
     /* OUTPUT map 0: key 0x01 = witness_script, big value 999999999 — this

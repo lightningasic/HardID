@@ -205,7 +205,15 @@ void screen_run_sign_for_app(const os_app *app)
 	lcd_fill(C_BG);
 	switch (oc.result) {
 	case OS_SIGN_OK: {
-		lcd_line(2, 2, "Signature (r||s)", C_LBL, C_BG);
+		if (app->coin_type == 60 || app->coin_type == 61 ||
+		    app->coin_type == 966) {
+			lcd_line(2, 2, "Signature (r||s)", C_LBL, C_BG);
+		} else {
+			char ln[40];
+			snprintf(ln, sizeof ln, "Signed %u input(s), sig[0]:",
+			         (unsigned)oc.sig_count);
+			lcd_line(2, 2, ln, C_LBL, C_BG);
+		}
 		char hex[130];
 		for (int i = 0; i < 64; i++)
 			snprintf(hex + i * 2, 3, "%02x", oc.sig64[i]);

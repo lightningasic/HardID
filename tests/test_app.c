@@ -34,6 +34,7 @@ static size_t rlp_u(uint8_t *out, uint64_t v)
 {
 	uint8_t b[8]; int n = 0;
 	if (v == 0) { out[0] = 0x80; return 1; }
+	if (v < 0x80) { out[0] = (uint8_t)v; return 1; }  /* canonical: single byte < 0x80 encodes itself */
 	while (v) { b[7 - n++] = v & 0xff; v >>= 8; }
 	return rlp_str(out, b + 8 - n, n);
 }
@@ -90,10 +91,11 @@ static size_t pb_psbt(uint8_t *o, uint64_t in_amt, uint64_t out_amt)
 	n += pb_varint(o+n, 1); o[n++] = 0x00;                  /* global key */
 	n += pb_varint(o+n, tn); memcpy(o+n, tx, tn); n += tn;
 	o[n++] = 0x00;                                          /* global sep */
-	/* input map: witness_utxo 0x01 -> amt+script */
+	/* input map: witness_utxo 0x01 -> CTxOut: amt(8) + varint(slen) + script */
 	n += pb_varint(o+n, 1); o[n++] = 0x01;
-	n += pb_varint(o+n, 8+sizeof spk);
+	n += pb_varint(o+n, 8+1+sizeof spk);
 	for (int i=0;i<8;i++) o[n++]=(uint8_t)(in_amt>>(8*i));
+	n += pb_varint(o+n, sizeof spk);
 	memcpy(o+n, spk, sizeof spk); n += sizeof spk;
 	o[n++] = 0x00;                                          /* input sep */
 	return n;
@@ -377,17 +379,23 @@ int main(void)
 		if (strcmp(o.intent.symbol, "ETC") != 0) {
 			printf("FAIL t18 symbol '%s' != ETC\n", o.intent.symbol); return 1;
 		}
-		/* recover digest[i] = sig[i] ^ seed[i] ^ i (mock encoding) */
-		uint8_t recc[32], exp_k[32];
-		os_keccak256(tx, tn, exp_k);
-		for (int i = 0; i < 32; i++) recc[i] = o.sig64[i] ^ seedz[i] ^ (uint8_t)i;
-		/* recc should equal sig[32+i]^seed[32+i]^(32+i) too (self-consistent) */
-		int consistent = 1;
-		for (int i = 0; i < 32; i++)
-			if (o.sig64[32 + i] != (recc[i] ^ seedz[32 + i] ^ (uint8_t)(32 + i))) consistent = 0;
-		if (memcmp(recc, exp_k, 32) != 0) {
-			printf("FAIL t18 digest not keccak (consistent=%d)\n", consistent); return 1;
-		}
+	/* recover digest[i] = sig[i] ^ seed[i] ^ i (mock encoding). The
+	 * expected digest is now the REAL EIP-155 sighash for chain 61
+	 * (ETC), i.e. keccak256(RLP(fields || 61 || 0 || 0)) — NOT a bare
+	 * keccak of the raw 6-field tx, and never the BTC double-SHA256. */
+	uint8_t recc[32], exp_k[32], not_btc[32];
+	if (os_evm_sighash(tx, tn, os_evm_chain_id_for_coin(61), exp_k) != 0) {
+		printf("FAIL t18 expected sighash\n"); return 1;
+	}
+	{ uint8_t t32[32]; os_sha256(tx, tn, t32); os_sha256(t32, 32, not_btc); }
+	for (int i = 0; i < 32; i++) recc[i] = o.sig64[i] ^ seedz[i] ^ (uint8_t)i;
+	/* recc should equal sig[32+i]^seed[32+i]^(32+i) too (self-consistent) */
+	int consistent = 1;
+	for (int i = 0; i < 32; i++)
+		if (o.sig64[32 + i] != (recc[i] ^ seedz[32 + i] ^ (uint8_t)(32 + i))) consistent = 0;
+	if (memcmp(recc, exp_k, 32) != 0 || memcmp(recc, not_btc, 32) == 0) {
+		printf("FAIL t18 digest not EIP-155/keccak (consistent=%d)\n", consistent); return 1;
+	}
 		if (s_confirms != 1) { printf("FAIL t18 confirm count\n"); return 1; }
 		/* wrong path (BTC coin branch) must be refused */
 		uint32_t btcpath[3] = { 0x80000000u|44, 0x80000000u|0, 0x80000000u|0 };

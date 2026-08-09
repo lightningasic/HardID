@@ -3,6 +3,9 @@
 #include <stdint.h>
 #include "../core/clearsign.h"
 #include "../core/keccak.c"
+#include "../core/hkdf.c"
+#include "../core/base58.c"
+#include "../core/psbt.c"
 #include "../core/clearsign.c"
 
 /* 构造各种畸形 RLP 验证解析器不崩溃且正确拒绝 */

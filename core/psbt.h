@@ -55,6 +55,27 @@ int os_psbt_parse(const uint8_t *psbt, size_t len,
                   uint32_t coin_type,
                   os_psbt_summary *out);
 
+/* Number of inputs in the PSBT's unsigned tx, or -1 on malformed. */
+int os_btc_psbt_input_count(const uint8_t *psbt, size_t len);
+
+/* BIP143 sighash for one input of a legacy-serialized unsigned tx.
+ * witness_spk is the input's witness_utxo scriptPubKey — only native
+ * P2WPKH (0014{20-byte}) is supported; anything else returns -1 (refuse,
+ * never guess). sighash_type must be 1 (SIGHASH_ALL). Returns 0 / -1. */
+int os_btc_bip143_sighash_tx(const uint8_t *tx, size_t tx_len,
+                             uint32_t input_index,
+                             const uint8_t *witness_spk, size_t spk_len,
+                             uint64_t amount_sats,
+                             uint32_t sighash_type,
+                             uint8_t out32[32]);
+
+/* BIP143 sighash for one input, extracted from a full PSBT (unsigned tx
+ * + per-input witness_utxo + optional PSBT_IN_SIGHASH_TYPE, default ALL).
+ * Returns 0 / -1 (malformed, missing witness_utxo, non-P2WPKH input, or
+ * unsupported sighash type — all refused). */
+int os_btc_sighash_from_psbt(const uint8_t *psbt, size_t len,
+                             uint32_t input_index, uint8_t out32[32]);
+
 #ifdef __cplusplus
 }
 #endif

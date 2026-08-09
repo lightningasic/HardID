@@ -239,40 +239,66 @@ os_sign_outcome os_signsvc_delegate(const char *app_id,
 		return out;
 	}
 
-	/* 4. Hash the raw tx with the app's chain context. EVM-family: keccak256
-	 *    of raw tx. BTC-family: double-SHA256 of the serialized tx to sign.
-	 *    Dispatch by the SAME EVM/BTC family the parser used (ETC/POLYGON
-	 *    are EVM chains and must use keccak256, not the BTC double-SHA256).
-	 *    The digest the user saw rendered (to/amount/method) is derived from
-	 *    these same bytes, so what is signed is what was shown. */
-	uint8_t digest[32];
-	if (app->coin_type == 60 || app->coin_type == 61 || app->coin_type == 966) {
-		/* keccak256(raw) — matches os_clearsign parsing context. */
-		os_keccak256(tx, tx_len, digest);
-	} else {
-		/* double-SHA256(raw) — legacy BTC sighash-all placeholder;
-		 * real segwit sighash computation lives in the signing pipeline.
-		 * For the V2.0 bring-up this produces a deterministic digest
-		 * bound to the shown tx. */
-		uint8_t tmp[32];
-		os_sha256(tx, tx_len, tmp);
-		os_sha256(tmp, sizeof(tmp), digest);
-	}
-
-	/* 5. Sign in the SE (caller must have PIN-unlocked). */
+	/* 4+5. Real chain sighash (M-2) + SE signing. The digest the user saw
+	 *    rendered (to/amount/method) is derived from these same bytes, so
+	 *    what is signed is what was shown. */
 	const se_driver_t *se = se_active();
 	if (!se || !se->sign_digest) {
 		out.result = OS_SIGN_DISABLED;
 		return out;
 	}
-	int r = se->sign_digest(path, path_len, digest, out.sig64, &out.recid);
-	if (r == SE_ERR_AUTH || r == SE_ERR_LOCKED) {
-		out.result = OS_SIGN_LOCKED;     /* needs PIN unlock, not dead */
-		return out;
-	}
-	if (r != SE_OK) {
-		out.result = OS_SIGN_DISABLED;   /* transport/SE failure */
-		return out;
+
+	if (app->coin_type == 60 || app->coin_type == 61 || app->coin_type == 966) {
+		/* EVM: EIP-155 legacy injection / typed envelope, chainId
+		 * enforced against the app's expected chain. One signature. */
+		uint8_t digest[32];
+		if (os_evm_sighash(tx, tx_len,
+		                   os_evm_chain_id_for_coin(app->coin_type),
+		                   digest) != 0) {
+			out.result = OS_SIGN_PARSE_ERR;
+			return out;
+		}
+		int r = se->sign_digest(path, path_len, digest, out.sig64, &out.recid);
+		if (r == SE_ERR_AUTH || r == SE_ERR_LOCKED) {
+			out.result = OS_SIGN_LOCKED;
+			return out;
+		}
+		if (r != SE_OK) {
+			out.result = OS_SIGN_DISABLED;
+			return out;
+		}
+		out.sigs[0][0] = 0;  /* unused for EVM; sig64 is canonical */
+		out.sig_count = 1;
+	} else {
+		/* BTC-family: one BIP143 sighash per PSBT input, each signed.
+		 * The host assembles the witnesses. Only native P2WPKH inputs
+		 * with SIGHASH_ALL are supported — anything else refuses. */
+		int nin = os_btc_psbt_input_count(tx, tx_len);
+		if (nin <= 0) {
+			out.result = OS_SIGN_PARSE_ERR;
+			return out;
+		}
+		for (int i = 0; i < nin; i++) {
+			uint8_t digest[32];
+			if (os_btc_sighash_from_psbt(tx, tx_len, (uint32_t)i,
+			                             digest) != 0) {
+				out.result = OS_SIGN_PARSE_ERR;
+				return out;
+			}
+			int r = se->sign_digest(path, path_len, digest,
+			                        out.sigs[i], &out.recids[i]);
+			if (r == SE_ERR_AUTH || r == SE_ERR_LOCKED) {
+				out.result = OS_SIGN_LOCKED;
+				return out;
+			}
+			if (r != SE_OK) {
+				out.result = OS_SIGN_DISABLED;
+				return out;
+			}
+		}
+		out.sig_count = (uint32_t)nin;
+		memcpy(out.sig64, out.sigs[0], 64);
+		out.recid = out.recids[0];
 	}
 
 	out.intent = intent;

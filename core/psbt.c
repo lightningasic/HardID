@@ -8,6 +8,7 @@
 
 #include "psbt.h"
 #include "base58.h"
+#include "sha256.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -310,4 +311,259 @@ int os_psbt_parse(const uint8_t *psbt, size_t len,
 		return -1;
 	o->fee = o->total_in - o->total_out;
 	return 0;
+}
+
+/* ------------------------------------------------------------------ *
+ * BIP143 sighash (M-2): the REAL chain-bound digest for BTC-family
+ * signing. Only native P2WPKH inputs and SIGHASH_ALL are supported —
+ * anything else is refused, never guessed.
+ * ------------------------------------------------------------------ */
+
+static void dsha256(const uint8_t *d, size_t n, uint8_t out[32])
+{
+	uint8_t t[32];
+	os_sha256(d, n, t);
+	os_sha256(t, sizeof t, out);
+}
+
+/* Walk a legacy-serialized unsigned tx, capturing everything BIP143
+ * needs. Returns 0 / -1. Buffers are bounded by OS_PSBT_MAX_INPUTS and
+ * OS_PSBT_MAX_OUTPUTS. */
+static int tx_walk_full(const uint8_t *tx, size_t txn,
+                        uint8_t (*outpoints)[36], uint8_t (*seqs)[4],
+                        uint32_t *nin,
+                        uint8_t (*outs)[8 + 2 + 64], size_t *out_lens,
+                        uint32_t *nout,
+                        uint8_t version[4], uint8_t locktime[4])
+{
+	reader r = { tx, txn };
+	if (r.n < 4) return -1;
+	memcpy(version, r.p, 4);
+	r.p += 4; r.n -= 4;
+	if (r.n >= 2 && r.p[0] == 0x00 && r.p[1] != 0x00) {
+		r.p += 2; r.n -= 2;   /* segwit marker/flag (no witnesses in PSBT) */
+	}
+	uint64_t ni;
+	if (rd_varint(&r.p, &r.n, &ni) != 0) return -1;
+	if (ni == 0 || ni > OS_PSBT_MAX_INPUTS) return -1;
+	*nin = (uint32_t)ni;
+	for (uint64_t i = 0; i < ni; i++) {
+		if (r.n < 36) return -1;
+		memcpy(outpoints[i], r.p, 36);       /* prev txid + vout */
+		r.p += 36; r.n -= 36;
+		uint64_t sl;
+		if (rd_varint(&r.p, &r.n, &sl) != 0 || r.n < sl) return -1;
+		r.p += sl; r.n -= sl;                /* scriptSig (ignored) */
+		if (r.n < 4) return -1;
+		memcpy(seqs[i], r.p, 4);
+		r.p += 4; r.n -= 4;
+	}
+	uint64_t no;
+	if (rd_varint(&r.p, &r.n, &no) != 0) return -1;
+	if (no > OS_PSBT_MAX_OUTPUTS) return -1;
+	*nout = (uint32_t)no;
+	for (uint64_t i = 0; i < no; i++) {
+		if (r.n < 8) return -1;
+		uint64_t sl;
+		const uint8_t *amt_p = r.p;
+		r.p += 8; r.n -= 8;
+		if (rd_varint(&r.p, &r.n, &sl) != 0 || r.n < sl) return -1;
+		/* capture the raw output span: amount(8) || varint || script */
+		size_t span = 8 + (size_t)(r.p - amt_p - 8) + sl;
+		if (span > 8 + 2 + 64) return -1;
+		memcpy(outs[i], amt_p, span);
+		out_lens[i] = span;
+		r.p += sl; r.n -= sl;
+	}
+	if (r.n < 4) return -1;
+	memcpy(locktime, r.p, 4);
+	return 0;
+}
+
+int os_btc_bip143_sighash_tx(const uint8_t *tx, size_t tx_len,
+                             uint32_t input_index,
+                             const uint8_t *witness_spk, size_t spk_len,
+                             uint64_t amount_sats,
+                             uint32_t sighash_type,
+                             uint8_t out32[32])
+{
+	if (!tx || !out32)
+		return -1;
+	if (sighash_type != 1)
+		return -1;   /* SIGHASH_ALL only: SINGLE/NONE/ANYONECANPAY have
+		              * well-known footguns on a hardware signer */
+	/* native P2WPKH only: scriptPubKey 0014{20} -> scriptCode
+	 * 1976a914{20}88ac */
+	if (!witness_spk || spk_len != 22 ||
+	    witness_spk[0] != 0x00 || witness_spk[1] != 0x14)
+		return -1;
+
+	static uint8_t outpoints[OS_PSBT_MAX_INPUTS][36];
+	static uint8_t seqs[OS_PSBT_MAX_INPUTS][4];
+	static uint8_t outs[OS_PSBT_MAX_OUTPUTS][8 + 2 + 64];
+	static size_t  out_lens[OS_PSBT_MAX_OUTPUTS];
+	uint8_t version[4], locktime[4];
+	uint32_t nin = 0, nout = 0;
+	if (tx_walk_full(tx, tx_len, outpoints, seqs, &nin,
+	                 outs, out_lens, &nout, version, locktime) != 0)
+		return -1;
+	if (input_index >= nin)
+		return -1;
+
+	/* hashPrevouts / hashSequence / hashOutputs (SIGHASH_ALL forms) */
+	uint8_t hp[32], hs[32], ho[32];
+	{
+		uint8_t buf[OS_PSBT_MAX_INPUTS * 36];
+		size_t n = 0;
+		for (uint32_t i = 0; i < nin; i++) {
+			memcpy(buf + n, outpoints[i], 36); n += 36;
+		}
+		dsha256(buf, n, hp);
+	}
+	{
+		uint8_t buf[OS_PSBT_MAX_INPUTS * 4];
+		size_t n = 0;
+		for (uint32_t i = 0; i < nin; i++) {
+			memcpy(buf + n, seqs[i], 4); n += 4;
+		}
+		dsha256(buf, n, hs);
+	}
+	{
+		uint8_t buf[OS_PSBT_MAX_OUTPUTS * (8 + 2 + 64)];
+		size_t n = 0;
+		for (uint32_t i = 0; i < nout; i++) {
+			memcpy(buf + n, outs[i], out_lens[i]); n += out_lens[i];
+		}
+		dsha256(buf, n, ho);
+	}
+
+	/* preimage: version || hP || hS || outpoint || scriptCode || amount ||
+	 *           nSequence || hO || locktime || sighashType */
+	uint8_t pre[4 + 32 + 32 + 36 + 26 + 8 + 4 + 32 + 4 + 4];
+	size_t n = 0;
+	memcpy(pre + n, version, 4); n += 4;
+	memcpy(pre + n, hp, 32); n += 32;
+	memcpy(pre + n, hs, 32); n += 32;
+	memcpy(pre + n, outpoints[input_index], 36); n += 36;
+	pre[n++] = 0x19;                          /* scriptCode length (25) */
+	pre[n++] = 0x76; pre[n++] = 0xa9; pre[n++] = 0x14;
+	memcpy(pre + n, witness_spk + 2, 20); n += 20;
+	pre[n++] = 0x88; pre[n++] = 0xac;
+	for (int i = 0; i < 8; i++)
+		pre[n++] = (uint8_t)(amount_sats >> (8 * i));
+	memcpy(pre + n, seqs[input_index], 4); n += 4;
+	memcpy(pre + n, ho, 32); n += 32;
+	memcpy(pre + n, locktime, 4); n += 4;
+	pre[n++] = 0x01; pre[n++] = 0x00; pre[n++] = 0x00; pre[n++] = 0x00;
+
+	dsha256(pre, n, out32);
+	return 0;
+}
+
+int os_btc_sighash_from_psbt(const uint8_t *psbt, size_t len,
+                             uint32_t input_index, uint8_t out32[32])
+{
+	if (!psbt || len < 5 || memcmp(psbt, "psbt\xff", 5) != 0)
+		return -1;
+	const uint8_t *p = psbt + 5;
+	size_t n = len - 5;
+	const uint8_t *unsigned_tx = NULL;
+	size_t unsigned_tx_len = 0;
+
+	/* global map */
+	for (;;) {
+		uint64_t klen;
+		if (rd_varint(&p, &n, &klen) != 0) return -1;
+		if (klen == 0) break;
+		if (n < klen) return -1;
+		const uint8_t *key = p;
+		p += klen; n -= klen;
+		uint64_t vlen;
+		if (rd_varint(&p, &n, &vlen) != 0 || n < vlen) return -1;
+		if (klen == 1 && key[0] == 0x00) {
+			unsigned_tx = p;
+			unsigned_tx_len = vlen;
+		}
+		p += vlen; n -= vlen;
+	}
+	if (!unsigned_tx)
+		return -1;
+
+	/* walk input maps to input_index; capture witness_utxo + sighash */
+	for (uint32_t i = 0; i <= input_index; i++) {
+		const uint8_t *wutxo = NULL;
+		size_t wutxo_len = 0;
+		uint32_t sht = 1;             /* PSBT default: SIGHASH_ALL */
+		int saw_witness = 0;
+		for (;;) {
+			uint64_t klen;
+			if (rd_varint(&p, &n, &klen) != 0) return -1;
+			if (klen == 0) break;              /* end of this input map */
+			if (n < klen) return -1;
+			const uint8_t *key = p;
+			p += klen; n -= klen;
+			uint64_t vlen;
+			if (rd_varint(&p, &n, &vlen) != 0 || n < vlen) return -1;
+			if (i == input_index && klen == 1 && key[0] == 0x01) {
+				wutxo = p; wutxo_len = vlen; saw_witness = 1;
+			}
+			if (i == input_index && klen == 1 && key[0] == 0x03 &&
+			    vlen == 4) {
+				sht = (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
+				      ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+			}
+			p += vlen; n -= vlen;
+		}
+		if (i == input_index) {
+			if (!saw_witness || wutxo_len < 8 + 1)
+				return -1;   /* non_witness_utxo inputs unsupported */
+			uint64_t amount = rd_u64le(wutxo);
+			const uint8_t *sp = wutxo + 8;
+			size_t sn = wutxo_len - 8;
+			uint64_t slen;
+			if (rd_varint(&sp, &sn, &slen) != 0 || sn != slen)
+				return -1;
+			return os_btc_bip143_sighash_tx(unsigned_tx, unsigned_tx_len,
+			                                input_index, sp, slen,
+			                                amount, sht, out32);
+		}
+	}
+	return -1;   /* fewer input maps than requested index */
+}
+
+int os_btc_psbt_input_count(const uint8_t *psbt, size_t len)
+{
+	if (!psbt || len < 5 || memcmp(psbt, "psbt\xff", 5) != 0)
+		return -1;
+	const uint8_t *p = psbt + 5;
+	size_t n = len - 5;
+	const uint8_t *unsigned_tx = NULL;
+	size_t unsigned_tx_len = 0;
+	for (;;) {
+		uint64_t klen;
+		if (rd_varint(&p, &n, &klen) != 0) return -1;
+		if (klen == 0) break;
+		if (n < klen) return -1;
+		const uint8_t *key = p;
+		p += klen; n -= klen;
+		uint64_t vlen;
+		if (rd_varint(&p, &n, &vlen) != 0 || n < vlen) return -1;
+		if (klen == 1 && key[0] == 0x00) {
+			unsigned_tx = p;
+			unsigned_tx_len = vlen;
+		}
+		p += vlen; n -= vlen;
+	}
+	if (!unsigned_tx)
+		return -1;
+	reader r = { unsigned_tx, unsigned_tx_len };
+	if (r.n < 4) return -1;
+	r.p += 4; r.n -= 4;
+	if (r.n >= 2 && r.p[0] == 0x00 && r.p[1] != 0x00) {
+		r.p += 2; r.n -= 2;
+	}
+	uint64_t ni;
+	if (rd_varint(&r.p, &r.n, &ni) != 0) return -1;
+	if (ni == 0 || ni > OS_PSBT_MAX_INPUTS) return -1;
+	return (int)ni;
 }

@@ -325,8 +325,143 @@ int os_clearsign_parse_evm(const uint8_t *raw, size_t len, os_tx_intent *o)
 	return 0;
 }
 
-/* ---- legacy tx builder (RLP) ---- */
+/* ---- real chain sighash (M-2) ---- */
 
+/* Expected EIP-155 chain ID for an EVM BIP44 coin_type. 0 = unknown
+ * (caller must refuse to produce a chain-bound sighash for it). */
+uint64_t os_evm_chain_id_for_coin(uint32_t coin_type)
+{
+	switch (coin_type) {
+	case 60:  return 1;    /* Ethereum mainnet */
+	case 61:  return 61;   /* Ethereum Classic */
+	case 966: return 137;  /* Polygon */
+	default:  return 0;
+	}
+}
+
+/* RLP list header writer (local to the sighash builder). */
+static size_t rlp_list_hdr(uint8_t *out, size_t l)
+{
+	if (l < 56) { out[0] = (uint8_t)(0xc0 + l); return 1; }
+	if (l < 256) { out[0] = 0xf8; out[1] = (uint8_t)l; return 2; }
+	out[0] = 0xf9; out[1] = (uint8_t)(l >> 8); out[2] = (uint8_t)l; return 3;
+}
+
+/* Compute the REAL chain sighash for an EVM transaction (M-2). This is
+ * the digest the SE signs — it must carry chain semantics (replay
+ * protection), not a bare hash of whatever bytes the host sent.
+ *
+ *   typed (EIP-2718 0x01/0x02): sighash = keccak256(raw). The envelope
+ *     already binds chainId in field 0 — we verify it matches the app's
+ *     expected chain.
+ *   legacy, 6 fields (pre-155 unsigned): inject the app's chainId:
+ *     sighash = keccak256(RLP(fields || chainId || 0 || 0))  [EIP-155]
+ *   legacy, 9 fields with empty r/s (unsigned EIP-155 payload): the raw
+ *     bytes ARE the sighash preimage; verify v == expected chainId and
+ *     keccak256(raw) as-is.
+ *   legacy, 9 fields with non-empty r/s: already signed — REFUSE.
+ *
+ * chain_id = the app's expected chain (os_evm_chain_id_for_coin); a
+ * 6-field legacy tx with chain_id == 0 is refused (no chain to bind).
+ * Returns 0 on success, -1 on malformed/wrong-chain/already-signed. */
+#define OS_EVM_SIGHASH_MAX 4096
+
+int os_evm_sighash(const uint8_t *raw, size_t len, uint64_t chain_id,
+                   uint8_t out32[32])
+{
+	rlp r = { raw, len };
+	rlp_item top;
+	int typed = 0;
+
+	if (!raw || len == 0 || len > OS_EVM_SIGHASH_MAX)
+		return -1;
+
+	if (raw[0] == 0x01 || raw[0] == 0x02) {
+		typed = raw[0];
+		r.p = raw + 1;
+		r.len = len - 1;
+	}
+
+	if (rlp_read(&r, &top) != 0 || !top.is_list)
+		return -1;
+	if (r.len != 0)
+		return -1;   /* trailing garbage must not enter the digest */
+
+	if (typed) {
+		/* field 0 is chainId on both 2930 and 1559 */
+		rlp body = { top.ptr, top.len };
+		rlp_item f;
+		uint64_t tx_chain = 0;
+		if (rlp_read(&body, &f) != 0 || rlp_u64(&f, &tx_chain) != 0)
+			return -1;
+		if (chain_id && tx_chain != chain_id)
+			return -1;
+		os_keccak256(raw, len, out32);
+		return 0;
+	}
+
+	/* legacy: count fields; must be exactly 6 (unsigned pre-155) or 9 */
+	rlp body = { top.ptr, top.len };
+	rlp_item f;
+	rlp_item v9 = {0}, r9 = {0}, s9 = {0};
+	int nfields = 0;
+	int have9 = 0;
+	while (body.len > 0) {
+		if (rlp_read(&body, &f) != 0)
+			return -1;
+		nfields++;
+		if (nfields == 7) v9 = f;
+		if (nfields == 8) r9 = f;
+		if (nfields == 9) { s9 = f; have9 = 1; }
+		if (nfields > 9)
+			return -1;
+	}
+
+	if (have9) {
+		/* unsigned payload requires empty r AND s */
+		if (r9.len != 0 || s9.len != 0)
+			return -1;           /* already signed: refuse */
+		uint64_t v;
+		if (rlp_u64(&v9, &v) != 0)
+			return -1;
+		if (chain_id && v != chain_id)
+			return -1;           /* payload targets another chain */
+		os_keccak256(raw, len, out32);
+		return 0;
+	}
+
+	if (nfields != 6)
+		return -1;
+	if (chain_id == 0)
+		return -1;   /* pre-155 tx: no chain to bind, refuse */
+
+	/* rebuild RLP(body || chainId || 0x80 || 0x80) and keccak it */
+	uint8_t buf[OS_EVM_SIGHASH_MAX + 16];
+	uint8_t venc[10];
+	size_t vl = 0;
+	{
+		uint8_t be[8]; size_t nb = 0;
+		uint64_t x = chain_id;
+		while (x) { be[7 - nb] = (uint8_t)(x & 0xff); x >>= 8; nb++; }
+		if (nb == 0) { venc[0] = 0x80; vl = 1; }
+		else if (nb == 1 && be[7] < 0x80) { venc[0] = be[7]; vl = 1; }
+		else { venc[0] = (uint8_t)(0x80 + nb); memcpy(venc + 1, be + (8 - nb), nb); vl = 1 + nb; }
+	}
+	size_t newbody = top.len + vl + 2;
+	uint8_t hdr[3];
+	size_t hl = rlp_list_hdr(hdr, newbody);
+	if (hl + newbody > sizeof(buf))
+		return -1;
+	memcpy(buf, hdr, hl);
+	memcpy(buf + hl, top.ptr, top.len);
+	memcpy(buf + hl + top.len, venc, vl);
+	buf[hl + top.len + vl] = 0x80;
+	buf[hl + top.len + vl + 1] = 0x80;
+	os_keccak256(buf, hl + newbody, out32);
+	return 0;
+}
+
+/* ---- legacy tx builder (RLP) ---- */
 /* RLP single uint64, returns bytes written. */
 static size_t rlp_uint(uint8_t *out, uint64_t v)
 {

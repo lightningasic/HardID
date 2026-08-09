@@ -22,6 +22,7 @@ static size_t rlp_u(uint8_t *out, uint64_t v)
 {
 	uint8_t b[8]; int n = 0;
 	if (v == 0) { out[0] = 0x80; return 1; }
+	if (v < 0x80) { out[0] = (uint8_t)v; return 1; }  /* canonical: single byte < 0x80 encodes itself */
 	while (v) { b[7 - n++] = v & 0xff; v >>= 8; }
 	return rlp_str(out, b + 8 - n, n);
 }
@@ -232,6 +233,63 @@ int main(void)
 		if (os_clearsign_parse_evm(buf, h + o, &it) != 0) { printf("FAIL t12 parse\n"); return 1; }
 		if (it.chain_id != 56) { printf("FAIL t12 chain_id=%llu (want 56)\n", (unsigned long long)it.chain_id); return 1; }
 		printf("PASS t12 unsigned payload chain_id = v (not (v-35)/2)\n");
+	}
+
+	/* 13 EIP-155 official vector (M-2): nonce=9, gasPrice=20 gwei,
+	 * gasLimit=21000, to=0x3535…35, value=1e18, data='', chainId=1.
+	 * Spec sighash = daf5a779…e53. A 6-field tx must get chainId 1
+	 * INJECTED; the equivalent 9-field payload must hash identically;
+	 * wrong expected chain and already-signed r/s must be refused. */
+	{
+		static const uint8_t want[32] = {
+			0xda,0xf5,0xa7,0x79,0xae,0x97,0x2f,0x97,0x21,0x97,0x30,0x3d,
+			0x7b,0x57,0x47,0x46,0xc7,0xef,0x83,0xea,0xda,0xc0,0xf2,0x79,
+			0x1a,0xd2,0x3d,0xb9,0x2e,0x4c,0x8e,0x53,
+		};
+		uint8_t to35[20]; memset(to35, 0x35, sizeof to35);
+		uint8_t t6[256]; size_t o6 = 0;
+		o6 += rlp_u(t6 + o6, 9);
+		o6 += rlp_u(t6 + o6, 20000000000ULL);
+		o6 += rlp_u(t6 + o6, 21000);
+		o6 += rlp_str(t6 + o6, to35, 20);
+		o6 += rlp_u(t6 + o6, 1000000000000000000ULL);
+		o6 += rlp_str(t6 + o6, NULL, 0);
+		uint8_t tx6[256];
+		size_t h6 = rlp_hdr(tx6, 1, o6);
+		memcpy(tx6 + h6, t6, o6);
+		uint8_t dg[32];
+		if (os_evm_sighash(tx6, h6 + o6, 1, dg) != 0) { printf("FAIL t13 sighash6\n"); return 1; }
+		if (memcmp(dg, want, 32) != 0) { printf("FAIL t13 EIP-155 vector (6-field)\n"); return 1; }
+
+		/* 9-field payload form: v=1, r=s=empty -> identical sighash */
+		uint8_t t9[256]; size_t o9 = o6;
+		memcpy(t9, t6, o6);
+		o9 += rlp_u(t9 + o9, 1);
+		o9 += rlp_str(t9 + o9, NULL, 0);
+		o9 += rlp_str(t9 + o9, NULL, 0);
+		uint8_t tx9[256];
+		size_t h9 = rlp_hdr(tx9, 1, o9);
+		memcpy(tx9 + h9, t9, o9);
+		if (os_evm_sighash(tx9, h9 + o9, 1, dg) != 0) { printf("FAIL t13 sighash9\n"); return 1; }
+		if (memcmp(dg, want, 32) != 0) { printf("FAIL t13 EIP-155 vector (9-field)\n"); return 1; }
+
+	/* wrong-chain refusal applies to chain-BOUND forms: the 9-field
+	 * payload (v=1) must refuse an expected chain of 61. (A bare 6-field
+	 * tx carries no chain — injecting ANY app chain is by design.) */
+	if (os_evm_sighash(tx9, h9 + o9, 61, dg) == 0) { printf("FAIL t13 wrong-chain accepted\n"); return 1; }
+		uint8_t ts[256]; size_t os_ = o6;
+		memcpy(ts, t6, o6);
+		os_ += rlp_u(ts + os_, 37);            /* v = 35+2*1+0 (SIGNED) */
+		os_ += rlp_str(ts + os_, to35, 1);     /* non-empty r */
+		os_ += rlp_str(ts + os_, to35, 1);     /* non-empty s */
+		uint8_t txs[300];
+		size_t hs = rlp_hdr(txs, 1, os_);
+		memcpy(txs + hs, ts, os_);
+		if (os_evm_sighash(txs, hs + os_, 1, dg) == 0) { printf("FAIL t13 signed accepted\n"); return 1; }
+
+		/* pre-155 with no expected chain must refuse */
+		if (os_evm_sighash(tx6, h6 + o6, 0, dg) == 0) { printf("FAIL t13 no-chain accepted\n"); return 1; }
+		printf("PASS t13 EIP-155 official sighash vector + refusals\n");
 	}
 
 	printf("\nALL CLEARSIGN TESTS PASSED\n");

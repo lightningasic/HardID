@@ -422,24 +422,53 @@ void screen_run_initialize(void)
 		return;
 	}
 
-	/* 3. Second confirmation: re-enter the phrase word-by-word and check
-	 * it matches what was shown. Prevents a misrecorded seed from becoming
-	 * a permanently unrecoverable wallet. */
-	lcd_fill(C_BG);
-	lcd_text_wrap(2, 10, "Verify the phrase:", C_LBL, C_BG);
-	char reenter[OS_BIP39_MNEMONIC_MAX];
-	if (kp_capture_phrase("CONFIRM PHRASE", reenter,
-	                      (int)sizeof(reenter)) != 0 ||
-	    strcmp(reenter, mnemonic) != 0) {
-		os_secure_bzero(reenter, sizeof(reenter));
-		os_secure_bzero(seed32, sizeof(seed32));
-		os_secure_bzero(seed64, sizeof(seed64));
-		os_secure_bzero(mnemonic, sizeof(mnemonic));
+	/* 3. Mandatory second confirmation: re-enter the phrase word-by-word
+	 * and check it matches what was shown. A misrecorded seed becomes a
+	 * permanently unrecoverable wallet, so a mismatch does NOT advance —
+	 * the user is sent back to review the words and must re-confirm until
+	 * it matches. The only way out is an explicit abort (which leaves the
+	 * device uninitialized), never a silent skip. */
+	for (;;) {
 		lcd_fill(C_BG);
-		lcd_text_wrap(2, 10, "Phrase mismatch!", C_ERR, C_BG);
-		return;
+		lcd_text_wrap(2, 10, "Verify: re-enter the phrase", C_LBL, C_BG);
+		ui_wait_ack();
+		char reenter[OS_BIP39_MNEMONIC_MAX];
+		int crc = kp_capture_phrase("CONFIRM PHRASE", reenter,
+		                            (int)sizeof(reenter));
+		if (crc == 0 && strcmp(reenter, mnemonic) == 0) {
+			os_secure_bzero(reenter, sizeof(reenter));
+			break;                       /* confirmed — proceed */
+		}
+		os_secure_bzero(reenter, sizeof(reenter));
+		/* mismatch (or aborted): tell the user, offer review-retry or a
+		 * conscious abort. Do NOT advance on a wrong phrase. */
+		lcd_fill(C_BG);
+		lcd_text_wrap(2, 10, "Phrase does NOT match.", C_ERR, C_BG);
+		lcd_text_wrap(2, 40, "Review words and retry.", C_WARN, C_BG);
+		lcd_rect_text(15, 250, 145, 300, "RETRY", C_FG, C_BTN);
+		lcd_rect_text(155, 250, 225, 300, "ABORT", C_FG, C_ERR);
+		for (;;) {
+			int px, py;
+			ui_wait_press(&px, &py);
+			int rx = px, ry = py;
+			ui_wait_release(&rx, &ry);
+			if (ui_pt_in(px, py, 155, 250, 225, 300) &&
+			    ui_pt_in(rx, ry, 155, 250, 225, 300)) {
+				os_secure_bzero(seed32, sizeof(seed32));
+				os_secure_bzero(mnemonic, sizeof(mnemonic));
+				return;                  /* explicit abort, uninitialized */
+			}
+			if (ui_pt_in(px, py, 15, 250, 145, 300) &&
+			    ui_pt_in(rx, ry, 15, 250, 145, 300))
+				break;                   /* retry */
+		}
+		/* re-show the words before the next confirmation attempt */
+		if (screen_show_words(mnemonic) != 0) {
+			os_secure_bzero(seed32, sizeof(seed32));
+			os_secure_bzero(mnemonic, sizeof(mnemonic));
+			return;
+		}
 	}
-	os_secure_bzero(reenter, sizeof(reenter));
 
 	os_bip39_mnemonic_to_seed(mnemonic,
 	                          (passphrase[0] != '\0') ? passphrase : NULL,

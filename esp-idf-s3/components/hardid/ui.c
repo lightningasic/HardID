@@ -33,9 +33,12 @@ static int s_sel = 0;
 
 #define ARROW_Y0  230
 #define ARROW_Y1  290
+/* three-button nav: LEFT | OK | RIGHT */
 #define ARROW_X0  15
-#define ARROW_X1  75
-#define RARROW_X0 165
+#define ARROW_X1  80
+#define OK_X0     90
+#define OK_X1     150
+#define RARROW_X0 160
 #define RARROW_X1 225
 
 /* Draw `s` centered horizontally with 8x16 glyphs at 2x scale (16x32px
@@ -107,6 +110,15 @@ static void menu_draw(void)
 	menu_draw_item(s_items[s_sel], 140);
 
 	draw_arrow(ARROW_X0, ARROW_Y0, ARROW_X1, ARROW_Y1, -1);
+	/* center OK key confirms the selection */
+	draw_round_rect(OK_X0, ARROW_Y0, OK_X1, ARROW_Y1, 8, C_BTN);
+	{
+		int tw = 2 * (F8_W + 2) - 2;          /* "OK" at 1x scale */
+		int x = (OK_X0 + OK_X1 - tw) / 2;
+		int y = (ARROW_Y0 + ARROW_Y1) / 2 - 8;
+		lcd_gl8x16(x, y, 'O', C_FG, C_BTN, 1);
+		lcd_gl8x16(x + F8_W + 2, y, 'K', C_FG, C_BTN, 1);
+	}
 	draw_arrow(RARROW_X0, ARROW_Y0, RARROW_X1, ARROW_Y1, 1);
 }
 
@@ -158,8 +170,10 @@ void ui_run(void)
 			s_sel = (s_sel + MENU_COUNT - 1) % MENU_COUNT;
 		} else if (ui_pt_in(px, py, RARROW_X0, ARROW_Y0, RARROW_X1, ARROW_Y1)) {
 			s_sel = (s_sel + 1) % MENU_COUNT;
+		} else if (ui_pt_in(px, py, OK_X0, ARROW_Y0, OK_X1, ARROW_Y1)) {
+			menu_run_sel();              /* OK key confirms */
 		} else {
-			menu_run_sel();
+			menu_run_sel();              /* tap the item name = shortcut */
 		}
 	}
 }

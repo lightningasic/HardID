@@ -81,6 +81,8 @@ void os_rng_fill(uint8_t *buf, size_t len)
 
 uint32_t os_rng_uniform(uint32_t n)
 {
+	if (n == 0)
+		return 0;              /* undefined range: no valid draw, return 0 */
 	uint32_t x, max = 0xFFFFFFFFu - (0xFFFFFFFFu % n);
 	while ((x = os_rng_u32()) >= max)
 		;
@@ -89,6 +91,8 @@ uint32_t os_rng_uniform(uint32_t n)
 
 void os_rng_shuffle(char *buf, size_t len)
 {
+	if (len < 2)
+		return;                  /* nothing to shuffle */
 	size_t i;
 	for (i = len - 1; i >= 1; i--) {
 		uint32_t j = os_rng_uniform((uint32_t)i + 1);

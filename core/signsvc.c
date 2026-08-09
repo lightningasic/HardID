@@ -242,12 +242,14 @@ os_sign_outcome os_signsvc_delegate(const char *app_id,
 	}
 #endif
 
-	/* 4. Hash the raw tx with the app's chain context. EVM: keccak256 of
-	 *    raw tx. BTC: double-SHA256 of the serialized tx to sign. The
-	 *    digest the user saw rendered (to/amount/method) is derived from
+	/* 4. Hash the raw tx with the app's chain context. EVM-family: keccak256
+	 *    of raw tx. BTC-family: double-SHA256 of the serialized tx to sign.
+	 *    Dispatch by the SAME EVM/BTC family the parser used (ETC/POLYGON
+	 *    are EVM chains and must use keccak256, not the BTC double-SHA256).
+	 *    The digest the user saw rendered (to/amount/method) is derived from
 	 *    these same bytes, so what is signed is what was shown. */
 	uint8_t digest[32];
-	if (app->coin_type == 60) {
+	if (app->coin_type == 60 || app->coin_type == 61 || app->coin_type == 966) {
 		/* keccak256(raw) — matches os_clearsign parsing context. */
 		os_keccak256(tx, tx_len, digest);
 	} else {

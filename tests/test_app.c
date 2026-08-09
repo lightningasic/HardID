@@ -350,6 +350,52 @@ int main(void)
 	}
 	printf("PASS t17 catalog LTC signs with native symbol + path isolation\n");
 
+	/* t18: catalog ETC (coin 61) is an EVM-chain app reusing the firmware
+	 * EVM parser — its sign digest must be keccak256 (family-consistent),
+	 * NOT the BTC double-SHA256 fallback. Regression for the parser-family
+	 * dispatch in fw_reparse: the hashing step must use the same family.
+	 * The mock signer encodes the digest deterministically (sig[i] =
+	 * digest[i%32] ^ seed[i] ^ i), so we recover it and compare. */
+	se_mock_reset();
+	uint8_t seedz[64];
+	{
+		memset(seedz, 0x44, sizeof seedz);
+		if (se->store_seed(seedz) != SE_OK) { printf("FAIL t18 store\n"); return 1; }
+		if (se->derive_session(NULL, 0) != SE_OK) { printf("FAIL t18 derive-empty\n"); return 1; }
+	}
+	if (os_app_catalog_install("etc") != 0) { printf("FAIL t18 install etc\n"); return 1; }
+	{
+		uint8_t to[20]; memset(to, 0xAB, sizeof to);
+		uint8_t tx[512]; size_t tn = build_legacy(tx, 20, 21000, to, 1000, NULL, 0);
+		uint32_t etcpath[3] = { 0x80000000u|44, 0x80000000u|61, 0x80000000u|0 };
+		uint8_t pin[4] = {'1','2','3','4'};
+		se_mock_set_pin(pin, 4);
+		if (se->verify_pin(pin, 4, NULL, NULL) != SE_OK) { printf("FAIL t18 pin\n"); return 1; }
+		s_confirms = 0; s_confirm_answer = true;
+		os_sign_outcome o = os_signsvc_delegate("etc", tx, tn, etcpath, 3, confirm_ui);
+		if (o.result != OS_SIGN_OK) { printf("FAIL t18 etc sign rc=%d\n", o.result); return 1; }
+		if (strcmp(o.intent.symbol, "ETC") != 0) {
+			printf("FAIL t18 symbol '%s' != ETC\n", o.intent.symbol); return 1;
+		}
+		/* recover digest[i] = sig[i] ^ seed[i] ^ i (mock encoding) */
+		uint8_t recc[32], exp_k[32];
+		os_keccak256(tx, tn, exp_k);
+		for (int i = 0; i < 32; i++) recc[i] = o.sig64[i] ^ seedz[i] ^ (uint8_t)i;
+		/* recc should equal sig[32+i]^seed[32+i]^(32+i) too (self-consistent) */
+		int consistent = 1;
+		for (int i = 0; i < 32; i++)
+			if (o.sig64[32 + i] != (recc[i] ^ seedz[32 + i] ^ (uint8_t)(32 + i))) consistent = 0;
+		if (memcmp(recc, exp_k, 32) != 0) {
+			printf("FAIL t18 digest not keccak (consistent=%d)\n", consistent); return 1;
+		}
+		if (s_confirms != 1) { printf("FAIL t18 confirm count\n"); return 1; }
+		/* wrong path (BTC coin branch) must be refused */
+		uint32_t btcpath[3] = { 0x80000000u|44, 0x80000000u|0, 0x80000000u|0 };
+		o = os_signsvc_delegate("etc", tx, tn, btcpath, 3, confirm_ui);
+		if (o.result != OS_SIGN_PARSE_ERR) { printf("FAIL t18 etc wrong-path\n"); return 1; }
+	}
+	printf("PASS t18 catalog ETC signs with keccak256 family digest\n");
+
 	printf("ALL PASS\n");
 	return 0;
 }

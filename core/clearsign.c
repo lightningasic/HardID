@@ -75,6 +75,8 @@ done:
  * high bytes, which would let a crafted tx show a fake small amount/fee. */
 static int rlp_u64(const rlp_item *it, uint64_t *v)
 {
+	if (it->is_list)
+		return -1;   /* a list payload is not a scalar integer */
 	if (it->len > 8)
 		return -1;
 	uint64_t x = 0;
@@ -256,15 +258,27 @@ int os_clearsign_parse_evm(const uint8_t *raw, size_t len, os_tx_intent *o)
 			if (i == 1 && rlp_u64(&f, &maxfee) != 0) return -1;
 			if (i == 2 && rlp_u64(&f, &gaslimit) != 0) return -1;
 		}
-		/* legacy: EIP-155 chainId is recoverable from v = 35 + 2*id + parity.
-		 * v is the 7th field (after data); read it if present. */
+		/* legacy: two v-position meanings must not be conflated —
+		 *   signed   EIP-155: v = 35 + 2*chainId + parity   → chain_id=(v-35)/2
+		 *   unsigned EIP-155 payload (what a host hands us to sign):
+		 *             [..., v=chainId, r=0x80, s=0x80]      → chain_id=v
+		 * Distinguish by the r/s emptiness: an unsigned payload has empty
+		 * r and s (RLP 0x80, len 0). */
 		rlp rsave = body;                 /* position after gasLimit */
-		rlp_item t2, v2, d2, vv;
+		rlp_item t2, v2, d2, vv, rr, ss;
 		if (rlp_read(&rsave, &t2) == 0 && rlp_read(&rsave, &v2) == 0 &&
 		    rlp_read(&rsave, &d2) == 0 && rlp_read(&rsave, &vv) == 0) {
 			uint64_t v;
-			if (rlp_u64(&vv, &v) == 0 && v >= 35)
-				o->chain_id = (v - 35) / 2;
+			if (rlp_u64(&vv, &v) == 0) {
+				bool empty_rs =
+					(rlp_read(&rsave, &rr) == 0 && rr.len == 0) &&
+					(rlp_read(&rsave, &ss) == 0 && ss.len == 0);
+				if (empty_rs) {
+					o->chain_id = v;         /* unsigned payload: v IS chainId */
+				} else if (v >= 35) {
+					o->chain_id = (v - 35) / 2;  /* signed EIP-155 */
+				}
+			}
 		}
 	}
 	/* fee_limit = maxfee * gaslimit, saturated: a malicious huge maxFee must

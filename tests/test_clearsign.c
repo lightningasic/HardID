@@ -214,6 +214,26 @@ int main(void)
 		printf("PASS t11 eip-2930 parsed in correct field order\n");
 	}
 
+	/* 12 unsigned EIP-155 payload: r,s empty, so v position IS the
+	 * chainId (not 35+2*id+parity). chain 56 must read 56, not (56-35)/2. */
+	{
+		uint8_t tmp[1024]; size_t o = 0;
+		o += rlp_u(tmp + o, 1);            /* nonce */
+		o += rlp_u(tmp + o, 20);           /* gasPrice */
+		o += rlp_u(tmp + o, 21000);        /* gasLimit */
+		o += rlp_str(tmp + o, to, 20);     /* to */
+		o += rlp_u(tmp + o, 1000);         /* value */
+		o += rlp_str(tmp + o, NULL, 0);    /* data */
+		o += rlp_u(tmp + o, 56);           /* v position = chainId (unsigned) */
+		o += rlp_str(tmp + o, NULL, 0);    /* r empty */
+		o += rlp_str(tmp + o, NULL, 0);    /* s empty */
+		size_t h = rlp_hdr(buf, 1, o);
+		memcpy(buf + h, tmp, o);
+		if (os_clearsign_parse_evm(buf, h + o, &it) != 0) { printf("FAIL t12 parse\n"); return 1; }
+		if (it.chain_id != 56) { printf("FAIL t12 chain_id=%llu (want 56)\n", (unsigned long long)it.chain_id); return 1; }
+		printf("PASS t12 unsigned payload chain_id = v (not (v-35)/2)\n");
+	}
+
 	printf("\nALL CLEARSIGN TESTS PASSED\n");
 	return 0;
 }

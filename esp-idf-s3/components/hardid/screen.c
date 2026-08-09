@@ -97,7 +97,7 @@ static bool screen_confirm_intent(const os_tx_intent *it)
 	lcd_line(2, 30, line, C_FG, C_BG);
 
 	if (it->amount_token[0])
-		snprintf(line, sizeof line, "amount %.10s %.10s",
+		snprintf(line, sizeof line, "amount %.24s %.10s",
 		         it->amount_token, it->symbol);
 	else
 		snprintf(line, sizeof line, "amount %llu %.10s",

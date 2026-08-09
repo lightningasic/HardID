@@ -97,7 +97,7 @@ static bool screen_confirm_intent(const os_tx_intent *it)
 	lcd_line(2, 30, line, C_FG, C_BG);
 
 	if (it->amount_token[0])
-		snprintf(line, sizeof line, "amount %.10s %.10s",
+		snprintf(line, sizeof line, "amount %.24s %.10s",
 		         it->amount_token, it->symbol);
 	else
 		snprintf(line, sizeof line, "amount %llu %.10s",
@@ -150,24 +150,16 @@ void screen_run_sign_for_app(const os_app *app)
 	 * the real tx arrives via HOST LINK / App market install flow. */
 	uint8_t tx[256];
 	uint32_t path[3] = { 0x80000000u | 44,
-	                    0x80000000u | app->coin_type, 0 };
+	                    0x80000000u | app->coin_type,
+	                    0x80000000u | 0 };       /* m/44'/coin'/0' (hardened) */
 	size_t tx_len = 0;
 
 	if (app->coin_type == 60) {
-		/* minimal legacy EVM transfer built with correct RLP:
-		 * [nonce=1, gasPrice=20, gasLimit=21000, to=0x11..11,
-		 *  value=1000, data=] */
-		uint8_t tmp[64]; size_t o = 0;
-		tmp[o++] = 0x01;                          /* nonce 1 */
-		tmp[o++] = 0x14;                          /* gasPrice 20 */
-		tmp[o++] = 0x82; tmp[o++] = 0x52; tmp[o++] = 0x08; /* gas=21000 */
-		tmp[o++] = 0x94;                          /* 20-byte string hdr */
-		for (int i = 0; i < 20; i++) tmp[o++] = 0x11;
-		tmp[o++] = 0x82; tmp[o++] = 0x03; tmp[o++] = 0xe8; /* value=1000 */
-		tmp[o++] = 0x80;                          /* empty data */
-		tx[0] = (uint8_t)(0xc0 + o);             /* list hdr */
-		memcpy(tx + 1, tmp, o);
-		tx_len = 1 + o;
+		/* minimal legacy EVM transfer via shared core builder so the
+		 * on-device demo can never drift from the test harness */
+		uint8_t to[20];
+		memset(to, 0x11, sizeof to);
+		tx_len = os_clearsign_build_demo_legacy(tx, 20, 21000, to, 1000);
 	} else {
 		/* BTC: no built-in demo tx — ask host for a PSBT later. */
 		lcd_fill(C_BG);

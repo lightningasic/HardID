@@ -62,7 +62,7 @@
 - L8/L9 并发项 (registry 无锁, uninstall 指针悬垂 — 取决并发模型, 当前单任务安全)。
 - L12/L13/L14 (死代码/枚举语义/demo builder 长列表头)。
 
-## 状态: Passphrase(Trezor式) 已实现, 待真机走查后继续代码审计
+## 状态: 自审+kimi评审双轮完成, 目录链可签名, 待用户拍板 passphrase 密钥空间设计
 
 ## 已完成 (Passphrase TREZOR 模型, commit `c34badb`)
 - **SE 接口**: 新增 `derive_session()` — SE 存 passphrase-less base seed
@@ -77,6 +77,48 @@
   空值复位、provision 前拒绝)。20 套件全绿 (composite t3 pin 预存失败不变)。
 - S3 固件构建通过。未烧录真机 (板已脱机)。
 
+## 已完成 (目录链审计修复, `974852d` / `2094b43` / `2e6b851` / `ab08649`)
+- **fw_reparse 按解析器能力分派** (`974852d`): 原只分派 coin 0/60 → 目录链
+  (ltc/doge/bch=2/3/145, etc/polygon=61/966) 可安装但永远无法签。现 BTC 族
+  (0,2,3,145) → os_clearsign_parse_btc, EVM 族 (60,61,966) → os_clearsign_parse_evm。
+- **native symbol 规范化** (`974852d`): BTC 解析器硬编码 "BTC"、EVM 不设 symbol
+  → 目录链显示错代币。coin_native_symbol()/apply_native_symbol() 双解析前归一化。
+- **digest 哈希按族分派** (`2094b43`): 原只判 coin==60 → ETC/POLYGON 走 BTC 的
+  double-SHA256。现 EVM 族 (60,61,966) 一律 keccak256。
+- **回归测试**: t17 (LTC 签名+symbol+路径隔离), t18 (ETC keccak256 族摘要 —
+  从确定性 mock 签名反推 digest 验证)。
+- **防御** (`2094b43`/`2e6b851`): os_rng_uniform(0) 除零、os_rng_shuffle(len<2)
+  size_t 下溢、mock_wipe 清零 PIN 缓冲。
+- **kimi 评审 L 级修复** (`ab08649`): L-1 删除 NULL-confirm 死旁路分支
+  (HARDID_HOST_TEST 从未定义, 生产逻辑成唯一逻辑); L-2 passphrase gate
+  fail-open → SE 状态错/后端缺 derive_session 时显式报错; L-3 verify_intent
+  不再 const-cast 改调用方 intent, 用局部副本比较。
+- host 22 套件全绿 (composite t3 pin 预存失败除外) + S3 固件构建通过。
+
+## kimi 评审归档 (2026-08-10, 记录: eng passed, kimi-k3)
+
+**待用户拍板 (设计岔路)**:
+- **H-1 passphrase 派生不兼容 BIP39**: derive_session = PBKDF2(base_seed, salt),
+  标准 BIP39 = PBKDF2(mnemonic_text, salt)。同助记词+同 passphrase 在本机与
+  Trezor 等标准钱包得到**不同账户**。根因: SE 存 base seed 而非助记词, 无法
+  重组标准 KDF。空 passphrase 模式与 BIP39 一致, 不受影响。选择: (a) 文档化为
+  HardID 专属密钥空间 (不可第三方恢复); (b) 重设计 (SE 存助记词/每次开机输
+  助记词, 各有代价)。
+- **H-2 passphrase 字符集受限**: kp_capture_alpha 只接 A-Z+空格 (数字/小写/符号
+  全忽略)。BIP39 passphrase 任意 UTF-8 且区分大小写。即使 H-1 兼容, 键盘也
+  输不进标准 passphrase; 26+1 字符集暴力破解强度低。
+
+**真机联调/真实资金前必修 (红线升级)**:
+- **M-1 目录链地址显示仍是 BTC 编码**: psbt.c script_to_addr 硬编码 bech32
+  "bc1" + base58 0x00/0x05。LTC/DOGE/BCH 输出渲染成 BTC 格式地址
+  (bc1q… 而非 ltc1q…)。签名锚定原始字节资金不打错, 但用户所见地址与收款方
+  给的永远对不上 → WYSIWYS 确认流程失效。需 per-coin 地址编码表。
+- **M-2 digest 占位管线升级为阻断级**: 目录链能签后, keccak256(raw) /
+  double-SHA256(raw) 占位摘要 = 真网资金第一红线 (原 M11, 已列入上方红线)。
+
+**已修复 (见上 ab08649)**: L-1/L-2/L-3。
+
 ## 待办
+- 用户拍板 H-1/H-2 (passphrase 密钥空间设计)。
+- M-1 per-coin 地址编码表; M-2 (M11) 真 sighash 落地。
 - 真机走查开机 passphrase 流 (esp-idf-s3 build 可烧)。
-- 然后继续循环代码审计 (自审 → kimi)。

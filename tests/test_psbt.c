@@ -89,7 +89,7 @@ int main(void)
 	size_t txn = build_tx(tx, 40000, 55000);
 	size_t pn = build_psbt(psbt, 100000, tx, txn);
 	g_call = 0; g_change_at = 2; /* second output is change */
-	if (os_psbt_parse(psbt, pn, chk_nth, &s) != 0) { printf("FAIL t1 parse\n"); return 1; }
+	if (os_psbt_parse(psbt, pn, chk_nth, 0, &s) != 0) { printf("FAIL t1 parse\n"); return 1; }
 	if (s.fee != 5000) { printf("FAIL t1 fee=%llu\n", (unsigned long long)s.fee); return 1; }
 	if (s.spend_count != 1) { printf("FAIL t1 spend=%u\n", s.spend_count); return 1; }
 	if (s.output_count != 2) { printf("FAIL t1 nout=%u\n", s.output_count); return 1; }
@@ -103,12 +103,12 @@ int main(void)
 	/* 3 fee = in - out sanity: underflow rejected */
 	txn = build_tx(tx, 60000, 55000);
 	pn = build_psbt(psbt, 100000, tx, txn); /* in 100000 < out 115000 */
-	if (os_psbt_parse(psbt, pn, NULL, &s) == 0) { printf("FAIL t3 underflow accepted\n"); return 1; }
+	if (os_psbt_parse(psbt, pn, NULL, 0, &s) == 0) { printf("FAIL t3 underflow accepted\n"); return 1; }
 	printf("PASS t3 underflow (out>in) rejected\n");
 
 	/* 4 bad magic rejected */
 	psbt[0] = 'X';
-	if (os_psbt_parse(psbt, pn, NULL, &s) == 0) { printf("FAIL t4\n"); return 1; }
+	if (os_psbt_parse(psbt, pn, NULL, 0, &s) == 0) { printf("FAIL t4\n"); return 1; }
 	printf("PASS t4 bad magic rejected\n");
 
 	/* 5 no unsigned tx -> rejected */
@@ -117,8 +117,31 @@ int main(void)
 		size_t bn = 0;
 		memcpy(bad, "psbt\xff", 5); bn = 5;
 		bad[bn++] = 0x00; /* empty global map */
-		if (os_psbt_parse(bad, bn, NULL, &s) == 0) { printf("FAIL t5\n"); return 1; }
+		if (os_psbt_parse(bad, bn, NULL, 0, &s) == 0) { printf("FAIL t5\n"); return 1; }
 		printf("PASS t5 missing unsigned tx rejected\n");
+	}
+
+	/* 6 per-coin address encoding (M-1): the SAME P2WPKH output script must
+	 * render with each chain's own HRP / base58 version. LTC -> ltc1q…,
+	 * DOGE has no segwit -> hex fallback (addr_valid=false), BTC default
+	 * unchanged. */
+	{
+		txn = build_tx(tx, 40000, 55000);
+		pn = build_psbt(psbt, 100000, tx, txn);
+		if (os_psbt_parse(psbt, pn, NULL, 2, &s) != 0) { printf("FAIL t6 ltc parse\n"); return 1; }
+		if (strncmp(s.outputs[0].address, "ltc1q", 5) != 0) {
+			printf("FAIL t6 ltc addr=%s\n", s.outputs[0].address); return 1;
+		}
+		if (os_psbt_parse(psbt, pn, NULL, 3, &s) != 0) { printf("FAIL t6 doge parse\n"); return 1; }
+		if (s.outputs[0].addr_valid) {
+			printf("FAIL t6 doge must not render segwit addr (%s)\n",
+			       s.outputs[0].address); return 1;
+		}
+		if (os_psbt_parse(psbt, pn, NULL, 0, &s) != 0) { printf("FAIL t6 btc parse\n"); return 1; }
+		if (strncmp(s.outputs[0].address, "bc1q", 4) != 0) {
+			printf("FAIL t6 btc addr=%s\n", s.outputs[0].address); return 1;
+		}
+		printf("PASS t6 per-coin address encoding (ltc1q / doge-hex / bc1q)\n");
 	}
 
 	printf("\nALL PSBT TESTS PASSED\n");

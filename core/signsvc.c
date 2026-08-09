@@ -31,12 +31,14 @@
 #include "sha256.h"
 #include "keccak.h"
 
-/* Parse the tx with the app's parser, fill out a fresh intent. */
+/* Parse the tx with the app's parser, fill out a fresh intent. The app's
+ * own coin_type is passed so a shared catalog parser renders per-coin
+ * address encodings (LTC gets ltc1…, not bc1…). */
 static int reparse(const os_app *app, const uint8_t *tx, size_t tx_len,
                    os_tx_intent *out)
 {
 	memset(out, 0, sizeof(*out));
-	return app->parse(tx, tx_len, out);
+	return app->parse(tx, tx_len, app->coin_type, out);
 }
 
 /* Canonical native-symbol for a coin_type. The firmware parsers only know
@@ -90,11 +92,11 @@ static int fw_reparse(uint32_t coin_type, const uint8_t *tx, size_t tx_len,
 	case 2:  /* LTC */
 	case 3:  /* DOGE */
 	case 145:/* BCH */
-		return os_clearsign_parse_btc(tx, tx_len, out);
+		return os_clearsign_parse_btc_coin(tx, tx_len, coin_type, out);
 	case 60: /* ETH / EVM */
 	case 61: /* ETC */
 	case 966:/* POLYGON */
-		return os_clearsign_parse_evm(tx, tx_len, out);
+		return os_clearsign_parse_evm_coin(tx, tx_len, coin_type, out);
 	default:
 		return -1;   /* no firmware parser → cannot independently verify */
 	}

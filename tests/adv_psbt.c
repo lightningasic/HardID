@@ -56,7 +56,7 @@ int main(void)
     psbt[n++]=0x00; /* output map sep */
 
     os_psbt_summary s;
-    if (os_psbt_parse(psbt, n, NULL, &s) != 0) { printf("parse failed (unexpected)\n"); return 1; }
+    if (os_psbt_parse(psbt, n, NULL, 0, &s) != 0) { printf("parse failed (unexpected)\n"); return 1; }
     /* correct: total_in=100000, fee=100000-40000=60000 */
     if (s.total_in != 100000) { printf("FAIL: total_in polluted = %llu\n", (unsigned long long)s.total_in); return 1; }
     if (s.fee != 60000) { printf("FAIL: fee wrong = %llu\n", (unsigned long long)s.fee); return 1; }

@@ -48,10 +48,13 @@ typedef struct {
 	os_app_state state;
 	bool     is_core;
 
-	/* Parse a raw transaction into a Clear Sign intent.
-	 * Returns 0 on success, -1 on malformed input (caller degrades to
-	 * UNKNOWN + data hash). Implemented per-App. */
-	int (*parse)(const uint8_t *tx, size_t len, os_tx_intent *out);
+	/* Parse a raw transaction into a Clear Sign intent. coin_type is the
+	 * app's own BIP44 coin' (passed by the caller so a SHARED parser —
+	 * e.g. the BTC-family PSBT parser used by LTC/DOGE/BCH catalog apps —
+	 * can render per-coin address encodings). Returns 0 on success, -1 on
+	 * malformed input (caller degrades to UNKNOWN + data hash). */
+	int (*parse)(const uint8_t *tx, size_t len, uint32_t coin_type,
+	             os_tx_intent *out);
 } os_app;
 
 /* Look up an App by id. Returns NULL if not present/not installed. */

@@ -75,6 +75,14 @@ int os_clearsign_parse_evm(const uint8_t *raw_tx, size_t len,
 int os_clearsign_parse_btc(const uint8_t *psbt, size_t len,
                            os_tx_intent *out);
 
+/* Coin-aware variants matching the App parse vtable (4-arg). The BTC
+ * variant renders per-coin address encodings (BTC/LTC/DOGE/BCH); the EVM
+ * variant ignores coin_type (0x addresses are chain-agnostic). */
+int os_clearsign_parse_btc_coin(const uint8_t *psbt, size_t len,
+                                uint32_t coin_type, os_tx_intent *out);
+int os_clearsign_parse_evm_coin(const uint8_t *raw_tx, size_t len,
+                                uint32_t coin_type, os_tx_intent *out);
+
 /* Well-known 4-byte selectors we can name. Extend as needed. */
 const char *os_clearsign_method_name(const uint8_t selector[4]);
 

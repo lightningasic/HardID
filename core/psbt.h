@@ -44,11 +44,15 @@ typedef struct {
 
 /* Parse a PSBT (BIP174, "psbt" magic) into a summary.
  * Returns 0 on success, -1 on malformed/unsupported.
+ * coin_type selects the address encoding for outputs (BTC=0, LTC=2,
+ * DOGE=3, BCH=145; see psbt.c os_btc_addr_params). Unknown coins render
+ * no address (hex fallback), never a wrong-chain one.
  * change_check: optional callback — given a scriptPubKey, return true if
  * it belongs to our wallet (i.e. it's change). May be NULL (then nothing
  * is marked change). */
 int os_psbt_parse(const uint8_t *psbt, size_t len,
                   bool (*change_check)(const uint8_t *script, size_t slen),
+                  uint32_t coin_type,
                   os_psbt_summary *out);
 
 #ifdef __cplusplus

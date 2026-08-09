@@ -76,15 +76,19 @@ static size_t convertbits(const uint8_t *in, size_t inlen, int from, int to,
 	return o;
 }
 
-/* encode a v0 witness program (20 or 32 bytes) as bech32 "bc1..." */
-static bool bech32_v0(const uint8_t *prog, size_t plen, char *out, size_t outmax)
+/* encode a v0 witness program (20 or 32 bytes) as bech32 "<hrp>1..." */
+static bool bech32_v0_hrp(const uint8_t *prog, size_t plen, const char *hrp,
+                          char *out, size_t outmax)
 {
 	uint8_t data[64]; size_t dlen = 0;
 	data[dlen++] = 0; /* witness version 0 */
 	dlen += convertbits(prog, plen, 8, 5, true, data + dlen);
-	/* checksum over hrp-expanded "bc" + data + 6 zero */
+	/* checksum over hrp-expanded hrp + data + 6 zero */
 	uint8_t tmp[128]; size_t t = 0;
-	tmp[t++] = 3; tmp[t++] = 3; tmp[t++] = 0; tmp[t++] = 2; tmp[t++] = 3; /* hrp expand "bc" */
+	size_t hl = strlen(hrp);
+	for (size_t i = 0; i < hl; i++) tmp[t++] = (uint8_t)(hrp[i] >> 5);
+	tmp[t++] = 0;
+	for (size_t i = 0; i < hl; i++) tmp[t++] = (uint8_t)(hrp[i] & 31);
 	memcpy(tmp + t, data, dlen); t += dlen;
 	for (int i = 0; i < 6; i++) tmp[t++] = 0;
 	uint32_t pm = bech32_polymod(tmp, t) ^ 1;
@@ -92,33 +96,62 @@ static bool bech32_v0(const uint8_t *prog, size_t plen, char *out, size_t outmax
 	memcpy(full, data, dlen); f = dlen;
 	for (int i = 5; i >= 0; i--) full[f++] = (pm >> (5 * i)) & 31;
 
-	size_t need = 4 + f; /* "bc1" + data */
+	size_t need = hl + 1 + f; /* hrp + '1' + data */
 	if (outmax < need + 1) return false;
-	out[0]='b'; out[1]='c'; out[2]='1';
-	for (size_t i = 0; i < f; i++) out[3 + i] = bech32_charset[full[i]];
-	out[3 + f] = 0;
+	memcpy(out, hrp, hl);
+	out[hl] = '1';
+	for (size_t i = 0; i < f; i++) out[hl + 1 + i] = bech32_charset[full[i]];
+	out[hl + 1 + f] = 0;
 	return true;
 }
 
-/* decode a scriptPubKey into an address string; returns addr_valid */
-static bool script_to_addr(const uint8_t *s, size_t n, char *out, size_t outmax)
+/* Per-coin address encoding parameters (BIP44 coin_type keyed).
+ * segwit_hrp NULL means the chain has no deployed segwit encoding — a
+ * segwit output script then renders as hex (addr_valid=false), never as a
+ * wrong-chain address. BCH note: legacy base58 is shown (0x00/0x05, same
+ * as BTC); cashaddr is a follow-up. */
+typedef struct {
+	const char *segwit_hrp;  /* bech32 HRP for v0 witness programs */
+	uint8_t     p2pkh_ver;   /* base58check version byte */
+	uint8_t     p2sh_ver;
+} os_btc_addr_params;
+
+static bool btc_addr_params(uint32_t coin_type, os_btc_addr_params *p)
 {
+	switch (coin_type) {
+	case 0:   *p = (os_btc_addr_params){ "bc",  0x00, 0x05 }; return true;
+	case 2:   *p = (os_btc_addr_params){ "ltc", 0x30, 0x32 }; return true;
+	case 3:   *p = (os_btc_addr_params){ NULL,  0x1e, 0x16 }; return true; /* DOGE: no segwit */
+	case 145: *p = (os_btc_addr_params){ NULL,  0x00, 0x05 }; return true; /* BCH: legacy base58 */
+	default:  return false;
+	}
+}
+
+/* decode a scriptPubKey into an address string for `coin_type`;
+ * returns addr_valid */
+static bool script_to_addr(const uint8_t *s, size_t n, uint32_t coin_type,
+                           char *out, size_t outmax)
+{
+	os_btc_addr_params p = { NULL, 0, 0 };
+	bool have = btc_addr_params(coin_type, &p);
 	/* P2WPKH: 0014 <20> */
 	if (n == 22 && s[0] == 0x00 && s[1] == 0x14)
-		return bech32_v0(s + 2, 20, out, outmax);
+		return have && p.segwit_hrp &&
+		       bech32_v0_hrp(s + 2, 20, p.segwit_hrp, out, outmax);
 	/* P2WSH: 0020 <32> */
 	if (n == 34 && s[0] == 0x00 && s[1] == 0x20)
-		return bech32_v0(s + 2, 32, out, outmax);
+		return have && p.segwit_hrp &&
+		       bech32_v0_hrp(s + 2, 32, p.segwit_hrp, out, outmax);
 	/* P2TR: 5120 <32> (bech32m — not implemented here, mark invalid) */
 	if (n == 34 && s[0] == 0x51 && s[1] == 0x20)
 		return false;
-	/* P2PKH: 76a914 <20> 88ac → base58check version 0x00 (mainnet) */
+	/* P2PKH: 76a914 <20> 88ac */
 	if (n == 25 && s[0] == 0x76 && s[1] == 0xa9 && s[2] == 0x14 &&
 	    s[23] == 0x88 && s[24] == 0xac)
-		return os_base58check_encode(0x00, s + 3, out, outmax) != 0;
-	/* P2SH: a914 <20> 87 → base58check version 0x05 (mainnet) */
+		return have && os_base58check_encode(p.p2pkh_ver, s + 3, out, outmax) != 0;
+	/* P2SH: a914 <20> 87 */
 	if (n == 23 && s[0] == 0xa9 && s[1] == 0x14 && s[22] == 0x87)
-		return os_base58check_encode(0x05, s + 2, out, outmax) != 0;
+		return have && os_base58check_encode(p.p2sh_ver, s + 2, out, outmax) != 0;
 	return false;
 }
 
@@ -133,7 +166,8 @@ typedef struct {
 } reader;
 
 static int tx_outputs(const uint8_t *tx, size_t txn, os_psbt_summary *o,
-                      bool (*chg)(const uint8_t *, size_t), uint32_t *nin_out)
+                      bool (*chg)(const uint8_t *, size_t),
+                      uint32_t coin_type, uint32_t *nin_out)
 {
 	reader r = { tx, txn };
 	if (r.n < 4) return -1;
@@ -170,7 +204,8 @@ static int tx_outputs(const uint8_t *tx, size_t txn, os_psbt_summary *o,
 		if (rd_varint(&r.p, &r.n, &sl) != 0 || r.n < sl) return -1;
 		os_psbt_output *out = &o->outputs[i];
 		out->amount = amt;
-		out->addr_valid = script_to_addr(r.p, sl, out->address, sizeof out->address);
+		out->addr_valid = script_to_addr(r.p, sl, coin_type,
+		                                 out->address, sizeof out->address);
 		if (!out->addr_valid) {
 			/* fallback: hex of script (bounded) */
 			size_t show = sl < 16 ? sl : 16;
@@ -195,6 +230,7 @@ static int tx_outputs(const uint8_t *tx, size_t txn, os_psbt_summary *o,
 
 int os_psbt_parse(const uint8_t *psbt, size_t len,
                   bool (*change_check)(const uint8_t *script, size_t slen),
+                  uint32_t coin_type,
                   os_psbt_summary *o)
 {
 	if (len < 5 || memcmp(psbt, "psbt\xff", 5) != 0)
@@ -227,7 +263,8 @@ int os_psbt_parse(const uint8_t *psbt, size_t len,
 		return -1;
 
 	uint32_t nin = 0;
-	if (tx_outputs(unsigned_tx, unsigned_tx_len, o, change_check, &nin) != 0)
+	if (tx_outputs(unsigned_tx, unsigned_tx_len, o, change_check,
+	               coin_type, &nin) != 0)
 		return -1;
 
 	/* input maps: exactly nin maps follow the global map (BIP174 order).

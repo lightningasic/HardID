@@ -19,27 +19,27 @@ static const os_app s_catalog[] = {
 	{
 		.app_id = "ltc", .name = "Litecoin", .coin_type = 2,
 		.version = 1, .state = OS_APP_INSTALLED, .is_core = false,
-		.parse = os_clearsign_parse_btc,
+		.parse = os_clearsign_parse_btc_coin,
 	},
 	{
 		.app_id = "doge", .name = "Dogecoin", .coin_type = 3,
 		.version = 1, .state = OS_APP_INSTALLED, .is_core = false,
-		.parse = os_clearsign_parse_btc,
+		.parse = os_clearsign_parse_btc_coin,
 	},
 	{
 		.app_id = "bch", .name = "Bitcoin Cash", .coin_type = 145,
 		.version = 1, .state = OS_APP_INSTALLED, .is_core = false,
-		.parse = os_clearsign_parse_btc,
+		.parse = os_clearsign_parse_btc_coin,
 	},
 	{
 		.app_id = "etc", .name = "Ethereum Classic", .coin_type = 61,
 		.version = 1, .state = OS_APP_INSTALLED, .is_core = false,
-		.parse = os_clearsign_parse_evm,
+		.parse = os_clearsign_parse_evm_coin,
 	},
 	{
 		.app_id = "polygon", .name = "Polygon", .coin_type = 966,
 		.version = 1, .state = OS_APP_INSTALLED, .is_core = false,
-		.parse = os_clearsign_parse_evm,
+		.parse = os_clearsign_parse_evm_coin,
 	},
 };
 

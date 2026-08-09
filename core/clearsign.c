@@ -362,13 +362,14 @@ size_t os_clearsign_build_demo_legacy(uint8_t *out, uint64_t gasPrice,
 
 /* ---- firmware BTC (PSBT) clean-room parser ---- */
 
-int os_clearsign_parse_btc(const uint8_t *psbt, size_t len, os_tx_intent *o)
+int os_clearsign_parse_btc_coin(const uint8_t *psbt, size_t len,
+                                uint32_t coin_type, os_tx_intent *o)
 {
 	os_psbt_summary s;
 
 	/* No change-check callback: the caller (signsvc) can pass one through
 	 * if it can derive addresses; keep it simple + strict. */
-	if (os_psbt_parse(psbt, len, NULL, &s) != 0)
+	if (os_psbt_parse(psbt, len, NULL, coin_type, &s) != 0)
 		return -1;
 
 	memset(o, 0, sizeof(*o));
@@ -405,4 +406,22 @@ int os_clearsign_parse_btc(const uint8_t *psbt, size_t len, os_tx_intent *o)
 	snprintf(o->amount_token, sizeof(o->amount_token), "%llu",
 	         (unsigned long long)o->amount);
 	return 0;
+}
+
+/* Back-compat 3-arg form: BTC encoding. New callers that know the coin
+ * (signsvc, catalog vtable) use os_clearsign_parse_btc_coin so a Litecoin
+ * PSBT renders ltc1…/L… addresses instead of BTC ones. */
+int os_clearsign_parse_btc(const uint8_t *psbt, size_t len, os_tx_intent *o)
+{
+	return os_clearsign_parse_btc_coin(psbt, len, 0, o);
+}
+
+/* EVM entry point matching the 4-arg App parse vtable. EVM addresses are
+ * chain-agnostic 0x (EIP-55), so the coin only matters for the sighash
+ * step (os_evm_sighash), not for rendering. */
+int os_clearsign_parse_evm_coin(const uint8_t *raw, size_t len,
+                                uint32_t coin_type, os_tx_intent *o)
+{
+	(void)coin_type;
+	return os_clearsign_parse_evm(raw, len, o);
 }

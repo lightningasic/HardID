@@ -19,12 +19,13 @@
 
 /* ---- core app: BTC (PSBT) ---- */
 
-static int btc_parse(const uint8_t *tx, size_t len, os_tx_intent *o)
+static int btc_parse(const uint8_t *tx, size_t len, uint32_t coin_type,
+                     os_tx_intent *o)
 {
 	/* Core BTC app delegates to the FIRMWARE clean-room parser. signsvc
 	 * independently re-checks with the same firmware implementation, so a
 	 * (hypothetical) bug in this app cannot be the sole source of truth. */
-	return os_clearsign_parse_btc(tx, len, o);
+	return os_clearsign_parse_btc_coin(tx, len, coin_type, o);
 }
 
 static const os_app app_btc = {
@@ -39,9 +40,10 @@ static const os_app app_btc = {
 
 /* ---- core app: ETH (EVM RLP / EIP-1559) ---- */
 
-static int eth_parse(const uint8_t *tx, size_t len, os_tx_intent *o)
+static int eth_parse(const uint8_t *tx, size_t len, uint32_t coin_type,
+                     os_tx_intent *o)
 {
-	return os_clearsign_parse_evm(tx, len, o);
+	return os_clearsign_parse_evm_coin(tx, len, coin_type, o);
 }
 
 static const os_app app_eth = {

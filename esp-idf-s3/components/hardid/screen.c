@@ -14,6 +14,8 @@
 #include "esp_chip_info.h"
 #include "esp_flash.h"
 #include "esp_app_desc.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #include "display.h"
 #include "boot.h"
@@ -755,7 +757,17 @@ static void screen_app_install(void)
 			return;                          /* BACK */
 		} else if (ui_pt_in(px, py, 80, 288, 160, 318)) {
 			if (na > 0) {
-				os_app_catalog_install(avail[gsel]->app_id);
+				const os_app *pick = avail[gsel];
+				if (os_app_catalog_install(pick->app_id) == 0) {
+					/* feedback + debounce: show what was installed, then
+					 * wait for a FULL release and a cooldown so one press
+					 * can never cascade into installing several apps. */
+					lcd_fill(C_BG);
+					lcd_line(2, 2, "INSTALLED", C_OK, C_BG);
+					lcd_text_wrap(2, 30, pick->name, C_FG, C_BG);
+					ui_wait_release(&rx, &ry);
+					vTaskDelay(pdMS_TO_TICKS(350));
+				}
 				/* stay; the installed app drops out of the list */
 			}
 		}

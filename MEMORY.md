@@ -24,6 +24,24 @@
 - 双固件 S3 (ilp32f) + P4 构建过。
 
 ### 阻塞项 (真机联调/真实资金/发布前必须解决)
+
+**红线 (放行真实资金前必修)** — kimi 审计四轮收尾确认:
+- **M11 真实 sighash**: EVM 签 keccak256(raw) 而非 EIP-155 sighash; BTC 签
+  double-SHA256(PSBT) 而非 BIP143。签名无链上语义=无重放保护。连带: v/r/s 组装、
+  chainId 注入、拒绝已签名 legacy 输入 (r/s 非空)、chain_id 上屏、body 耗尽校验、
+  to/data is_list 校验。真网资金第一红线。
+- **link_esp.c:50 盲签入口**: HD_CMD_SIGN 收裸 32B digest, sign_digest(NULL,0,...),
+  完全绕过 signsvc parse/path/WYSIWYS。真机联调前删除或改为走 os_signsvc_delegate。
+- **M8 防降级根治** (OTA 前): 版本墓碑持久化 (NVS) + SE 单调计数器消费方
+  (vtable 已接线但无固件消费者) + secure boot v2/flash encryption 确认。
+- **test_composite t3 预存失败**: PIN 相关 composite 行为, 真机联调前必须查清。
+
+**可接受为 V2.0 bring-up 现状** (SE mock + 无真网资金前提, 已达开发基线):
+- M10a BTC 找零检测 (恒 NULL, 降级为多输出 HIGH+MULTI-OUTPUT 总额, 误报非漏报)
+- M14 App 沙箱 (signsvc 双解析+官方审查市场兜底, 无三方 App 阶段可接受)
+- M13 残留 per-coin purpose (白名单不按 coin 限定, 但 coin 分支隔离仍在, 无密钥破口)
+
+### 阻塞项 (旧记录, 已被上文红线取代/细化)
 - **M10b BTC 多输出隐藏**: 已在固件解析器用保守方案 (多输出显示总额+HIGH risk)。
   彻底方案 (逐笔翻页确认) 待 UI 支持。
 - **M11 签名 digest 占位**: BTC 对 PSBT 字节 double-SHA256 (非 BIP143 sighash),

@@ -14,8 +14,9 @@
  * THIS SAME LAYER IS WHAT ENABLES the "verify a transaction" goal in the
  * manual: the host sends a digest (tx hash) it will not sign blind, the
  * device shows it and asks the user to confirm on the screen, and only then
- * signs. The frame itself is limited to: session->status, xpub request and a
- * PIN-gated sign. It deliberately has NO key or seed transfer going back out.
+ * signs. Per the single-verb contract (PRD §3.4) the interface accepts
+ * exactly ONE operation — SIGN. It deliberately has NO other surface: no
+ * key/seed/xpub transfer, no status/config reads, no generic data channel.
  */
 
 #ifndef HARDID_LINKPROTO_H
@@ -45,9 +46,10 @@ extern "C" {
 #define HD_LINK_HDR_LEN    8u
 #define HD_LINK_CRC_INIT   0xFFFFu
 
-/* command types (host -> device) */
-#define HD_CMD_PING           0x01u
-#define HD_CMD_STATUS         0x02u
+/* command types (host -> device) — single-verb contract (PRD §3.4):
+ * the ONLY callable operation is SIGN. Every other type is rejected by
+ * the service (and must never be added: no key export, no status, no
+ * config surface). */
 #define HD_CMD_SIGN           0x03u   /* payload: digest32; device shows + PIN-gates */
 
 /* reply types (device -> host) */

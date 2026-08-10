@@ -16,16 +16,6 @@ int hd_link_serve(const hd_link_se_t *se,
                   uint8_t *out, size_t out_max)
 {
 	switch (type) {
-	case HD_CMD_PING: {
-		uint8_t pong[1] = { 0x50 }; /* 'P' */
-		return hd_link_frame_reply(HD_REPLY_OK, seq, 0, pong, 1, out, out_max);
-	}
-
-	case HD_CMD_STATUS: {
-		uint8_t st[1] = { (uint8_t)(se && se->is_initialized() ? 1 : 0) };
-		return hd_link_frame_reply(HD_REPLY_OK, seq, 0, st, 1, out, out_max);
-	}
-
 	case HD_CMD_SIGN: {
 		if (!se || !se->sign) {
 			return hd_link_frame_reply(HD_REPLY_ERR, seq, HD_ERR_INTERNAL,
@@ -57,6 +47,9 @@ int hd_link_serve(const hd_link_se_t *se,
 	}
 
 	default:
+		/* Single-verb contract (PRD §3.4): the ONLY callable operation is
+		 * SIGN; any other command type — old PING/STATUS, unknown verbs,
+		 * anything — is rejected outright. The device does nothing else. */
 		return hd_link_frame_reply(HD_REPLY_ERR, seq, HD_ERR_PARAM,
 		                           NULL, 0, out, out_max);
 	}

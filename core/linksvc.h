@@ -9,9 +9,11 @@
  * goes through a small injected vtable so this module is host-testable without
  * the real backend and portable to any transport.
  *
- * The only secret-adjacent data that ever goes back to the host is a signature
- * (public knowledge) or an xpub (public). Seeds and private keys never leave
- * the SE. Standard sign requires a prior unlock() on the SAME session.
+ * Single-verb contract (PRD §3.4): the ONLY operation this service accepts is
+ * SIGN. Every other command type is rejected; there is no status, no xpub, no
+ * config, no generic data surface. The only data that ever goes back to the
+ * host is a signature (public knowledge). Seeds and private keys never leave
+ * the SE.
  */
 
 #ifndef HARDID_LINKSVC_H

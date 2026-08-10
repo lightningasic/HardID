@@ -51,28 +51,28 @@ int main(void)
 
 	s_rc = 0; s_init = 0; s_confirm_result = true;
 
-	/* status before init -> OK with init=0 */
-	rn = hd_link_serve(&se, NULL, HD_CMD_STATUS, 1, NULL, 0, rep, sizeof rep);
+	/* Single-verb contract (PRD §3.4): every non-SIGN verb is rejected —
+	 * old PING/STATUS, reserved codes, and unknown bytes alike. This is
+	 * the "非 SIGN 动词 100% 拒绝" acceptance check. */
 	{
-		uint8_t z[1] = {0};
-		if (check_rep(rep, (size_t)rn, HD_REPLY_OK, z, 1, "status-before-init")) return 1;
+		const uint8_t verbs[] = { 0x00, 0x01, 0x02, 0x04, 0x05, 0x7F, 0x80, 0xFE, 0xFF };
+		for (size_t i = 0; i < sizeof verbs; i++) {
+			rn = hd_link_serve(&se, NULL, verbs[i], (uint16_t)(10u + i), NULL, 0,
+			                   rep, sizeof rep);
+			if (reply_type(rep, (size_t)rn) != HD_REPLY_ERR) {
+				printf("FAIL non-SIGN verb 0x%02x was not rejected\n", verbs[i]);
+				return 1;
+			}
+		}
+		printf("ok non-SIGN verbs rejected (fuzz 0x%02x..0x%02x)\n",
+		       verbs[0], verbs[sizeof verbs - 1]);
 	}
 
-	/* ping */
+	/* non-SIGN verbs are rejected even after init */
 	s_init = 1;
-	rn = hd_link_serve(&se, NULL, HD_CMD_PING, 2, NULL, 0, rep, sizeof rep);
-	{
-		uint8_t P = 0x50;
-		if (check_rep(rep, (size_t)rn, HD_REPLY_OK, &P, 1, "ping")) return 1;
-	}
-
-	/* init now; status says 1 */
-	s_init = 1;
-	rn = hd_link_serve(&se, NULL, HD_CMD_STATUS, 3, NULL, 0, rep, sizeof rep);
-	{
-		uint8_t o = 1;
-		if (check_rep(rep, (size_t)rn, HD_REPLY_OK, &o, 1, "status-after-init")) return 1;
-	}
+	rn = hd_link_serve(&se, NULL, 0x02, 20, NULL, 0, rep, sizeof rep);
+	if (reply_type(rep, (size_t)rn) != HD_REPLY_ERR) { printf("FAIL post-init reject\n"); return 1; }
+	printf("ok non-SIGN rejected post-init\n");
 
 	/* sign with valid digest, confirm true -> OK 64B */
 	rn = hd_link_serve(&se, ui_confirm, HD_CMD_SIGN, 4, digest, 32, rep, sizeof rep);

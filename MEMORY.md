@@ -1,5 +1,13 @@
 # MEMORY.md
 
+## 已完成 (Recover 候选词 pending-OK 确认, commit `e66c334`, 2026-08-11)
+- 输入 4 字母唯一解析后, 不再立即提交并跳 WORD 计数; 改为"待确认 pending"态:
+  大字显示唯一词, WORD N 保持当前词序号, 不产生"显示的是下一个词"错觉。
+- OK = 确认 pending 词 (此刻才 WORD N+1); 无 pending 时 OK = 完成短语 (计数合法时)。
+- SPACE = 把完整短词 (add vs addict) 标为 pending; BACK = 退 pending → 删字母 → 删整词。
+- 已构建 + 烧录 + 串口 boot 干净。交互为触摸驱动, 需真机走查确认手感。
+  (仅改 esp-idf-s3; P4 待 S3 确认后再同步。)
+
 ## 已完成 (单动词 SIGN 契约, commit `8f725c7`, 2026-08-11)
 - **linkproto/linksvc 按 PRD v1.1 §3.4 收敛**: 删除开放接口的 HD_CMD_PING /
   HD_CMD_STATUS, 唯一可调用动词 = SIGN。其余一切动词 (旧 PING/STATUS 码、

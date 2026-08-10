@@ -1,5 +1,25 @@
 # MEMORY.md
 
+## 已完成 (HOST LINK 盲签红线关闭: 结构化 SIGN 改道 signsvc, commit `f40a653`, 2026-08-11)
+- **废除 link_esp 裸 digest 主密钥签名入口** (`sign_digest(NULL,0,...)`)。
+  HD_CMD_SIGN 载荷改为结构化: `app_id_len | app_id | path_len | path*(u32 BE) | tx`。
+- linksvc 不再用 vtable, 直接 `os_signsvc_delegate(app_id, tx, tx_len, path, path_len, confirm)`
+  — 与设备本机 SIGN 完全同管线 (app 查找 + coin/path 隔离 + fw 独立重解析 +
+  WYSIWYS 确认 + 真链 sighash + SE 签名)。NULL confirm 恒 ABORT。
+- 确认屏复用 `screen_confirm_intent` (S3+P4 screen.c 导出), 显示解析后的交易意图
+  (收款/金额/手续费/chain id), 不再是 hex digest。
+- linkproto: HD_LINK_APP_ID_MAX=16/HD_LINK_PATH_MAX=10/HD_LINK_MAX_TX=2048,
+  HD_LINK_MAX_FRAME=2116; OK 回复 = sig64(64)|recid(1)|sig_count(4 BE)。
+- link_esp S3+P4: static 重组缓冲 (2KB 级, 移出 8KB ui_task 栈); P4 同步 BACK 按钮 +
+  DEV-ONLY 门。CI 补 linkproto/linksvc。
+- test_linksvc 端到端重写 (真 mock SE+registry): 非 SIGN 动词拒绝环, 结构化签名
+  OK(recid/count), declined, NULL-confirm 无旁路, 未知 app, 错误 coin path,
+  畸形 tx, wire roundtrip, 未初始化拒绝。
+- host 22 套件全绿 (composite t3 pin 预存失败除外) + S3/P4 构建过。
+- **未真机验证**: 板未连接, 待回线烧录 HOST LINK 走查 (见 06 联调清单)。
+- fuzz 修复 `4ee8531`: fuzz_parsers.c 补 coin_type 参数, Makefile 补 hkdf.c/base58.c
+  (psbt API 变更后 CI fuzz 步骤必红, 已恢复绿)。
+
 ## 已完成 (P4 同步 recover pending-OK + nvs_flash 修复, commit `9362274`, 2026-08-11)
 - P4 (esp-idf) kp_capture_phrase 移植 S3 的 pending-OK 模型 + 空闲引导
   (enter word / enter next word), 行为与 S3 对齐。
@@ -71,8 +91,9 @@
 **红线 (放行真实资金前必修)** — kimi 审计四轮收尾确认:
 - ~~M11 真实 sighash~~ → **核心已落地 (commit `a47626e`)**: EIP-155 + BIP143
   官方测试向量双过。剩余子项见下方"kimi 评审归档"区 M-2 条目。
-- **link_esp.c:50 盲签入口**: HD_CMD_SIGN 收裸 32B digest, sign_digest(NULL,0,...),
-  完全绕过 signsvc parse/path/WYSIWYS。真机联调前删除或改为走 os_signsvc_delegate。
+- ~~**link_esp 盲签入口**~~ → **已关闭 (commit `f40a653`)**: 结构化 SIGN 改道
+  os_signsvc_delegate, 与设备本机同管线 (WYSIWYS); 裸 digest/主密钥签名入口废除。
+  待真机 HOST LINK 走查确认 (板未连接)。
 - **M8 防降级根治** (OTA 前): 版本墓碑持久化 (NVS) + SE 单调计数器消费方
   (vtable 已接线但无固件消费者) + secure boot v2/flash encryption 确认。
 - **test_composite t3 预存失败**: PIN 相关 composite 行为, 真机联调前必须查清。
@@ -204,6 +225,8 @@
 
 ## 待办
 - M-2 剩余子项: host 侧 v/r/s 组装与 witness 注入 (设备出 r||s+recid),
-  BTC 多路径输入, P2SH-P2WPKH/P2WSH 扩展, link_esp 盲签改走 signsvc。
+  BTC 多路径输入 (当前单 path 签所有输入), P2SH-P2WPKH/P2WSH 扩展。
+  (~~link_esp 盲签改走 signsvc~~ 已完成 `f40a653`。)
 - 真机走查剩余项: 4 词初始化 → 重启 brain phrase gate → SIGN→ETH demo
-  (现签真 EIP-155 sighash) → Recover 候选词手感。
+  (现签真 EIP-155 sighash) → Recover 候选词手感 → **HOST LINK 结构化 SIGN**
+  (板回线后: 发 EVM tx 帧, 屏显意图确认, 收签名帧)。

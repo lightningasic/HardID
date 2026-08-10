@@ -233,7 +233,7 @@ sha256sum hardid-v1.0.0.bin
 
 本日在 ESP32-S3 测试板（mock SE + 无 PIN dev 构建）首次烧录走查，24 个提交。模块级变更：
 
-> **架构定位（PRD v1.1，2026-08-10 定案）**：HardID 收敛为**标准签名模块**——开放签名接口给第三方调用，只做签名，不能进行任何其他操作；管理操作（init/recover/wipe/brain phrase）仅设备本机 UI，永不进入接口面。工程含义：linkproto/HOST LINK 是开放签名接口的 v0 形态，后续按"单动词 SIGN 契约"收敛（拒绝一切非签名动词）；FIDO2/CTAP2 列入 V2.0 路线，认证断言复用同一签名内核。
+> **架构定位（PRD v1.1，2026-08-10 定案）**：HardID 收敛为**标准签名模块**——开放签名接口给第三方调用，只做签名，不能进行任何其他操作；管理操作（init/recover/wipe/brain phrase）仅设备本机 UI，永不进入接口面。工程含义：linkproto/HOST LINK 是开放签名接口的 v0 形态，按"单动词 SIGN 契约"收敛（拒绝一切非签名动词）；**SIGN 请求为结构化载荷**（app id + BIP32 路径 + 原始交易字节，PRD §3.4），经 `os_signsvc_delegate` 与设备本机 SIGN 走同一解析→固件独立复核→WYSIWYS 确认→真链 sighash→SE 签名管线（2026-08-11 `f40a653` 关闭盲签红线，废除裸 digest/主密钥签名入口）；FIDO2/CTAP2 列入 V2.0 路线，认证断言复用同一签名内核。
 
 **signsvc（签名委派）**
 - 真 sighash 管线落地：EVM 走 `os_evm_sighash`（EIP-155：6 字段 legacy 注入 app 预期 chainId；9 字段空 r/s 载荷校验 v；typed 信封校验 chainId 字段；已签名输入拒绝）；BTC 系走 `os_btc_sighash_from_psbt`（BIP143 全 preimage：hashPrevouts/hashSequence/outpoint/scriptCode/amount/nSequence/hashOutputs/locktime/type；仅原生 P2WPKH + SIGHASH_ALL，其余拒绝）。官方测试向量双过（EIP-155 `daf5a779…`、BIP143 `c37af311…`）

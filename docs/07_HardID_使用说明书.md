@@ -147,7 +147,7 @@ HardID
 
 这个流程确保：**你的资产、交易内容的核验发生在设备安全的屏上**，而不是在你可能被病毒感染/别拦截的电脑上。
 
-> 主机链路的**帧协议、校验、Clear-Sign 确认门与签名服务**已在固件中实现并可在本地测试（`tests/test_linkproto.c` / `test_linksvc.c`）；设备侧 `Host link` 画面会把收到的摘要显示在屏上、需用户轻触确认后才签名，然后返回签名帧。Host link 会话中点屏幕底部 **BACK** 按钮退出（点其他区域不会退出）。**USB-Serial-JTAG 端口与主机间的实际联调仍需真机完成。**（P1）
+> 主机链路的**帧协议、校验、Clear-Sign 确认门与签名服务**已在固件中实现并可在本地测试（`tests/test_linkproto.c` / `test_linksvc.c`）。设备侧 `Host link` 画面接收**结构化 SIGN 请求**（App id + BIP32 派生路径 + 原始交易字节，PSBT/EVM），把交易意图解析并显示在屏上（与设备本机 SIGN 同一 WYSIWYS 确认屏）、需用户轻触确认后才签名，然后返回签名帧（EVM：一笔 r‖s；BTC：逐输入签名，主机侧组装 witness）。Host link 会话中点屏幕底部 **BACK** 按钮退出（点其他区域不会退出）。**USB-Serial-JTAG 端口与主机间的实际联调仍需真机完成。**（P1）
 
 ### 4.4 Brain Phrase（脑口令）
 

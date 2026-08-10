@@ -1,5 +1,12 @@
 # MEMORY.md
 
+## 已完成 (P4 同步 recover pending-OK + nvs_flash 修复, commit `9362274`, 2026-08-11)
+- P4 (esp-idf) kp_capture_phrase 移植 S3 的 pending-OK 模型 + 空闲引导
+  (enter word / enter next word), 行为与 S3 对齐。
+- P4 构建曾因缺 nvs_flash 依赖失败 (se_mock.c 自 1ab26f4 引入 nvs_flash.h,
+  P4 CMakeLists 没同步) — REQUIRES 补 nvs_flash 后 P4 构建通过。
+- 下一步: 循环代码审计。
+
 ## 已完成 (Recover 词框引导提示, commit `92c58cc`, 2026-08-11)
 - 串口插桩确认计数器每次 OK 都推进 (nwords 0→1→2→3→4), 逻辑正确。
 - 词框空闲时 (无 pending/无输入前缀) 显示引导 "enter word"/"enter next word",

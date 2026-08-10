@@ -32,6 +32,26 @@ static const char *const s_items[MENU_COUNT] = {
 
 static int s_sel = 0;
 
+/* Build the visible menu for the current device state. INITIALIZE and
+ * RECOVER are provisioning actions: on an initialized device they are
+ * dead ends ("already initialized" screens), so they are hidden until a
+ * factory reset blanks the device again. Evaluated on every menu cycle,
+ * so provisioning / wiping takes effect the moment the menu returns. */
+static int menu_build_visible(int *vis, int max)
+{
+	bool initd = false;
+	const se_driver_t *se = se_active();
+	if (se && se->is_initialized)
+		se->is_initialized(&initd);
+	int n = 0;
+	for (int i = 0; i < MENU_COUNT && n < max; i++) {
+		if (initd && (i == 0 || i == 2))   /* INITIALIZE / RECOVER */
+			continue;
+		vis[n++] = i;
+	}
+	return n;
+}
+
 #define ARROW_Y0  230
 #define ARROW_Y1  290
 /* three-button nav: LEFT | OK | RIGHT */
@@ -102,13 +122,14 @@ static void draw_arrow(int x0, int y0, int x1, int y1, int dir)
 	}
 }
 
-static void menu_draw(void)
+static void menu_draw(const int *vis, int vn)
 {
+	(void)vn;
 	lcd_fill(C_BG);
 	lcd_line(2, 8, "HardID", C_LBL, C_BG);
 	lcd_line(2, 22, "tap to open", C_DIM, C_BG);
 
-	menu_draw_item(s_items[s_sel], 140);
+	menu_draw_item(s_items[vis[s_sel]], 140);
 
 	draw_arrow(ARROW_X0, ARROW_Y0, ARROW_X1, ARROW_Y1, -1);
 	/* center OK key confirms the selection */
@@ -123,9 +144,9 @@ static void menu_draw(void)
 	draw_arrow(RARROW_X0, ARROW_Y0, RARROW_X1, ARROW_Y1, 1);
 }
 
-static void menu_run_sel(void)
+static void menu_run_sel(int item)
 {
-	switch (s_sel) {
+	switch (item) {
 	case 0: screen_run_initialize();    break;
 	case 1: screen_run_sign();          break;
 	case 2: screen_run_recover();       break;
@@ -170,7 +191,11 @@ void ui_run(void)
 	boot_pin_gate();
 	screen_boot_passphrase_gate();
 	for (;;) {
-		menu_draw();
+		int vis[MENU_COUNT];
+		int vn = menu_build_visible(vis, MENU_COUNT);
+		if (s_sel >= vn)
+			s_sel = 0;
+		menu_draw(vis, vn);
 		int px, py;
 		if (!ui_wait_press(&px, &py))
 			continue;
@@ -180,13 +205,13 @@ void ui_run(void)
 		      (rx == px && ry == py)))
 			continue;
 		if (ui_pt_in(px, py, ARROW_X0, ARROW_Y0, ARROW_X1, ARROW_Y1)) {
-			s_sel = (s_sel + MENU_COUNT - 1) % MENU_COUNT;
+			s_sel = (s_sel + vn - 1) % vn;
 		} else if (ui_pt_in(px, py, RARROW_X0, ARROW_Y0, RARROW_X1, ARROW_Y1)) {
-			s_sel = (s_sel + 1) % MENU_COUNT;
+			s_sel = (s_sel + 1) % vn;
 		} else if (ui_pt_in(px, py, OK_X0, ARROW_Y0, OK_X1, ARROW_Y1)) {
-			menu_run_sel();              /* OK key confirms */
+			menu_run_sel(vis[s_sel]);    /* OK key confirms */
 		} else {
-			menu_run_sel();              /* tap the item name = shortcut */
+			menu_run_sel(vis[s_sel]);    /* tap the item name = shortcut */
 		}
 	}
 }

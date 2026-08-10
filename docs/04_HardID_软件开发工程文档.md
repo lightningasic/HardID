@@ -229,5 +229,35 @@ sha256sum hardid-v1.0.0.bin
 
 ---
 
-*关联文档：`01_PRD`、`02_ERD`、`03_时序图`、`安全核心审核报告.md`、`代码/RNG_HARDENING_MEMO.md`*
+## 8. 实现进展（2026-08-10，S3 测试板走查轮）
+
+本日在 ESP32-S3 测试板（mock SE + 无 PIN dev 构建）首次烧录走查，21 个提交。模块级变更：
+
+**signsvc（签名委派）**
+- 真 sighash 管线落地：EVM 走 `os_evm_sighash`（EIP-155：6 字段 legacy 注入 app 预期 chainId；9 字段空 r/s 载荷校验 v；typed 信封校验 chainId 字段；已签名输入拒绝）；BTC 系走 `os_btc_sighash_from_psbt`（BIP143 全 preimage：hashPrevouts/hashSequence/outpoint/scriptCode/amount/nSequence/hashOutputs/locktime/type；仅原生 P2WPKH + SIGHASH_ALL，其余拒绝）。官方测试向量双过（EIP-155 `daf5a779…`、BIP143 `c37af311…`）
+- BTC 逐输入签名：`os_sign_outcome` 增 `sigs[16][64] + recids + sig_count`（EVM 单签保持 sig64）
+- fw_reparse 按**解析器能力**分派（BTC 族 0/2/3/145、EVM 族 60/61/966），目录链从"可安装不可签"修复为可签；`apply_native_symbol` 统一规范化显示代币符号
+- NULL confirm 恒 ABORT（删除从未定义的 `HARDID_HOST_TEST` 死旁路）；verify_intent 不再 const-cast 改调用方 intent
+
+**App parse vtable**：加 `coin_type` 参数（4-arg）——共享解析器据此渲染 per-coin 地址。psbt.c 地址表：BTC(bc/0x00/0x05)、LTC(ltc/0x30/0x32)、DOGE(无 segwit, 0x1e/0x16)、BCH(legacy base58; cashaddr 待后续)；bech32 HRP 参数化。与 Python BIP173 参考逐字节一致
+
+**se_mock（mock SE，dev 构建）**
+- `derive_session()`：brain phrase → volatile session seed（HardID 两步 KDF，规范写在 se_driver.h）；wipe/掉电即失
+- NVS 持久化种子+PIN（`ESP_PLATFORM` guard，host 测试保持纯 RAM）——mock 天然 RAM-only 导致 brain phrase gate 在真机永远触发不了；brain phrase 本身**绝不持久化**
+- wipe 同步清零 PIN 缓冲
+
+**UI（S3 组件）**
+- 键盘三页字符集（A-Z / a-z / 0-9+16符号），passphrase 录入路径专用；预览对非 A-Z 字符回退 font7
+- Recover 录入实时候选列表（`os_bip39_words_with_prefix`，首字母即出 3×8 候选 + 溢出计数）；WORD N 恒显修复
+- 主菜单按 `is_initialized` 动态隐藏 INITIALIZE/RECOVER
+- **RGB565 字节序修复**：ST7789 默认大端色数据，全部 16 位色值此前被对调（按钮蓝碰巧仍像蓝未被发现，LOGO 暴露）——panel 配置 `.data_endian = LCD_RGB_DATA_ENDIAN_LITTLE`；按钮改品牌蓝 0x039E
+- LOGO 可复现生成器 `logo/gen_logo.py`（PIL：黑底合成→LANCZOS→RGB565→core/logo.h）
+
+**测试**：host 22 套件 + 3 adversarial 套件全绿（composite t3 pin 预存失败除外，与本轮无关）。新增：test_se t8（brain phrase KDF 固定向量）、test_clearsign t13（EIP-155 官方向量+拒绝项）、test_psbt t6/t7（per-coin 地址、BIP143 官方向量+拒绝项）、test_app t17/t18（目录链签名+族摘要锁定）。测试构造器 RLP 改规范编码（单字节 <0x80 直编）、witness_utxo fixture 改规范 CTxOut
+
+**dev-only Kconfig**（均依赖 SE_MOCK，生产默认关）：`HARDID_DEV_NO_PIN`、`HARDID_DEV_TEST_SEED`（4 词测试种子）
+
+---
+
+*关联文档：`01_PRD`、`02_ERD`、`03_时序图`、`安全核心审核报告.md`、`代码/RNG_HARDENING_MEMO.md`、*`../MEMORY.md`*
 *文档结束*

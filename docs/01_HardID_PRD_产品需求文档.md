@@ -79,8 +79,10 @@ HardID 从 BitExchange Wallet 进化而来，坚持三条原始原则：**完全
 3. **备份与恢复**
    - 恢复时通过屏幕乱序键盘输入助记词（防键盘记录 + 触摸噪声注入）
    - SLIP39（Shamir 分片）作为可选高级备份方案
-4. **Passphrase**
-   - 可选第 25 词，派生隐藏钱包；支持多 passphrase 多钱包
+4. **Brain Phrase（脑口令，原 Passphrase 条目）**
+   - 助记词之上的第二层口令，派生隐藏钱包；支持多 brain phrase 多钱包
+   - **设计红线（2026-08-10 用户确认）**：永不存储（不落盘、不进 SE NVM，只在 RAM 派生 volatile 会话种子）；只在设备端触屏键盘录入，不经主机/串口；**每次开机输入一次**，本次通电周期内多笔签名共用会话（Trezor 同款粒度）；wipe/掉电即失
+   - **派生规范（HardID 两步 KDF，H-1 定案）**：SE 仅存 BIP39 标准 base seed（空口令），`session = PBKDF2-HMAC-SHA512(base_seed, "mnemonic"‖brain_phrase, 2048)`。空口令账户与 BIP39 完全兼容（任意标准钱包可恢复）；brain phrase 账户为 HardID 专属密钥空间，可用任意 PBKDF2 工具两步离机恢复（参考向量：tests/test_se.c t8）。注意：brain phrase 是助记词之上的第二层，**不是独立脑钱包**
 
 **验收标准**:
 - 助记词显示环节禁止任何通信接口处于数据收发状态
@@ -183,5 +185,33 @@ HardID 从 BitExchange Wallet 进化而来，坚持三条原始原则：**完全
 
 ---
 
-*关联文档：`安全核心审核报告.md`、`代码/RNG_HARDENING_MEMO.md`*
+## 7. 实现进展快照（2026-08-10，ESP32-S3 测试板）
+
+本日 21 个提交（`c34badb`..`a3152aa`），测试板首次烧录走查。以下为已落地的需求项与偏差说明：
+
+**已落地（真机验证）**
+- **Brain Phrase 完整链路**：开机 gate（已初始化设备每次开机询问）→ 设备端三页键盘录入（A-Z / a-z / 0-9+16符号）→ volatile 会话种子签名；空口令回退 base seed。派生规范见 §3.1.4
+- **V2.0 App 市场签名闭环**：目录链（LTC/DOGE/BCH/ETC/POLYGON）从"可安装但永远无法签"修复为可签 —— signsvc 按解析器能力分派固件独立重解析（WYSIWYS 锚点），并按 BIP44 coin 规范化原生代币符号（确认屏 LTC 不再显示 BTC）
+- **真实链上 sighash（原 M11 红线核心落地）**：EVM = EIP-155（6 字段 legacy 注入 chainId / 9 字段载荷校验 v / typed 信封校验 chainId / 拒绝已签名输入；链表 ETH=1、ETC=61、POLYGON=137）；BTC 系 = BIP143（逐输入签名，原生 P2WPKH + SIGHASH_ALL 限定，其余一律拒绝）。**官方测试向量双过**（EIP-155 `daf5a779…`、BIP143 `c37af311…`）
+- **per-coin 地址编码**：LTC 显示 `ltc1q…`/L 开头、DOGE 无 segwit 回退 hex、BCH legacy base58 —— 确认屏地址与收款方所给格式一致（Python BIP173 参考交叉验证逐字节一致）
+- **显示修复**：开机 LOGO 从 PNG 真图重新生成（可复现生成器 `logo/gen_logo.py`）；修复全局 RGB565 字节序（ST7789 默认大端，整个 UI 此前一直字节对调运行）；按钮改品牌蓝 0x039E
+
+**测试便利设施（dev-only 开关，生产关闭）**
+- 4 词测试种子（`HARDID_DEV_TEST_SEED`，44 位无校验和，走查用）
+- mock SE 的 NVS 持久化（种子+PIN 存 MCU flash，重启不丢 —— 仅 mock，真 SE 永不如此）
+- 无 PIN 模式（`HARDID_DEV_NO_PIN`）
+
+**UX 改进（真机走查驱动）**
+- Recover 录入：从第一个字母起实时显示候选词列表（3 列×8 行 + 溢出计数），WORD N 计数恒显（修复按 OK 后丢失位置）
+- 主菜单动态过滤：已初始化设备隐藏 INITIALIZE/RECOVER，出厂抹除后自动恢复
+
+**安全评审（kimi 独立轮，eng: passed）**
+- 修复：NULL-confirm 死旁路分支删除（签名无确认不可编译）、brain phrase gate fail-open 改显式报错、verify_intent const-cast 改局部副本、rng 下线保护、wipe 清零 PIN 缓冲
+
+**遗留红线（真机联调/真实资金前必修，见 MEMORY.md）**
+- link_esp.c 盲签入口改走 signsvc；host 侧 v/r/s 组装与 witness 注入；M8 防降级根治；test_composite t3 预存失败；P2SH-P2WPKH/P2WSH 扩展；BTC 多路径输入
+
+---
+
+*关联文档：`安全核心审核报告.md`、`代码/RNG_HARDENING_MEMO.md`、`../MEMORY.md`*
 *文档结束*

@@ -125,9 +125,25 @@
 
 **已修复 (见上 ab08649)**: L-1/L-2/L-3。
 
+## 已完成 (真机首次烧录 + 显示修复, 2026-08-10, `a218ecb`/`9f0015d`/`afaa8ba`)
+- 测试板已回线, 固件刷入成功 (hash 校验过), 启动日志干净:
+  app_main → board hw init → ST7789 OK → touch ready → UI task, 无崩溃无门禁挂起。
+- **LOGO 修复**: 旧 core/logo.h 是 DeepSeek 盲写 (无图像能力), 缺亮蓝闪电/白钥匙。
+  新增可复现生成器 logo/gen_logo.py (PIL: 黑底合成→LANCZOS 1024→160→RGB565),
+  删除 logo/logo.h 副本, 直写 core/logo.h。真机确认颜色正确。
+- **RGB565 字节序修复 (9f0015d)**: ST7789 默认大端色数据, 我们的小端 uint16_t
+  全部被对调 —— 整个 UI 一直跑在交换后的颜色上 (按钮 0x1D8F 碰巧还像蓝色没被发现,
+  LOGO 暴露了)。panel 配置加 .data_endian = LCD_RGB_DATA_ENDIAN_LITTLE。
+- **按钮改品牌蓝 (afaa8ba)**: C_BTN 0x1D8F(实为青绿) → 0x039E (LOGO 闪电蓝,
+  R0,G113,B242), display.h + keypad.c 两处。真机确认正常。
+- 注意: 键盘 OK 键仍是 0x03EF 青绿, 如需统一待用户提。
+- 串口日志捕获方法 (无 TTY 环境): python fcntl/ioctl TIOCMBIS/TIOCMBIC 脉冲 RTS
+  (先 DTR=0, RTS=1 拉低 EN 200ms, 再 RTS=0 释放), select 读 15s。cat 直读只能
+  捡到 esptool 复位瞬间的一行, esptool flash_id/read_mac --after hard_reset 的
+  复位会丢后续输出。
+
 ## 待办
 - M-2 剩余子项: host 侧 v/r/s 组装与 witness 注入 (设备出 r||s+recid),
   chain_id 上屏, BTC 多路径输入, P2SH-P2WPKH/P2WSH 扩展, link_esp 盲签改走 signsvc。
-- 真机走查 (板回线后): 开机 passphrase 流 + 三页键盘 + 新 LOGO 颜色
-  (core/logo.h 已由 logo/gen_logo.py 从 PNG 真图重新生成, commit `a218ecb`;
-  DeepSeek 盲写的旧值缺亮蓝闪电/白钥匙)。
+- 真机走查剩余项: INITIALIZE 助记词流程、初始化后重启的 passphrase gate +
+  三页键盘 (ABC/abc/1#$)、SIGN→ETH demo (现签真 EIP-155 mainnet sighash)。

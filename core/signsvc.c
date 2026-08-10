@@ -248,9 +248,11 @@ os_sign_outcome os_signsvc_delegate(const char *app_id,
 		return out;
 	}
 
-	if (app->coin_type == 60 || app->coin_type == 61 || app->coin_type == 966) {
+	if (os_evm_chain_id_for_coin(app->coin_type) != 0) {
 		/* EVM: EIP-155 legacy injection / typed envelope, chainId
-		 * enforced against the app's expected chain. One signature. */
+		 * enforced against the app's expected chain. One signature.
+		 * Family test keys off the chain table, so a new EVM catalog
+		 * chain only needs one table entry, not edits here. */
 		uint8_t digest[32];
 		if (os_evm_sighash(tx, tx_len,
 		                   os_evm_chain_id_for_coin(app->coin_type),

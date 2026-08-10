@@ -106,7 +106,11 @@ typedef struct se_driver {
 	 *     the second KDF above. Reference vector: tests/test_se.c t8.
 	 * The security properties (per-passphrase keyspaces, plausible
 	 * deniability, wrong-passphrase -> valid-but-empty wallet) are
-	 * preserved; only cross-vendor one-step recovery is given up. */
+	 * preserved; only cross-vendor one-step recovery is given up.
+	 *
+	 * Length bound: at most 256 passphrase bytes enter the KDF salt
+	 * (8 + 256 buffer); longer input is truncated. Implementations on
+	 * real SEs MUST apply the same bound for cross-backend agreement. */
 	int (*derive_session)(const uint8_t *passphrase, size_t len);
 
 	/* Auto-sign policy: authorize amount under policy_id, or report that

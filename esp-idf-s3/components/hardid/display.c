@@ -57,6 +57,20 @@ static esp_lcd_panel_handle_t     s_panel = NULL;
 static void lcd_fill_panel(uint16_t color);
 void lcd_fill(uint16_t color);
 
+/* esp_lcd SPI color transfers are ZERO-COPY and QUEUED: draw_bitmap can
+ * return while the DMA is still reading the caller's scratch row buffer.
+ * Once the draw function returns, that stack memory is reused (e.g. by
+ * the touch/I2C poll chain) and the panel ends up showing narrow colored
+ * garbage stripes on the last-drawn solid areas. The io driver harvests
+ * every in-flight color transaction before sending a polling command, so
+ * issuing a MIPI DCS NOP (0x00) is a cheap "wait until the queue is
+ * idle" barrier. Call it before any draw function returns. */
+static void lcd_drain(void)
+{
+	if (s_io)
+		esp_lcd_panel_io_tx_param(s_io, 0x00, NULL, 0);
+}
+
 int lcd_init(void)
 {
 	esp_err_t rc;
@@ -137,6 +151,7 @@ static void lcd_fill_panel(uint16_t color)
 		line[i] = color;
 	for (int y = 0; y < LCD_V_RES; y++)
 		esp_lcd_panel_draw_bitmap(s_panel, 0, y, LCD_H_RES, y + 1, line);
+	lcd_drain();
 }
 
 void lcd_fill(uint16_t color) { lcd_fill_panel(color); }
@@ -163,6 +178,7 @@ void lcd_line(int x, int y, const char *s, uint16_t fg, uint16_t bg)
 				esp_lcd_panel_draw_bitmap(s_panel, xx, y0, xx + 1, y1, &strip[y0 - y]);
 		}
 	}
+	lcd_drain();
 }
 
 #define LINE_H (FONT_CHAR_H + 2)
@@ -203,6 +219,7 @@ void lcd_line_scaled(int x, int y, const char *s, uint16_t fg, uint16_t bg,
 			}
 		}
 	}
+	lcd_drain();
 }
 
 void lcd_line_big(int x, int y, const char *s, uint16_t fg, uint16_t bg)
@@ -237,6 +254,7 @@ void lcd_gl8x16(int x, int y, char ch, uint16_t fg, uint16_t bg, int scale)
 			                          &row[x0 - x]);
 		}
 	}
+	lcd_drain();
 }
 
 void lcd_rect(int x0, int y0, int x1, int y1, uint16_t color)
@@ -251,6 +269,7 @@ void lcd_rect(int x0, int y0, int x1, int y1, uint16_t color)
 		line[i] = color;
 	for (int y = y0; y < y1; y++)
 		esp_lcd_panel_draw_bitmap(s_panel, x0, y, x1, y + 1, &line[x0]);
+	lcd_drain();
 }
 
 void lcd_rect_text(int x0, int y0, int x1, int y1, const char *s,
@@ -287,6 +306,7 @@ void lcd_bitmap(int x, int y, int w, int h, const uint16_t *rgb565)
 			row[cc] = src[cc];
 		esp_lcd_panel_draw_bitmap(s_panel, x0, yy, x1, yy + 1, &row[x0 - x]);
 	}
+	lcd_drain();
 }
 
 int lcd_text_wrap(int x, int y, const char *s, uint16_t fg, uint16_t bg)

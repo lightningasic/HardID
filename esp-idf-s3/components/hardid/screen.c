@@ -119,21 +119,40 @@ static bool screen_confirm_intent(const os_tx_intent *it)
 	snprintf(line, sizeof line, "to %.42s", it->to);
 	lcd_line(2, 30, line, C_FG, C_BG);
 
-	if (it->amount_token[0])
-		snprintf(line, sizeof line, "amount %.24s %.10s",
-		         it->amount_token, it->symbol);
-	else
+	if (it->amount_token[0]) {
+		/* ERC20 kinds carry raw token units — never glue the NATIVE
+		 * symbol onto them ("1000 ETH" for a USDC transfer is a lie).
+		 * Native/BTC amounts are already decimal coin strings. */
+		if (it->kind == OS_INTENT_ERC20_TRANSFER ||
+		    it->kind == OS_INTENT_ERC20_APPROVE)
+			snprintf(line, sizeof line, "amount %.24s units",
+			         it->amount_token);
+		else
+			snprintf(line, sizeof line, "amount %.24s %.10s",
+			         it->amount_token, it->symbol);
+	} else {
 		snprintf(line, sizeof line, "amount %llu %.10s",
 		         (unsigned long long)it->amount, it->symbol);
+	}
 	lcd_line(2, 44, line, C_FG, C_BG);
 
 	if (it->method[0]) {
 		snprintf(line, sizeof line, "method %s", it->method);
 		lcd_line(2, 58, line, C_FG, C_BG);
 	}
-	snprintf(line, sizeof line, "max fee %llu",
-	         (unsigned long long)it->fee_limit);
+	{
+		/* fee in decimal coin units (sats for BTC chains, wei for EVM) */
+		char fee[24];
+		os_fmt_coin_amount(fee, sizeof fee, it->fee_limit,
+		                   it->chain == OS_CHAIN_BTC ? 8 : 18);
+		snprintf(line, sizeof line, "max fee %s %.10s", fee, it->symbol);
+	}
 	lcd_line(2, 72, line, C_FG, C_BG);
+	if (it->chain_id) {
+		snprintf(line, sizeof line, "chain id %llu",
+		         (unsigned long long)it->chain_id);
+		lcd_line(2, 86, line, C_FG, C_BG);
+	}
 
 	lcd_line(2, 100, "tap to CONFIRM", C_LBL, C_BG);
 	ui_wait_ack();

@@ -133,6 +133,35 @@ static void token_amount_str(const uint8_t amt32[32], char *out, size_t cap)
 	out[k] = 0;
 }
 
+/* Format base units (wei=18 decimals, sats=8) as a trimmed decimal coin
+ * string: 1e18 wei -> "1", 1.5e18 -> "1.5", 90000 sats -> "0.0009".
+ * The confirm screen must never show raw base units next to a coin
+ * symbol ("90000 BTC" for a 90000-sat tx is a WYSIWYS lie). */
+void os_fmt_coin_amount(char *out, size_t cap, uint64_t v, int decimals)
+{
+	if (decimals < 1 || decimals > 18)
+		decimals = 18;
+	uint64_t scale = 1;
+	for (int i = 0; i < decimals; i++)
+		scale *= 10;
+	uint64_t ip = v / scale, fp = v % scale;
+	if (fp == 0) {
+		snprintf(out, cap, "%llu", (unsigned long long)ip);
+		return;
+	}
+	/* build the zero-padded fraction manually (avoids %0* truncation
+	 * warnings and any locale/width surprises) */
+	char frac[20];
+	int l = decimals;
+	uint64_t x = fp;
+	frac[l] = '\0';
+	while (l > 0) { frac[--l] = (char)('0' + x % 10); x /= 10; }
+	l = decimals;
+	while (l && frac[l - 1] == '0')
+		frac[--l] = '\0';
+	snprintf(out, cap, "%llu.%s", (unsigned long long)ip, frac);
+}
+
 /* decode calldata for ERC20 transfer/approve to fill intent */
 static void decode_erc20(const uint8_t *data, size_t dlen, os_tx_intent *o)
 {
@@ -295,6 +324,12 @@ int os_clearsign_parse_evm(const uint8_t *raw, size_t len, os_tx_intent *o)
 	if (rlp_read(&body, &dat) != 0) return -1;
 
 	if (rlp_u64(&val, &o->amount) != 0) return -1;
+
+	/* Native value in decimal coin units (wei -> "0.001"). ERC20 paths
+	 * below overwrite amount_token with the raw token units; the confirm
+	 * screen renders token kinds WITHOUT the native symbol. */
+	os_fmt_coin_amount(o->amount_token, sizeof o->amount_token,
+	                   o->amount, 18);
 
 	if (to.len == 20) {
 		to_hex0x(to.ptr, o->to);
@@ -536,10 +571,11 @@ int os_clearsign_parse_btc_coin(const uint8_t *psbt, size_t len,
 		o->risk = OS_RISK_HIGH;
 	}
 	snprintf(o->symbol, sizeof(o->symbol), "BTC");
-	/* put the NUMERIC amount on screen: amount_token carries the satoshi
-	 * figure so the UI token branch shows a number, not a bare "sats". */
-	snprintf(o->amount_token, sizeof(o->amount_token), "%llu",
-	         (unsigned long long)o->amount);
+	/* amount_token carries the DECIMAL coin figure (sats -> "0.0009") so
+	 * the confirm screen shows the amount the user actually intends —
+	 * never raw satoshis next to a coin symbol. */
+	os_fmt_coin_amount(o->amount_token, sizeof(o->amount_token),
+	                   o->amount, 8);
 	return 0;
 }
 

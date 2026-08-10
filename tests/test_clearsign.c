@@ -292,6 +292,23 @@ int main(void)
 		printf("PASS t13 EIP-155 official sighash vector + refusals\n");
 	}
 
+	/* 14 coin-amount formatter: decimal coin strings, never raw base
+	 * units next to a symbol. */
+	{
+		char b[32];
+		os_fmt_coin_amount(b, sizeof b, 1000000000000000000ULL, 18);
+		if (strcmp(b, "1") != 0) { printf("FAIL t14 1eth=%s\n", b); return 1; }
+		os_fmt_coin_amount(b, sizeof b, 1500000000000000000ULL, 18);
+		if (strcmp(b, "1.5") != 0) { printf("FAIL t14 1.5eth=%s\n", b); return 1; }
+		os_fmt_coin_amount(b, sizeof b, 90000, 8);
+		if (strcmp(b, "0.0009") != 0) { printf("FAIL t14 sats=%s\n", b); return 1; }
+		os_fmt_coin_amount(b, sizeof b, 100, 8);
+		if (strcmp(b, "0.000001") != 0) { printf("FAIL t14 100sats=%s\n", b); return 1; }
+		os_fmt_coin_amount(b, sizeof b, 42000000, 8);
+		if (strcmp(b, "0.42") != 0) { printf("FAIL t14 0.42=%s\n", b); return 1; }
+		printf("PASS t14 coin amount formatter\n");
+	}
+
 	printf("\nALL CLEARSIGN TESTS PASSED\n");
 	return 0;
 }

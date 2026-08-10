@@ -93,6 +93,10 @@ int os_evm_sighash(const uint8_t *raw_tx, size_t len, uint64_t chain_id,
 /* Expected EIP-155 chain ID for an EVM coin_type (0 = unknown). */
 uint64_t os_evm_chain_id_for_coin(uint32_t coin_type);
 
+/* Format base units (wei=18 decimals, sats=8) as a trimmed decimal coin
+ * string ("0.001"). Shared by parsers and the confirm screen (fees). */
+void os_fmt_coin_amount(char *out, size_t cap, uint64_t v, int decimals);
+
 /* Well-known 4-byte selectors we can name. Extend as needed. */
 const char *os_clearsign_method_name(const uint8_t selector[4]);
 

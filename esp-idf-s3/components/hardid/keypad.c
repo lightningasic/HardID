@@ -374,9 +374,12 @@ int kp_capture_alpha(const char *title, char *out, int max)
  * Each BIP39 word is uniquely identified by its first 4 letters (or, for a
  * short terminal word, the whole word). The user swipes the letters of a
  * prefix; as soon as it is unambiguous the keypad resolves it to the full
- * word, inserts it into the phrase and advances. DEL removes the last letter
- * (or the last finished word when the current word is empty); the action key
- * (OK) finishes the phrase.
+ * word and SHOWS it — the "WORD N" counter does NOT advance yet, so the
+ * shown word clearly reads as the CURRENT word. Pressing OK confirms the
+ * shown word and only then does the counter advance. OK with no pending
+ * word finishes the phrase once the word count is legal. DEL removes the
+ * last letter, or backs out of the pending word, or removes the last
+ * finished word when the current word is empty.
  * ------------------------------------------------------------------ */
 
 #define WORD_BUF_MAX 8   /* longest typed prefix we keep around */
@@ -411,12 +414,13 @@ static bool kp_legal_word_count(int count)
  *   - title + "WORD N" (ALWAYS shown — even alongside a hint, so the user
  *     never loses track of which word they are on)
  *   - the current prefix, echoed big next to the counter
- *   - hint (red) when given, else the LIVE CANDIDATE LIST: every wordlist
- *     word starting with the current prefix, from the very first letter
- *     (3 cols x 8 rows of small text, "+N" overflow note), else the last
- *     resolved word as confirmation. */
+ *   - hint (red) when given, else the auto-resolved PENDING word shown big
+ *     (still on the SAME "WORD N" counter until OK commits it), else the
+ *     LIVE CANDIDATE LIST: every wordlist word starting with the current
+ *     prefix, from the very first letter (3 cols x 8 rows of small text,
+ *     "+N" overflow note). */
 static void kp_draw_phrase_area(const char *title, int nwords,
-                                const char *cur, int ncur, int prev_wi,
+                                const char *cur, int ncur, int pending_wi,
                                 const char *hint)
 {
 	/* Clear only down to the top of the key grid: a full lcd_fill would
@@ -437,7 +441,14 @@ static void kp_draw_phrase_area(const char *title, int nwords,
 		lcd_line(2, 36, hint, C_ERR, C_BG);
 		return;
 	}
-	if (ncur > 0) {
+	if (pending_wi >= 0) {
+		/* Auto-resolved word, NOT yet committed: show it big against the
+		 * SAME "WORD N" counter so it reads as the current word, not the
+		 * next one. The counter advances only when OK commits it. */
+		lcd_line_big(PREV_X0 + 4,
+		             PREV_Y0 + ((PREV_Y1 - PREV_Y0) - FONT_CHAR_H * 2) / 2,
+		             os_bip39_word_at(pending_wi), C_FG, C_BG);
+	} else if (ncur > 0) {
 		int idx[24];
 		int total = os_bip39_words_with_prefix(cur, (size_t)ncur, idx, 24);
 		int shown = total < 24 ? total : 24;
@@ -452,10 +463,6 @@ static void kp_draw_phrase_area(const char *title, int nwords,
 			snprintf(line, sizeof line, "+%d more", total - 23);
 			lcd_line(x, y, line, C_DIM, C_BG);
 		}
-	} else if (prev_wi >= 0) {
-		lcd_line_big(PREV_X0 + 4,
-		             PREV_Y0 + ((PREV_Y1 - PREV_Y0) - FONT_CHAR_H * 2) / 2,
-		             os_bip39_word_at(prev_wi), C_FG, C_BG);
 	}
 }
 
@@ -468,13 +475,13 @@ int kp_capture_phrase(const char *title, char *out, int max)
 	char cur[WORD_BUF_MAX + 1];
 	int ncur = 0;
 	cur[0] = '\0';
-	int prev_wi = -1;              /* last resolved word, shown as confirmation */
+	int pending_wi = -1;          /* auto-resolved word shown, awaiting OK */
 	int outlen = 0;
 	int nwords = 0;
 	out[0] = '\0';
 
 	lcd_fill(C_BG);
-	kp_draw_phrase_area(title, 0, cur, 0, prev_wi, NULL);
+	kp_draw_phrase_area(title, 0, cur, 0, pending_wi, NULL);
 	for (int i = 0; i < n; i++) kp_paint_cell(&cells[i], 0);
 
 	int hover = -1;
@@ -552,8 +559,13 @@ int kp_capture_phrase(const char *title, char *out, int max)
 				hover = -1;
 				last_kind = kind;
 				if (kind == KEY_BACK) {
-					/* drop a letter, or the last committed word */
-					if (ncur > 0) {
+					/* drop a letter, or back out of the pending word, or
+					 * drop the last committed word */
+					if (pending_wi >= 0) {
+						pending_wi = -1;
+						cur[0] = '\0';
+						ncur = 0;
+					} else if (ncur > 0) {
 						cur[--ncur] = '\0';
 					} else if (nwords > 0) {
 						/* back out the last word from the phrase */
@@ -565,33 +577,40 @@ int kp_capture_phrase(const char *title, char *out, int max)
 						nwords--;
 					}
 				} else if (kind == KEY_SPACE) {
-					/* commit the prefix as an exact word if it is a complete
-					 * word the auto-resolve left open (short words whose 4th
-					 * letter points at a longer word, e.g. "add" vs "addict") */
-					int wi = (ncur > 0) ? os_bip39_word_index(cur) : -1;
-					if (wi >= 0) {
-						word_append(out, &outlen, max, wi);
-						nwords++;
-						prev_wi = wi;
-						cur[0] = '\0';
-						ncur = 0;
+					/* resolve the current prefix as an EXACT word when
+					 * auto-resolve left it open (short words that are also
+					 * a prefix of a longer word, e.g. "add" vs "addict");
+					 * still shown as pending, still committed only by OK */
+					if (pending_wi >= 0) {
+						/* already resolved: keep it pending, nothing new */
+					} else if (ncur > 0) {
+						int wi = os_bip39_word_index(cur);
+						if (wi >= 0)
+							pending_wi = wi;
 					}
 				} else if (kind == KEY_ENTER) {
-					/* a BIP39 phrase must be 12/15/18/21/24 words; any
-					 * other count is still mid-entry, so prompt and stay */
-					if (!kp_legal_word_count(nwords)) {
+					if (pending_wi >= 0) {
+						/* confirm the shown word — ONLY now does the
+						 * counter advance */
+						word_append(out, &outlen, max, pending_wi);
+						nwords++;
+						pending_wi = -1;
+						cur[0] = '\0';
+						ncur = 0;
+					} else if (!kp_legal_word_count(nwords)) {
 						/* WORD N stays visible next to the hint */
 						kp_draw_phrase_area(title, nwords, cur, ncur,
-							prev_wi,
+							pending_wi,
 							os_dev_test_seed_enabled()
 								? "need 4/12/15/18/21/24 words"
 								: "need 12/15/18/21/24 words");
 						for (int i = 0; i < n; i++)
 							kp_paint_cell(&cells[i], 0);
 						goto tick;
+					} else {
+						out[outlen] = '\0';
+						return (outlen > 0) ? 0 : -1;
 					}
-					out[outlen] = '\0';
-					return (outlen > 0) ? 0 : -1;
 				} else if (kind >= 0) {
 					/* append a letter; BIP39 words are lowercase so fold the
 					 * keypad's uppercase cell into lower case for matching */
@@ -599,25 +618,26 @@ int kp_capture_phrase(const char *title, char *out, int max)
 						char c = (char)kind;
 						if (c >= 'A' && c <= 'Z')
 							c = (char)(c - 'A' + 'a');
+						if (pending_wi >= 0) {
+							/* typing instead of confirming = starting a
+							 * fresh word */
+							pending_wi = -1;
+							ncur = 0;
+						}
 						cur[ncur++] = c;
 						cur[ncur] = '\0';
-						prev_wi = -1;    /* start of a new prefix */
 					}
 				}
 			}
-			/* auto-resolve an unambiguous prefix -> committed word */
-			if (ncur >= 1 && ncur <= 4) {
+			/* auto-resolve an unambiguous prefix -> PENDING word (shown,
+			 * not committed: the counter only advances on OK). */
+			if (pending_wi < 0 && ncur >= 1 && ncur <= 4) {
 				int wi = os_bip39_word_try_commit(cur, ncur);
-				if (wi >= 0) {
-					word_append(out, &outlen, max, wi);
-					nwords++;
-					prev_wi = wi;
-					cur[0] = '\0';
-					ncur = 0;
-				}
+				if (wi >= 0)
+					pending_wi = wi;
 			}
 			last_commit = xTaskGetTickCount();
-			kp_draw_phrase_area(title, nwords, cur, ncur, prev_wi, NULL);
+			kp_draw_phrase_area(title, nwords, cur, ncur, pending_wi, NULL);
 			for (int i = 0; i < n; i++) kp_paint_cell(&cells[i], 0);
 		}
 tick:

@@ -116,7 +116,7 @@ static size_t build_evm(uint8_t *o, size_t cap)
 static void fuzz_psbt(const uint8_t *d, size_t n)
 {
 	os_psbt_summary s;
-	os_psbt_parse(d, n, NULL, &s);
+	os_psbt_parse(d, n, NULL, 0, &s);
 }
 static void fuzz_evm(const uint8_t *d, size_t n)
 {

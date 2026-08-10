@@ -93,11 +93,15 @@ void screen_run_link_host(void)
 
 	lcd_fill(C_BG);
 	lcd_line(2, 2, "Host link serving", C_OK, C_BG);
-	lcd_line(2, 14, "send a frame; tap to quit", C_LBL, C_BG);
+	lcd_line(2, 14, "waiting for frames", C_LBL, C_BG);
+	/* explicit BACK button to leave the session — the hint line no
+	 * longer hangs forever and stray taps do not cancel it */
+	lcd_rect_text(60, 288, 180, 318, "BACK", C_FG, C_BTN);
 
 	/* byte-accreting frame reassembly */
 	uint8_t rxbuf[HD_LINK_MAX_FRAME];
 	int rxlen = 0;
+	int px = 0, py = 0;
 	for (;;) {
 		uint8_t b;
 		int got = usb_serial_jtag_read_bytes(&b, 1, pdMS_TO_TICKS(30));
@@ -118,8 +122,10 @@ void screen_run_link_host(void)
 			} else if (rxlen >= (int)sizeof(rxbuf)) {
 				rxlen = 0;   /* overrun/dropped sync: reset */
 			}
-		} else if (ui_touch_now(NULL, NULL)) {
-			break;   /* user taps to return */
+		} else if (ui_touch_now(&px, &py)) {
+			/* touching BACK cancels the session; anything else is ignored */
+			if (ui_pt_in(px, py, 60, 288, 180, 318))
+				break;
 		}
 	}
 	lcd_line(2, 40, "session ended", C_DIM, C_BG);

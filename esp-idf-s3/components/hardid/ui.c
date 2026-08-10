@@ -61,10 +61,17 @@ static int menu_build_visible(int *vis, int max)
 #define OK_X1     150
 #define RARROW_X0 160
 #define RARROW_X1 225
+/* selection box framing the single visible menu item. Only the box (or
+ * the OK key) activates the item — taps outside do nothing. */
+#define ITEM_X0   14
+#define ITEM_Y0   134
+#define ITEM_X1   226
+#define ITEM_Y1   186
 
 /* Draw `s` centered horizontally with 8x16 glyphs at 2x scale (16x32px
- * per char). Used for the single visible menu item. */
-static void menu_draw_item(const char *s, int y)
+ * per char), on `bg`. Used for the single visible menu item inside its
+ * selection box. */
+static void menu_draw_item(const char *s, int y, uint16_t fg, uint16_t bg)
 {
 	int len = (int)strlen(s);
 	int scale = 2;
@@ -73,7 +80,7 @@ static void menu_draw_item(const char *s, int y)
 	int x = (240 - tw) / 2;
 	if (x < 0) x = 0;
 	for (int i = 0; i < len; i++)
-		lcd_gl8x16(x + i * adv, y, s[i], C_FG, C_BG, scale);
+		lcd_gl8x16(x + i * adv, y, s[i], fg, bg, scale);
 }
 
 static int isqrt(int v)
@@ -126,10 +133,14 @@ static void menu_draw(const int *vis, int vn)
 {
 	(void)vn;
 	lcd_fill(C_BG);
-	lcd_line(2, 8, "HardID", C_LBL, C_BG);
-	lcd_line(2, 22, "tap to open", C_DIM, C_BG);
+	/* header hints at 2x: the old 5x7 lines were too small to read */
+	lcd_line_big(2, 6, "HardID", C_LBL, C_BG);
+	lcd_line_big(2, 26, "OK: open", C_DIM, C_BG);
 
-	menu_draw_item(s_items[vis[s_sel]], 140);
+	/* the item sits in a filled selection box so it is obvious what a
+	 * tap/OK will activate (and that tapping outside does nothing) */
+	draw_round_rect(ITEM_X0, ITEM_Y0, ITEM_X1, ITEM_Y1, 10, C_BTN);
+	menu_draw_item(s_items[vis[s_sel]], 140, C_FG, C_BTN);
 
 	draw_arrow(ARROW_X0, ARROW_Y0, ARROW_X1, ARROW_Y1, -1);
 	/* center OK key confirms the selection */
@@ -210,8 +221,9 @@ void ui_run(void)
 			s_sel = (s_sel + 1) % vn;
 		} else if (ui_pt_in(px, py, OK_X0, ARROW_Y0, OK_X1, ARROW_Y1)) {
 			menu_run_sel(vis[s_sel]);    /* OK key confirms */
-		} else {
-			menu_run_sel(vis[s_sel]);    /* tap the item name = shortcut */
+		} else if (ui_pt_in(px, py, ITEM_X0, ITEM_Y0, ITEM_X1, ITEM_Y1)) {
+			menu_run_sel(vis[s_sel]);    /* tapping the selection box = confirm */
 		}
+		/* any other tap is ignored — no accidental activation */
 	}
 }

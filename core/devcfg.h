@@ -29,6 +29,19 @@ static inline bool os_dev_no_pin_enabled(void)
 	return HARDID_DEV_NO_PIN != 0;
 }
 
+/* DEV-ONLY: 4-word test seeds (no BIP39 checksum, 44-bit). See Kconfig
+ * HARDID_DEV_TEST_SEED. Production builds leave this off. */
+#if defined(CONFIG_HARDID_DEV_TEST_SEED)
+#define HARDID_DEV_TEST_SEED 1
+#else
+#define HARDID_DEV_TEST_SEED 0
+#endif
+
+static inline bool os_dev_test_seed_enabled(void)
+{
+	return HARDID_DEV_TEST_SEED != 0;
+}
+
 #ifdef __cplusplus
 }
 #endif

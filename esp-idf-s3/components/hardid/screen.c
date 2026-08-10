@@ -21,6 +21,7 @@
 #include "boot.h"
 #include "devcfg.h"
 #include "pin.h"
+#include "rng.h"
 #include "se_driver.h"
 #include "seed.h"
 #include "bip39.h"
@@ -385,13 +386,13 @@ static int screen_show_words(const char *mnemonic)
 static int prompt_passphrase(char *out, size_t out_max)
 {
 	lcd_fill(C_BG);
-	lcd_text_wrap(2, 10, "Enable passphrase?", C_WARN, C_BG);
+	lcd_text_wrap(2, 10, "Enable brain phrase?", C_WARN, C_BG);
 	if (!ui_confirm_yesno())
 		return 0;
 
 	for (;;) {
 		lcd_fill(C_BG);
-		if (kp_capture_alpha("PASSPHRASE", out, (int)out_max) != 0)
+		if (kp_capture_alpha("BRAIN PHRASE", out, (int)out_max) != 0)
 			return -1;
 		if (out[0] == '\0')
 			return 0;   /* typed nothing -> no passphrase */
@@ -399,7 +400,7 @@ static int prompt_passphrase(char *out, size_t out_max)
 		char again[OS_BIP39_MNEMONIC_MAX];
 		again[0] = '\0';
 		lcd_fill(C_BG);
-		if (kp_capture_alpha("CONFIRM PASSPHRASE", again,
+		if (kp_capture_alpha("CONFIRM BRAIN PHRASE", again,
 		                     (int)sizeof(again)) != 0) {
 			os_secure_bzero(again, sizeof(again));
 			return -1;
@@ -484,6 +485,13 @@ void screen_run_initialize(void)
 	lcd_text_wrap(2, 46, "24 words = 256-bit", C_FG, C_BG);
 	lcd_rect_text(15, 250, 115, 300, "12", C_FG, C_BTN);
 	lcd_rect_text(125, 250, 225, 300, "24", C_FG, C_BTN);
+	const bool test_seed = os_dev_test_seed_enabled();
+	if (test_seed) {
+		/* DEV-ONLY: 4-word test seed (44-bit, no checksum) so the
+		 * brain-phrase flow can be exercised without transcribing a
+		 * full BIP39 phrase. Never shipped in production builds. */
+		lcd_rect_text(15, 195, 225, 240, "4 words (TEST)", C_FG, C_WARN);
+	}
 	size_t elen = 0;
 	for (;;) {
 		int px, py;
@@ -494,6 +502,9 @@ void screen_run_initialize(void)
 		    ui_pt_in(rx, ry, 15, 250, 115, 300)) { elen = 16; break; }
 		if (ui_pt_in(px, py, 125, 250, 225, 300) &&
 		    ui_pt_in(rx, ry, 125, 250, 225, 300)) { elen = 32; break; }
+		if (test_seed &&
+		    ui_pt_in(px, py, 15, 195, 225, 240) &&
+		    ui_pt_in(rx, ry, 15, 195, 225, 240)) { elen = 0; break; }
 	}
 
 	esp_fill_random(host, sizeof(host));
@@ -502,10 +513,24 @@ void screen_run_initialize(void)
 		return;
 	}
 
-	/* 24-word uses all 32 bytes; 12-word uses the first 16 bytes of the
-	 * same strong entropy. */
-	os_bip39_entropy_to_mnemonic(seed32, elen,
-	                             mnemonic, sizeof(mnemonic));
+	if (elen == 0) {
+		/* DEV-ONLY 4-word test mnemonic: 4 uniform wordlist draws, NO
+		 * BIP39 checksum. 44 bits of entropy — trivially brute-forceable,
+		 * test builds only. The KDF does not care about validity. */
+		size_t off = 0;
+		mnemonic[0] = '\0';
+		for (int i = 0; i < 4; i++) {
+			uint32_t idx = os_rng_uniform(2048);
+			off += snprintf(mnemonic + off, sizeof(mnemonic) - off,
+			                "%s%s", i ? " " : "",
+			                os_bip39_word_at((int)idx));
+		}
+	} else {
+		/* 24-word uses all 32 bytes; 12-word uses the first 16 bytes of
+		 * the same strong entropy. */
+		os_bip39_entropy_to_mnemonic(seed32, elen,
+		                             mnemonic, sizeof(mnemonic));
+	}
 
 	/* 1. Walk the user through the phrase one word at a time. Each screen
 	 * shows a single word large enough to read; the user records it and
@@ -622,18 +647,27 @@ void screen_run_recover(void)
 	}
 
 	/* Validate checksum + recover the original entropy (used only to confirm
-	 * the mnemonic is well-formed; the provisioned key is the BIP39 seed). */
-	uint8_t seed32[OS_SEED_LEN];
-	memset(seed32, 0, sizeof seed32);
-	size_t elen = os_bip39_mnemonic_to_entropy(mnemonic, seed32, sizeof(seed32));
-	if (elen == 0) {
+	 * the mnemonic is well-formed; the provisioned key is the BIP39 seed).
+	 * DEV-ONLY: a 4-word test seed has no checksum — skip validation when
+	 * the test-seed build flag is on and the phrase has exactly 4 words. */
+	int wc = mnemonic[0] ? 1 : 0;
+	for (const char *p = mnemonic; *p; p++)
+		if (*p == ' ') wc++;
+	bool skip_check = os_dev_test_seed_enabled() && wc == 4;
+	if (!skip_check) {
+		uint8_t seed32[OS_SEED_LEN];
+		memset(seed32, 0, sizeof seed32);
+		size_t elen = os_bip39_mnemonic_to_entropy(mnemonic, seed32,
+		                                           sizeof(seed32));
+		if (elen == 0) {
+			os_secure_bzero(seed32, sizeof(seed32));
+			os_secure_bzero(mnemonic, sizeof(mnemonic));
+			lcd_fill(C_BG);
+			lcd_text_wrap(2, 10, "Invalid mnemonic.", C_ERR, C_BG);
+			return;
+		}
 		os_secure_bzero(seed32, sizeof(seed32));
-		os_secure_bzero(mnemonic, sizeof(mnemonic));
-		lcd_fill(C_BG);
-		lcd_text_wrap(2, 10, "Invalid mnemonic.", C_ERR, C_BG);
-		return;
 	}
-	os_secure_bzero(seed32, sizeof(seed32));
 
 	lcd_fill(C_BG);
 	/* PIN is optional in DEV-ONLY no-PIN builds: nothing to set. */

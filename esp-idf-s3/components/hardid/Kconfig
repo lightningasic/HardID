@@ -46,4 +46,16 @@ config HARDID_DEV_NO_PIN
         devices must ship with this off. When enabled the sign/watch flows
         run without any PIN entry. Requires the mock SE backend.
 
+config HARDID_DEV_TEST_SEED
+    bool "Development: allow 4-word test seeds"
+    depends on HARDID_SE_MOCK
+    default n
+    help
+        Bring-up convenience: a 4-word phrase (44-bit, no BIP39 checksum)
+        can be generated at Initialize and accepted at Recover, so the
+        brain-phrase flow can be exercised without transcribing 12/24
+        words. NOT BIP39-valid — such seeds are useless outside this
+        device build and trivially brute-forceable. DEVELOPMENT ONLY.
+        Requires the mock SE backend.
+
 endmenu

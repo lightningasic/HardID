@@ -17,6 +17,7 @@
 #include "display.h"
 #include "font7.h"
 #include "bip39.h"
+#include "devcfg.h"
 #include "pin.h"
 #include "secure_zero.h"
 #include "inter.h"
@@ -397,6 +398,10 @@ static void word_append(char *out, int *len, int max, int wi)
  * 18, 21, or 24 words). */
 static bool kp_legal_word_count(int count)
 {
+	/* DEV-ONLY: 4-word test seeds (no checksum) are legal in test-seed
+	 * builds so the brain-phrase flow can be exercised quickly. */
+	if (os_dev_test_seed_enabled() && count == 4)
+		return true;
 	return count == 12 || count == 15 || count == 18 ||
 	       count == 21 || count == 24;
 }

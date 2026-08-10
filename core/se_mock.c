@@ -26,7 +26,72 @@ static uint8_t  mock_pin[8];
 static size_t   mock_pin_len;
 static bool     mock_unlocked;   /* session unlocked by a successful PIN verify */
 
-static int mock_init(void) { return SE_OK; }
+#if defined(ESP_PLATFORM)
+#include "nvs_flash.h"
+#include "nvs.h"
+
+/* DEV-ONLY mock persistence. The mock SE is RAM-only by nature, which
+ * makes on-device flow walkthroughs impossible: every reboot looks like a
+ * blank device, so the brain-phrase gate (boot-time, initialized-only)
+ * could never be exercised. Persist the provisioned seed + PIN in NVS so
+ * the mock behaves like a real SE across reboots. MOCK BUILDS ONLY — a
+ * real SE never lets the seed touch flash. The brain-phrase session seed
+ * is deliberately NOT persisted (it must die on power-cycle). */
+#define MOCK_NVS_NS "hardid_mock"
+
+static void mock_nvs_save(void)
+{
+	nvs_handle_t h;
+	if (nvs_open(MOCK_NVS_NS, NVS_READWRITE, &h) != ESP_OK)
+		return;
+	if (mock_seed_stored)
+		nvs_set_blob(h, "seed", mock_seed, sizeof mock_seed);
+	if (mock_pin_len)
+		nvs_set_blob(h, "pin", mock_pin, mock_pin_len);
+	nvs_commit(h);
+	nvs_close(h);
+}
+
+static void mock_nvs_load(void)
+{
+	esp_err_t err = nvs_flash_init();
+	if (err == ESP_ERR_NVS_NO_FREE_PAGES ||
+	    err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+		nvs_flash_erase();
+		err = nvs_flash_init();
+	}
+	if (err != ESP_OK)
+		return;
+	nvs_handle_t h;
+	if (nvs_open(MOCK_NVS_NS, NVS_READONLY, &h) != ESP_OK)
+		return;
+	size_t len = sizeof mock_seed;
+	if (nvs_get_blob(h, "seed", mock_seed, &len) == ESP_OK &&
+	    len == sizeof mock_seed)
+		mock_seed_stored = 1;
+	len = sizeof mock_pin;
+	if (nvs_get_blob(h, "pin", mock_pin, &len) == ESP_OK)
+		mock_pin_len = len;
+	nvs_close(h);
+}
+
+static void mock_nvs_erase(void)
+{
+	nvs_handle_t h;
+	if (nvs_open(MOCK_NVS_NS, NVS_READWRITE, &h) != ESP_OK)
+		return;
+	nvs_erase_all(h);
+	nvs_commit(h);
+	nvs_close(h);
+}
+#else
+static void mock_nvs_save(void)  { }
+static void mock_nvs_load(void)  { }
+static void mock_nvs_erase(void) { }
+#endif
+
+
+static int mock_init(void) { mock_nvs_load(); return SE_OK; }
 
 static int mock_get_random(uint8_t *buf, size_t len)
 {
@@ -43,6 +108,7 @@ static int mock_store_seed(const uint8_t *seed64)
 		return SE_ERR_STATE;
 	memcpy(mock_seed, seed64, 64);
 	mock_seed_stored = 1;
+	mock_nvs_save();
 	return SE_OK;
 }
 
@@ -110,6 +176,7 @@ static int mock_set_pin(const uint8_t *pin, size_t len)
 		return SE_ERR_PARAM;
 	memcpy(mock_pin, pin, len);
 	mock_pin_len = len;
+	mock_nvs_save();
 	return SE_OK;
 }
 
@@ -124,6 +191,7 @@ static int mock_wipe(void)
 	memset(mock_pin, 0, sizeof(mock_pin));
 	mock_pin_len = 0;
 	mock_unlocked = false;
+	mock_nvs_erase();
 	return SE_OK;
 }
 

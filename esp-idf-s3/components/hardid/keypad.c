@@ -24,7 +24,7 @@
 
 #define C_BG   0x0000
 #define C_FG   0xFFFF
-#define C_BTN  0x1D8F
+#define C_BTN  0x039E  /* brand blue: the logo bolt (0,113,242) */
 #define C_LBL  0xE73C
 #define C_ERR  0xF800
 #define C_WARN 0xFD20

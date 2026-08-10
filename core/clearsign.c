@@ -470,8 +470,11 @@ int os_evm_sighash(const uint8_t *raw, size_t len, uint64_t chain_id,
 	if (chain_id == 0)
 		return -1;   /* pre-155 tx: no chain to bind, refuse */
 
-	/* rebuild RLP(body || chainId || 0x80 || 0x80) and keccak it */
-	uint8_t buf[OS_EVM_SIGHASH_MAX + 16];
+	/* rebuild RLP(body || chainId || 0x80 || 0x80) and keccak it.
+	 * static: the buffer is 4KB and the caller (signsvc) already carries
+	 * a ~1.3KB outcome on a bounded UI task stack. Single-task firmware,
+	 * never re-entered. */
+	static uint8_t buf[OS_EVM_SIGHASH_MAX + 16];
 	uint8_t venc[10];
 	size_t vl = 0;
 	{

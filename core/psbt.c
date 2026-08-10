@@ -332,7 +332,7 @@ static void dsha256(const uint8_t *d, size_t n, uint8_t out[32])
 static int tx_walk_full(const uint8_t *tx, size_t txn,
                         uint8_t (*outpoints)[36], uint8_t (*seqs)[4],
                         uint32_t *nin,
-                        uint8_t (*outs)[8 + 2 + 64], size_t *out_lens,
+                        uint8_t (*outs)[8 + 3 + 128], size_t *out_lens,
                         uint32_t *nout,
                         uint8_t version[4], uint8_t locktime[4])
 {
@@ -370,7 +370,11 @@ static int tx_walk_full(const uint8_t *tx, size_t txn,
 		if (rd_varint(&r.p, &r.n, &sl) != 0 || r.n < sl) return -1;
 		/* capture the raw output span: amount(8) || varint || script */
 		size_t span = 8 + (size_t)(r.p - amt_p - 8) + sl;
-		if (span > 8 + 2 + 64) return -1;
+		/* outputs are HASHED, not displayed one-by-one here, so the
+		 * cap is a memory bound, not a policy: 128-byte scripts cover
+		 * every standard form incl. 80-byte OP_RETURN. Larger is
+		 * refused (never silently mis-hashed). */
+		if (span > 8 + 3 + 128) return -1;
 		memcpy(outs[i], amt_p, span);
 		out_lens[i] = span;
 		r.p += sl; r.n -= sl;
@@ -400,7 +404,7 @@ int os_btc_bip143_sighash_tx(const uint8_t *tx, size_t tx_len,
 
 	static uint8_t outpoints[OS_PSBT_MAX_INPUTS][36];
 	static uint8_t seqs[OS_PSBT_MAX_INPUTS][4];
-	static uint8_t outs[OS_PSBT_MAX_OUTPUTS][8 + 2 + 64];
+	static uint8_t outs[OS_PSBT_MAX_OUTPUTS][8 + 3 + 128];
 	static size_t  out_lens[OS_PSBT_MAX_OUTPUTS];
 	uint8_t version[4], locktime[4];
 	uint32_t nin = 0, nout = 0;
@@ -429,7 +433,7 @@ int os_btc_bip143_sighash_tx(const uint8_t *tx, size_t tx_len,
 		dsha256(buf, n, hs);
 	}
 	{
-		uint8_t buf[OS_PSBT_MAX_OUTPUTS * (8 + 2 + 64)];
+		static uint8_t buf[OS_PSBT_MAX_OUTPUTS * (8 + 3 + 128)];
 		size_t n = 0;
 		for (uint32_t i = 0; i < nout; i++) {
 			memcpy(buf + n, outs[i], out_lens[i]); n += out_lens[i];

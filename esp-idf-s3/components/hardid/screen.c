@@ -203,9 +203,12 @@ void screen_run_sign_for_app(const os_app *app)
 	                    0x80000000u | 0 };       /* m/44'/coin'/0' (hardened) */
 	size_t tx_len = 0;
 
-	if (app->coin_type == 60) {
+	if (app->coin_type == 60 || app->coin_type == 61 ||
+	    app->coin_type == 966) {
 		/* minimal legacy EVM transfer via shared core builder so the
-		 * on-device demo can never drift from the test harness */
+		 * on-device demo can never drift from the test harness. Works
+		 * for every EVM-family app (ETH/ETC/POLYGON): signsvc injects
+		 * the app's own chainId into the EIP-155 sighash. */
 		uint8_t to[20];
 		memset(to, 0x11, sizeof to);
 		tx_len = os_clearsign_build_demo_legacy(tx, 20, 21000, to, 1000);

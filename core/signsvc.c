@@ -267,7 +267,6 @@ os_sign_outcome os_signsvc_delegate(const char *app_id,
 			out.result = OS_SIGN_DISABLED;
 			return out;
 		}
-		out.sigs[0][0] = 0;  /* unused for EVM; sig64 is canonical */
 		out.sig_count = 1;
 	} else {
 		/* BTC-family: one BIP143 sighash per PSBT input, each signed.

@@ -7,8 +7,10 @@
 - linkproto.h / linksvc.h 头注释同步 (不再有 xpub/status 出接口, 只有签名出设备)。
 - test_linksvc 重写: status/ping 测试 → fuzz 拒绝环 (0x00..0xFF 采样) + 初始化后
   仍拒绝。host 测试全绿, S3 固件构建通过。
-- **未烧录**: 板脱机 (无 /dev/ttyACM*, USB 无设备), 待回线后 `idf.py flash` +
-  串口 boot 验证 (starting UI task)。
+- **烧录验证完成**: 板回线后 idf.py flash 成功 (hash verified), 串口 boot 干净
+  (app_main → ST7789 OK → touch ready → starting UI task, 无崩溃)。
+  (注: 本机 python 直 ioctl(TIOCMBIS) 报 EFAULT, 改用 idf env 的 pyserial 控制
+  dtr/rts 复位成功。)
 
 ## V2.0 架构升级与多轮循环审计 (当前主线, 2026-08)
 

@@ -231,7 +231,9 @@ sha256sum hardid-v1.0.0.bin
 
 ## 8. 实现进展（2026-08-10，S3 测试板走查轮）
 
-本日在 ESP32-S3 测试板（mock SE + 无 PIN dev 构建）首次烧录走查，21 个提交。模块级变更：
+本日在 ESP32-S3 测试板（mock SE + 无 PIN dev 构建）首次烧录走查，24 个提交。模块级变更：
+
+> **架构定位（PRD v1.1，2026-08-10 定案）**：HardID 收敛为**标准签名模块**——开放签名接口给第三方调用，只做签名，不能进行任何其他操作；管理操作（init/recover/wipe/brain phrase）仅设备本机 UI，永不进入接口面。工程含义：linkproto/HOST LINK 是开放签名接口的 v0 形态，后续按"单动词 SIGN 契约"收敛（拒绝一切非签名动词）；FIDO2/CTAP2 列入 V2.0 路线，认证断言复用同一签名内核。
 
 **signsvc（签名委派）**
 - 真 sighash 管线落地：EVM 走 `os_evm_sighash`（EIP-155：6 字段 legacy 注入 app 预期 chainId；9 字段空 r/s 载荷校验 v；typed 信封校验 chainId 字段；已签名输入拒绝）；BTC 系走 `os_btc_sighash_from_psbt`（BIP143 全 preimage：hashPrevouts/hashSequence/outpoint/scriptCode/amount/nSequence/hashOutputs/locktime/type；仅原生 P2WPKH + SIGHASH_ALL，其余拒绝）。官方测试向量双过（EIP-155 `daf5a779…`、BIP143 `c37af311…`）
@@ -250,7 +252,10 @@ sha256sum hardid-v1.0.0.bin
 - 键盘三页字符集（A-Z / a-z / 0-9+16符号），passphrase 录入路径专用；预览对非 A-Z 字符回退 font7
 - Recover 录入实时候选列表（`os_bip39_words_with_prefix`，首字母即出 3×8 候选 + 溢出计数）；WORD N 恒显修复
 - 主菜单按 `is_initialized` 动态隐藏 INITIALIZE/RECOVER
+- 主菜单交互定稿（走查驱动，`67c176a`/`9b17fa4`）：当前项包在通栏选框内高亮，仅 OK 键或选框内点击激活，点其他区域忽略（原"点任意区域即选中"易误触）；选框通栏 240px 以容纳最长标签 FACTORY RESET（13 字符 2x = 232px）；顶部提示小字 5x7→2x
+- HOST LINK 会话改显式 BACK 按钮退出（原"点任意处退出"，stray 触摸会误退会话）
 - **RGB565 字节序修复**：ST7789 默认大端色数据，全部 16 位色值此前被对调（按钮蓝碰巧仍像蓝未被发现，LOGO 暴露）——panel 配置 `.data_endian = LCD_RGB_DATA_ENDIAN_LITTLE`；按钮改品牌蓝 0x039E
+- **esp_lcd 零拷贝队列竞态修复**（`60c1e3d`）：SPI 颜色传输是零拷贝+异步队列，`draw_bitmap` 返回时 DMA 仍在读调用方栈上行缓冲；函数返回后栈被触摸/I2C 轮询复用 → 末批纯色区域（选框、导航键）出现彩色窄条。修复：每个绘制函数返回前发 MIPI DCS NOP（0x00）——io 驱动在发 polling 命令前会收割全部在途事务，借此排空队列
 - LOGO 可复现生成器 `logo/gen_logo.py`（PIL：黑底合成→LANCZOS→RGB565→core/logo.h）
 
 **测试**：host 22 套件 + 3 adversarial 套件全绿（composite t3 pin 预存失败除外，与本轮无关）。新增：test_se t8（brain phrase KDF 固定向量）、test_clearsign t13（EIP-155 官方向量+拒绝项）、test_psbt t6/t7（per-coin 地址、BIP143 官方向量+拒绝项）、test_app t17/t18（目录链签名+族摘要锁定）。测试构造器 RLP 改规范编码（单字节 <0x80 直编）、witness_utxo fixture 改规范 CTxOut

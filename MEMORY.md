@@ -147,8 +147,29 @@
   捡到 esptool 复位瞬间的一行, esptool flash_id/read_mac --after hard_reset 的
   复位会丢后续输出。
 
+## 已完成 (循环审计 2026-08-10 第二轮, 4 轮至无新增问题)
+- **轮1 金额单位显示 (WYSIWYS 级, `dc1803b`)**: ERC20 代币金额被拼上原生符号
+  ("1000 ETH" 实为 USDC, 由 symbol 规范化引入); BTC 系 satoshi 直接贴币符号
+  ("90000 BTC"); EVM 原生 wei 贴符号。新增 os_fmt_coin_amount (wei 18 位/sats 8 位
+  十进制 trimming), 解析层填十进制币值字符串, 确认屏 fee 同样格式化 + chain_id 上屏。
+  test_clearsign t14 锁定格式化器。
+- **轮2 sighash 边界 (`ba026bb`)**: BIP143 输出脚本上限 64B → OP_RETURN(80B) 等合法
+  输出会被误拒签 → 放宽到 128B (输出只是被哈希, 上限是内存界不是策略); os_evm_sighash
+  4KB 栈缓冲改 static (ui_task 8KB 栈上还有 ~1.3KB outcome); SIGN demo 对全部 EVM 族
+  App 可用 (ETC/POLYGON 原落入 BTC 提示分支)。
+- **轮3 UI/键盘/菜单/NVS**: 无新问题。os_rng_uniform 均匀性验证过; 键盘页状态复位
+  路径闭合; mock NVS save/erase 时机正确。性能观察项: 候选词列表逐列 SPI 绘制
+  ~20ms/次重绘, 可接受, 真机手感差再改行缓冲。
+- **轮4 kimi 对抗复审 (`8a7b7c2`)**: EVM 族判定三处硬编码收敛到
+  os_evm_chain_id_for_coin 表 (新 EVM 目录链一处注册即可); se_driver.h 补写
+  passphrase KDF 256B 长度界 (真 SE 后端必须同界保证跨后端一致)。
+- 全量: host 22 套件 + 3 adversarial 全绿 (composite t3 pin 预存失败除外), S3 固件构建过。
+- 文档已同步: 01 PRD (brain phrase 规范 + 进展快照), 04 工程文档 (§8 实现进展),
+  06 联调清单 (阶段1/2 S3 已验证 + 4 个真机修复), 07 使用手册 (菜单/brain phrase/
+  三页键盘/候选词/真 sighash/功能矩阵)。
+
 ## 待办
 - M-2 剩余子项: host 侧 v/r/s 组装与 witness 注入 (设备出 r||s+recid),
-  chain_id 上屏, BTC 多路径输入, P2SH-P2WPKH/P2WSH 扩展, link_esp 盲签改走 signsvc。
-- 真机走查剩余项: INITIALIZE 助记词流程、初始化后重启的 passphrase gate +
-  三页键盘 (ABC/abc/1#$)、SIGN→ETH demo (现签真 EIP-155 mainnet sighash)。
+  BTC 多路径输入, P2SH-P2WPKH/P2WSH 扩展, link_esp 盲签改走 signsvc。
+- 真机走查剩余项: 4 词初始化 → 重启 brain phrase gate → SIGN→ETH demo
+  (现签真 EIP-155 sighash) → Recover 候选词手感。

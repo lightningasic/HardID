@@ -104,6 +104,11 @@ int lcd_init(void)
 		.reset_gpio_num = -1,   /* no hw reset: RST shares BOOT/GPIO0 */
 		.color_space = ESP_LCD_COLOR_SPACE_RGB,
 		.bits_per_pixel = 16,
+		/* our framebuffers hold RGB565 as little-endian uint16_t — tell
+		 * the panel, or every 16-bit color is byte-swapped (the whole UI
+		 * ran swapped: it went unnoticed because the button blue looks
+		 * blue-ish either way, but the boot logo exposed it) */
+		.data_endian = LCD_RGB_DATA_ENDIAN_LITTLE,
 	};
 	rc = esp_lcd_new_panel_st7789(s_io, &panel_cfg, &s_panel);
 	if (rc != ESP_OK) return -1;

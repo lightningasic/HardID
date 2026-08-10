@@ -45,6 +45,11 @@ int os_bip39_word_index(const char *word);
  * matching rules. Returns the unique index (0..2047) or -1 if none/ambiguous. */
 int os_bip39_word_resolve_prefix(const char *prefix, size_t n);
 
+/* All words starting with a prefix (any length), for live candidate lists.
+ * Fills out_idx with up to `max` indices; returns the TOTAL match count. */
+int os_bip39_words_with_prefix(const char *prefix, size_t n,
+                               int *out_idx, int max);
+
 /* Try to auto-commit a typed prefix: returns the word index only when the
  * prefix is a complete word that cannot be extended into another valid word
  * (4-char prefixes are always unambiguous; shorter prefixes must match an

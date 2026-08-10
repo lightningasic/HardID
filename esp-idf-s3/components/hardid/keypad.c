@@ -406,51 +406,55 @@ static bool kp_legal_word_count(int count)
 	       count == 21 || count == 24;
 }
 
-/* Draw the phrase header: title, word count, and a hint line. The current
- * prefix (and the hovered letter) live in the floating preview box, so we
- * keep the header to the two top lines (y<=30, above PREV_Y0=34). When
- * `hint` is non-NULL it replaces the second line until the next redraw. */
-static void kp_draw_phrase_header(const char *title, int nwords,
-                                  const char *hint)
+/* Draw the whole phrase-entry area above the key grid. One function draws
+ * everything so the state can never half-render:
+ *   - title + "WORD N" (ALWAYS shown — even alongside a hint, so the user
+ *     never loses track of which word they are on)
+ *   - the current prefix, echoed big next to the counter
+ *   - hint (red) when given, else the LIVE CANDIDATE LIST: every wordlist
+ *     word starting with the current prefix, from the very first letter
+ *     (3 cols x 8 rows of small text, "+N" overflow note), else the last
+ *     resolved word as confirmation. */
+static void kp_draw_phrase_area(const char *title, int nwords,
+                                const char *cur, int ncur, int prev_wi,
+                                const char *hint)
 {
-	/* Clear the whole header band (title + floating preview region) down to
-	 * the very top of the key grid (KP_TOP). lcd_fill full-screen repaints
-	 * every key on keypress and visibly flickers; this narrower clear
-	 * leaves no unpainted seam: the 8px strip between the preview box
-	 * (ends PREV_Y1) and the first grid row (KP_TOP) would otherwise keep
-	 * stale colored pixels, showing up as a horizontal bar. */
+	/* Clear only down to the top of the key grid: a full lcd_fill would
+	 * repaint every key on each keypress and visibly flicker. */
 	lcd_rect(0, 0, 240, KP_TOP, C_BG);
 	if (title) lcd_line(2, 2, title, C_LBL, C_BG);
 	char line[40];
-	if (hint) {
-		lcd_line(2, 14, hint, C_ERR, C_BG);
-	} else {
-		/* tell the user which word they are about to type, in large type:
-		 * "WORD 1", "WORD 2", ... based on words committed so far */
-		snprintf(line, sizeof line, "WORD %d", nwords + 1);
-		lcd_line_big(2, 14, line, C_FG, C_BG);
+	snprintf(line, sizeof line, "WORD %d", nwords + 1);
+	lcd_line_big(2, 14, line, C_FG, C_BG);
+	if (ncur > 0) {
+		char p[WORD_BUF_MAX + 2];
+		int m = ncur < WORD_BUF_MAX ? ncur : WORD_BUF_MAX;
+		memcpy(p, cur, m);
+		p[m] = '_'; p[m + 1] = '\0';
+		lcd_line_big(100, 14, p, C_WARN, C_BG);
 	}
-}
-
-/* Floating preview: hovered letter (large), current typed prefix, or the
- * last word resolved from a prefix (shown as confirmation until the user
- * starts the next word). */
-static void kp_float_preview(int ch, const char *cur, int ncur, int prev_wi)
-{
-	lcd_rect(PREV_X0, PREV_Y0, PREV_X1, PREV_Y1, C_BG);
-	if (ch > 0 && ch != KEY_SPACE) {           /* hovered key */
-		kp_big_char(PREV_X0, PREV_Y0, PREV_X1, PREV_Y1, ch);
-	} else if (ncur > 0) {           /* prefix in progress */
-		char s[5];
-		int n = ncur < 4 ? ncur : 4;
-		for (int i = 0; i < n; i++) s[i] = cur[i];
-		s[n] = '\0';
-		lcd_line_big(PREV_X0 + 4, PREV_Y0 +
-		             ((PREV_Y1 - PREV_Y0) - FONT_CHAR_H * 2) / 2,
-		             s, C_FG, C_BG);
-	} else if (prev_wi >= 0) {       /* resolved word confirmation */
-		lcd_line_big(PREV_X0 + 4, PREV_Y0 +
-		             ((PREV_Y1 - PREV_Y0) - FONT_CHAR_H * 2) / 2,
+	if (hint) {
+		lcd_line(2, 36, hint, C_ERR, C_BG);
+		return;
+	}
+	if (ncur > 0) {
+		int idx[24];
+		int total = os_bip39_words_with_prefix(cur, (size_t)ncur, idx, 24);
+		int shown = total < 24 ? total : 24;
+		for (int i = 0; i < shown; i++) {
+			lcd_line(2 + (i % 3) * 80, 36 + (i / 3) * 10,
+			         os_bip39_word_at(idx[i]), C_FG, C_BG);
+		}
+		if (total > shown) {
+			/* overwrite the last cell with an overflow note */
+			int x = 2 + (23 % 3) * 80, y = 36 + (23 / 3) * 10;
+			lcd_rect(x, y, x + 80, y + FONT_CHAR_H, C_BG);
+			snprintf(line, sizeof line, "+%d more", total - 23);
+			lcd_line(x, y, line, C_DIM, C_BG);
+		}
+	} else if (prev_wi >= 0) {
+		lcd_line_big(PREV_X0 + 4,
+		             PREV_Y0 + ((PREV_Y1 - PREV_Y0) - FONT_CHAR_H * 2) / 2,
 		             os_bip39_word_at(prev_wi), C_FG, C_BG);
 	}
 }
@@ -470,8 +474,7 @@ int kp_capture_phrase(const char *title, char *out, int max)
 	out[0] = '\0';
 
 	lcd_fill(C_BG);
-	kp_draw_phrase_header(title, 0, NULL);
-	kp_float_preview(KEY_SPACE, cur, ncur, prev_wi);
+	kp_draw_phrase_area(title, 0, cur, 0, prev_wi, NULL);
 	for (int i = 0; i < n; i++) kp_paint_cell(&cells[i], 0);
 
 	int hover = -1;
@@ -498,7 +501,7 @@ int kp_capture_phrase(const char *title, char *out, int max)
 					hover = h;
 					if (hover >= 0) {
 						kp_paint_cell(&cells[hover], 1);
-						kp_float_preview(cells[hover].kind, cur, ncur, prev_wi);
+						kp_float_box(cells[hover].kind);
 					}
 				}
 				if (h >= 0) {
@@ -528,7 +531,7 @@ int kp_capture_phrase(const char *title, char *out, int max)
 					hover = h;
 					if (hover >= 0) {
 						kp_paint_cell(&cells[hover], 1);
-						kp_float_preview(cells[hover].kind, cur, ncur, prev_wi);
+						kp_float_box(cells[hover].kind);
 					}
 				}
 			}
@@ -577,9 +580,12 @@ int kp_capture_phrase(const char *title, char *out, int max)
 					/* a BIP39 phrase must be 12/15/18/21/24 words; any
 					 * other count is still mid-entry, so prompt and stay */
 					if (!kp_legal_word_count(nwords)) {
-						kp_draw_phrase_header(
-							title, nwords,
-							"need 12/15/18/21/24 words");
+						/* WORD N stays visible next to the hint */
+						kp_draw_phrase_area(title, nwords, cur, ncur,
+							prev_wi,
+							os_dev_test_seed_enabled()
+								? "need 4/12/15/18/21/24 words"
+								: "need 12/15/18/21/24 words");
 						for (int i = 0; i < n; i++)
 							kp_paint_cell(&cells[i], 0);
 						goto tick;
@@ -611,8 +617,7 @@ int kp_capture_phrase(const char *title, char *out, int max)
 				}
 			}
 			last_commit = xTaskGetTickCount();
-			kp_draw_phrase_header(title, nwords, NULL);
-			kp_float_preview(KEY_SPACE, cur, ncur, prev_wi);
+			kp_draw_phrase_area(title, nwords, cur, ncur, prev_wi, NULL);
 			for (int i = 0; i < n; i++) kp_paint_cell(&cells[i], 0);
 		}
 tick:

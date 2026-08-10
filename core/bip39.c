@@ -99,6 +99,26 @@ const char *os_bip39_word_at(int index)
 	return os_bip39_wordlist[index];
 }
 
+/* All words starting with the given prefix (any length >= 1), for the
+ * live candidate list during mnemonic entry. Fills out_idx with up to
+ * `max` wordlist indices; returns the TOTAL number of matches (which may
+ * exceed max — caller can show a "+N more" hint). */
+int os_bip39_words_with_prefix(const char *prefix, size_t n,
+                               int *out_idx, int max)
+{
+	int total = 0, filled = 0;
+	if (!prefix || n < 1)
+		return 0;
+	for (int i = 0; i < 2048; i++) {
+		if (strncmp(os_bip39_wordlist[i], prefix, n) != 0)
+			continue;
+		if (out_idx && filled < max)
+			out_idx[filled++] = i;
+		total++;
+	}
+	return total;
+}
+
 int os_bip39_entropy_to_mnemonic(const uint8_t *entropy, size_t elen,
                                  char *mnemonic, size_t mmax)
 {

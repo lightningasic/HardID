@@ -1,5 +1,12 @@
 # MEMORY.md
 
+## 已完成 (Recover 词框引导提示, commit `92c58cc`, 2026-08-11)
+- 串口插桩确认计数器每次 OK 都推进 (nwords 0→1→2→3→4), 逻辑正确。
+- 词框空闲时 (无 pending/无输入前缀) 显示引导 "enter word"/"enter next word",
+  让 OK 后的下一个词输入一目了然。已烧录 boot 干净。
+- 注意: 本机 python 直 ioctl(TIOCMBIS) 报 EFAULT, 复位验证用 idf env pyserial。
+- P4 待 S3 确认后再同步。
+
 ## 已完成 (Recover 候选词 pending-OK 确认, commit `e66c334`, 2026-08-11)
 - 输入 4 字母唯一解析后, 不再立即提交并跳 WORD 计数; 改为"待确认 pending"态:
   大字显示唯一词, WORD N 保持当前词序号, 不产生"显示的是下一个词"错觉。

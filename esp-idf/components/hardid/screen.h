@@ -33,6 +33,11 @@ void screen_run_sign(void);
  * sign-delegation flow for `app`. */
 void screen_run_sign_for_app(const os_app *app);
 
+/* WYSIWYS confirm hook shared by the on-device SIGN flow and HOST LINK:
+ * renders a parsed intent and requires an explicit user confirm. Returns
+ * true only on confirmation. */
+bool screen_confirm_intent(const os_tx_intent *it);
+
 /* Factory reset: confirm dialog, wipe the SE, return to home. */
 void screen_run_factory_reset(void);
 

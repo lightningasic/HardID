@@ -69,7 +69,7 @@ void screen_run_sign(void)
  * rendered here is the one the signer consumes — WYSIWYS by construction.
  * UNKNOWN intents force a double tap-to-confirm (escalated) so a risky
  * call can never be confirmed with a casual single tap. */
-static bool screen_confirm_intent(const os_tx_intent *it)
+bool screen_confirm_intent(const os_tx_intent *it)
 {
 	lcd_fill(C_BG);
 	lcd_line(2, 2, "CONFIRM", C_LBL, C_BG);

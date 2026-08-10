@@ -12,11 +12,15 @@
  * fully testable on the host.
  *
  * THIS SAME LAYER IS WHAT ENABLES the "verify a transaction" goal in the
- * manual: the host sends a digest (tx hash) it will not sign blind, the
- * device shows it and asks the user to confirm on the screen, and only then
- * signs. Per the single-verb contract (PRD §3.4) the interface accepts
- * exactly ONE operation — SIGN. It deliberately has NO other surface: no
- * key/seed/xpub transfer, no status/config reads, no generic data channel.
+ * manual: the host sends a structured sign request (PRD §3.4) — app id,
+ * BIP32 derivation path, and the raw transaction bytes — and the device
+ * renders the intent on screen, asks the user to confirm, and only then
+ * signs (WYSIWYS). The request is routed through the SAME sign service as
+ * the on-device SIGN menu (os_signsvc_delegate), so both paths are
+ * provably identical. Per the single-verb contract (PRD §3.4) the interface
+ * accepts exactly ONE operation — SIGN. It deliberately has NO other
+ * surface: no key/seed/xpub transfer, no status/config reads, no generic
+ * data channel.
  */
 
 #ifndef HARDID_LINKPROTO_H
@@ -49,8 +53,29 @@ extern "C" {
 /* command types (host -> device) — single-verb contract (PRD §3.4):
  * the ONLY callable operation is SIGN. Every other type is rejected by
  * the service (and must never be added: no key export, no status, no
- * config surface). */
-#define HD_CMD_SIGN           0x03u   /* payload: digest32; device shows + PIN-gates */
+ * config surface).
+ *
+ * SIGN payload (structured, WYSIWYS — routed through os_signsvc_delegate):
+ *   [0]        app_id_len N (1..HD_LINK_APP_ID_MAX)
+ *   [1..N]     app_id, ASCII, no NUL (e.g. "eth" / "btc")
+ *   [N+1]      path_len P (1..HD_LINK_PATH_MAX)
+ *   [N+2 .. N+1+4P]  P × 4-byte big-endian BIP32 path components
+ *                    (hardened flag OS_PATH_HARDENED included)
+ *   [rest]     raw transaction bytes: PSBT (BTC family) or raw EVM tx
+ *              (EVM family). Chains with no firmware parser are refused
+ *              by signsvc. Max HD_LINK_MAX_TX bytes.
+ *
+ * SIGN reply (device -> host) on OK: sig64(64) | recid(1) | sig_count(4 BE).
+ * sig_count is 1 for EVM and the number of inputs signed for BTC (sig64 is
+ * the first input's signature; the host assembles witnesses). */
+#define HD_CMD_SIGN           0x03u
+
+/* SIGN payload size bounds. HD_LINK_MAX_FRAME must hold the largest
+ * request (app_id + path + tx) plus header + crc. */
+#define HD_LINK_APP_ID_MAX    16u
+#define HD_LINK_PATH_MAX      10u
+#define HD_LINK_MAX_TX        2048u
+#define HD_LINK_MAX_PAYLOAD   (1u + HD_LINK_APP_ID_MAX + 1u + HD_LINK_PATH_MAX * 4u + HD_LINK_MAX_TX)
 
 /* reply types (device -> host) */
 #define HD_REPLY_OK           0x81u
@@ -83,9 +108,9 @@ int hd_link_parse(const uint8_t *buf, size_t buf_len,
  * exposed for the transport so it can stream-accumulate and re-check. */
 uint16_t hd_link_crc(const uint8_t *data, size_t len);
 
-/* How many bytes the caller must hold for the encoding APIs. Replies may
- * carry a 4-byte rc prefix + a 64-byte signature, so size for that. */
-#define HD_LINK_MAX_FRAME (HD_LINK_HDR_LEN + 4u + 64u + 2u)
+/* How many bytes the caller must hold for the encoding APIs. Sized for the
+ * largest SIGN request frame; replies are smaller (4-byte rc + sig). */
+#define HD_LINK_MAX_FRAME (HD_LINK_HDR_LEN + HD_LINK_MAX_PAYLOAD + 2u)
 
 #ifdef __cplusplus
 }

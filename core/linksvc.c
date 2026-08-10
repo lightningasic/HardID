@@ -6,44 +6,108 @@
  * License: Apache License 2.0
  */
 
+#include <string.h>
+
 #include "linksvc.h"
 #include "linkproto.h"
+#include "signsvc.h"
+#include "se_driver.h"
 
-int hd_link_serve(const hd_link_se_t *se,
-                  bool (*ui_confirm_digest)(const uint8_t *digest32),
+static uint32_t rd_u32be(const uint8_t *p)
+{
+	return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
+	       ((uint32_t)p[2] << 8) | (uint32_t)p[3];
+}
+
+int hd_link_serve(bool (*ui_confirm_tx)(const os_tx_intent *),
                   uint8_t type, uint16_t seq,
                   const uint8_t *payload, size_t plen,
                   uint8_t *out, size_t out_max)
 {
 	switch (type) {
 	case HD_CMD_SIGN: {
-		if (!se || !se->sign) {
-			return hd_link_frame_reply(HD_REPLY_ERR, seq, HD_ERR_INTERNAL,
-			                           NULL, 0, out, out_max);
-		}
-		/* payload is a bare 32-byte digest */
-		if (!payload || plen != 32) {
+		/* Structured SIGN request (PRD §3.4):
+		 *   app_id_len | app_id | path_len | path* (u32 BE) | tx */
+		size_t off = 0;
+		if (!payload || plen < 2) {
 			return hd_link_frame_reply(HD_REPLY_ERR, seq, HD_ERR_PARAM,
 			                           NULL, 0, out, out_max);
 		}
-		if (!se->is_initialized()) {
+		size_t app_len = payload[off++];
+		if (app_len == 0 || app_len > HD_LINK_APP_ID_MAX ||
+		    plen < off + app_len + 1u) {
+			return hd_link_frame_reply(HD_REPLY_ERR, seq, HD_ERR_PARAM,
+			                           NULL, 0, out, out_max);
+		}
+		char app_id[HD_LINK_APP_ID_MAX + 1];
+		memcpy(app_id, payload + off, app_len);
+		app_id[app_len] = '\0';
+		off += app_len;
+
+		size_t path_len = payload[off++];
+		if (path_len == 0 || path_len > HD_LINK_PATH_MAX ||
+		    plen < off + path_len * 4u) {
+			return hd_link_frame_reply(HD_REPLY_ERR, seq, HD_ERR_PARAM,
+			                           NULL, 0, out, out_max);
+		}
+		uint32_t path[HD_LINK_PATH_MAX];
+		for (size_t i = 0; i < path_len; i++) {
+			path[i] = rd_u32be(payload + off);
+			off += 4u;
+		}
+		size_t tx_len = plen - off;
+		if (tx_len == 0) {
+			return hd_link_frame_reply(HD_REPLY_ERR, seq, HD_ERR_PARAM,
+			                           NULL, 0, out, out_max);
+		}
+
+		/* Provisioning gate: a wiped device never signs. */
+		const se_driver_t *se = se_active();
+		if (!se) {
+			return hd_link_frame_reply(HD_REPLY_ERR, seq,
+			                           HD_ERR_INTERNAL, NULL, 0,
+			                           out, out_max);
+		}
+		bool initd = false;
+		if (se->is_initialized)
+			se->is_initialized(&initd);
+		if (!initd) {
 			return hd_link_frame_reply(HD_REPLY_ERR, seq, HD_ERR_STATE,
 			                           NULL, 0, out, out_max);
 		}
-		/* On-device Clear Sign: show the digest, get user confirmation. A
-		 * session unlock must have happened already; if not, the wrapper
-		 * refused and we leak nothing. */
-		if (!ui_confirm_digest || !ui_confirm_digest(payload)) {
+
+		/* Delegate through the SAME sign service as the on-device SIGN
+		 * menu: app lookup + coin/path isolation + firmware-independent
+		 * intent re-derivation + WYSIWYS confirm + real chain sighash
+		 * + SE sign. A NULL confirm is a hard abort (never a bypass). */
+		os_sign_outcome oc =
+			os_signsvc_delegate(app_id, payload + off, tx_len,
+			                    path, path_len, ui_confirm_tx);
+		switch (oc.result) {
+		case OS_SIGN_OK: {
+			uint8_t rp[64 + 1 + 4];
+			memcpy(rp, oc.sig64, 64);
+			rp[64] = oc.recid;
+			rp[65] = (uint8_t)(oc.sig_count >> 24);
+			rp[66] = (uint8_t)(oc.sig_count >> 16);
+			rp[67] = (uint8_t)(oc.sig_count >> 8);
+			rp[68] = (uint8_t)(oc.sig_count & 0xFFu);
+			return hd_link_frame_reply(HD_REPLY_OK, seq, 0, rp,
+			                           sizeof rp, out, out_max);
+		}
+		case OS_SIGN_LOCKED:
+		case OS_SIGN_REJECTED:
+		case OS_SIGN_ABORT:
 			return hd_link_frame_reply(HD_REPLY_ERR, seq, HD_ERR_AUTH,
 			                           NULL, 0, out, out_max);
-		}
-		uint8_t sig[64];
-		int rc = se->sign(payload, sig);
-		if (rc != 0) {
-			return hd_link_frame_reply(HD_REPLY_ERR, seq, HD_ERR_AUTH,
+		case OS_SIGN_DISABLED:
+			return hd_link_frame_reply(HD_REPLY_ERR, seq, HD_ERR_STATE,
+			                           NULL, 0, out, out_max);
+		case OS_SIGN_PARSE_ERR:
+		default:
+			return hd_link_frame_reply(HD_REPLY_ERR, seq, HD_ERR_PARAM,
 			                           NULL, 0, out, out_max);
 		}
-		return hd_link_frame_reply(HD_REPLY_OK, seq, 0, sig, 64, out, out_max);
 	}
 
 	default:

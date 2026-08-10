@@ -1,66 +1,158 @@
-/* Host-side test of the link service using a tiny fake SE. */
+/* Host-side test of the link service: structured SIGN routed through signsvc.
+ * Mirrors test_app.c's setup: real mock SE + app registry + sign delegation.
+ */
 #include <stdio.h>
 #include <string.h>
 #include <stdint.h>
+#include <stdbool.h>
+#include "../core/se_driver.h"
+
+#include "../core/se_mock.c"
+#include "../core/sha512.c"
+#include "../core/app_registry.c"
+#include "../core/app_catalog.c"
+#include "../core/signsvc.c"
+#include "../core/keccak.c"
+#include "../core/clearsign.c"
+#include "../core/psbt.c"
+#include "../core/hkdf.c"
+#include "../core/base58.c"
 #include "../core/linkproto.c"
 #include "../core/linksvc.c"
 
-static int s_init = 0;
-static int s_rc = 0;
-static bool s_confirm_result = true;
-
-static bool lv_is_init(void){ return s_init != 0; }
-static int	lv_unlock(const uint8_t *p, size_t n){ (void)p; (void)n; return s_rc; }
-static int	lv_sign(const uint8_t *d, uint8_t *sig)
+/* ---- RLP helpers (same as test_app/test_clearsign) ---- */
+static size_t rlp_hdr(uint8_t *out, int is_list, size_t l)
 {
-	if (!s_init) return -5;
-	for (int i = 0; i < 64; i++) sig[i] = (uint8_t)(d[i % 32] ^ (uint8_t)i);
-	return s_rc;
+	uint8_t base = is_list ? 0xc0 : 0x80;
+	if (l < 56) { out[0] = base + l; return 1; }
+	if (l < 256) { out[0] = base + 55 + 1; out[1] = l; return 2; }
+	out[0] = base + 55 + 2; out[1] = l >> 8; out[2] = l & 0xff; return 3;
+}
+static size_t rlp_str(uint8_t *out, const uint8_t *d, size_t l)
+{
+	size_t h = rlp_hdr(out, 0, l);
+	memcpy(out + h, d, l);
+	return h + l;
+}
+static size_t rlp_u(uint8_t *out, uint64_t v)
+{
+	uint8_t b[8]; int n = 0;
+	if (v == 0) { out[0] = 0x80; return 1; }
+	if (v < 0x80) { out[0] = (uint8_t)v; return 1; }
+	while (v) { b[7 - n++] = v & 0xff; v >>= 8; }
+	return rlp_str(out, b + 8 - n, n);
+}
+static size_t build_legacy(uint8_t *out, uint64_t gasPrice, uint64_t gasLimit,
+                           const uint8_t to[20], uint64_t value)
+{
+	uint8_t tmp[1024]; size_t o = 0;
+	o += rlp_u(tmp + o, 1);
+	o += rlp_u(tmp + o, gasPrice);
+	o += rlp_u(tmp + o, gasLimit);
+	if (to) o += rlp_str(tmp + o, to, 20); else { tmp[o++] = 0x80; }
+	o += rlp_u(tmp + o, value);
+	o += rlp_str(tmp + o, NULL, 0);
+	size_t h = rlp_hdr(out, 1, o);
+	memcpy(out + h, tmp, o);
+	return h + o;
 }
 
-static hd_link_se_t se = { lv_is_init, lv_unlock, lv_sign };
+/* ---- UI confirm hook ---- */
+static int s_confirm_answer;    /* true to accept */
+static bool ui_confirm_tx(const os_tx_intent *it)
+{
+	(void)it;
+	return s_confirm_answer != 0;
+}
 
-static bool ui_confirm(const uint8_t *d){ (void)d; return s_confirm_result; }
+/* ---- SIGN payload builder ---- */
+static size_t build_sign_payload(uint8_t *o, size_t cap,
+                                 const char *app_id, const uint32_t *path,
+                                 size_t path_len, const uint8_t *tx,
+                                 size_t tx_len)
+{
+	size_t n = 0;
+	size_t alen = strlen(app_id);
+	if (alen == 0 || alen > HD_LINK_APP_ID_MAX || path_len == 0 ||
+	    path_len > HD_LINK_PATH_MAX)
+		return 0;
+	o[n++] = (uint8_t)alen;
+	memcpy(o + n, app_id, alen); n += alen;
+	o[n++] = (uint8_t)path_len;
+	for (size_t i = 0; i < path_len; i++) {
+		o[n++] = (uint8_t)(path[i] >> 24);
+		o[n++] = (uint8_t)(path[i] >> 16);
+		o[n++] = (uint8_t)(path[i] >> 8);
+		o[n++] = (uint8_t)(path[i]);
+	}
+	if (n + tx_len > cap) return 0;
+	memcpy(o + n, tx, tx_len); n += tx_len;
+	return n;
+}
 
 static int reply_type(const uint8_t *buf, size_t len)
 {
-	uint8_t t; uint16_t seq; hd_link_parse(buf, len, &t, &seq, NULL, NULL);
-	(void)seq; return t;
+	uint8_t t; uint16_t seq;
+	if (hd_link_parse(buf, len, &t, &seq, NULL, NULL) != 0)
+		return -1;
+	(void)seq;
+	return t;
 }
 
-static int check_rep(const uint8_t *rep, size_t rn, int want_type,
-                     const uint8_t *want, size_t wlen, const char *label)
+/* Check an HD_REPLY_OK carries the sig payload: rc(4) sig64(64) recid(1) c(4). */
+static int check_sig_rep(const uint8_t *rep, size_t rn, uint8_t want_recid,
+                         uint32_t want_count, const char *label)
 {
 	uint8_t t; uint16_t seq; const uint8_t *pl; size_t plen;
-	if (rn <= 0) { printf("FAIL rn=%d %s\n", (int)rn, label); return 1; }
-	if (hd_link_parse(rep, rn, &t, &seq, &pl, &plen) != 0) {
-		printf("FAIL parse %s\n", label); return 1; }
-	if (t != want_type) { printf("FAIL type %u want %u %s\n", t, want_type, label); return 1; }
-	/* payload begins with a 4-byte rc prefix, then the data */
-	pl += 4; plen -= 4;
-	if (plen != wlen || (want && memcmp(pl, want, wlen))) {
-		printf("FAIL payload %s plen=%zu want=%zu\n", label, plen, wlen); return 1; }
-	printf("ok %s (type=%u plen=%zu)\n", label, t, plen);
+	if (rn <= 0 || hd_link_parse(rep, rn, &t, &seq, &pl, &plen) != 0) {
+		printf("FAIL parse %s\n", label); return 1;
+	}
+	if (t != HD_REPLY_OK) { printf("FAIL type=%u %s\n", t, label); return 1; }
+	pl += 4; plen -= 4;                     /* strip rc prefix */
+	if (plen != 64 + 1 + 4) { printf("FAIL sig plen=%zu %s\n", plen, label); return 1; }
+	uint8_t nonzero = 0;
+	for (int i = 0; i < 64; i++) nonzero |= pl[i];
+	if (nonzero == 0) { printf("FAIL empty sig %s\n", label); return 1; }
+	if (pl[64] != want_recid) { printf("FAIL recid=%u want %u %s\n", pl[64], want_recid, label); return 1; }
+	uint32_t cnt = ((uint32_t)pl[65] << 24) | ((uint32_t)pl[66] << 16) |
+	               ((uint32_t)pl[67] << 8) | pl[68];
+	if (cnt != want_count) { printf("FAIL count=%u want %u %s\n", cnt, want_count, label); return 1; }
+	printf("ok %s (sig plen=%zu count=%u)\n", label, plen, cnt);
 	return 0;
 }
 
 int main(void)
 {
+	const se_driver_t *se = se_active();
+	se_mock_reset();
+
 	uint8_t rep[HD_LINK_MAX_FRAME]; int rn;
-	uint8_t digest[32]; memset(digest, 0x11, 32);
 
-	s_rc = 0; s_init = 0; s_confirm_result = true;
+	/* provision seed + pin, unlock session (same as test_app t6) */
+	uint8_t seed[64]; memset(seed, 0x11, 64);
+	if (se->store_seed(seed) != SE_OK) { printf("FAIL store\n"); return 1; }
+	uint8_t pin[4] = { '1', '2', '3', '4' };
+	if (se->set_pin(pin, 4) != SE_OK) { printf("FAIL setpin\n"); return 1; }
+	if (se->verify_pin(pin, 4, NULL, NULL) != SE_OK) { printf("FAIL unlock\n"); return 1; }
 
-	/* Single-verb contract (PRD §3.4): every non-SIGN verb is rejected —
-	 * old PING/STATUS, reserved codes, and unknown bytes alike. This is
-	 * the "非 SIGN 动词 100% 拒绝" acceptance check. */
+	/* build a small legacy EVM tx for "eth" */
+	uint8_t tx[2048]; uint8_t to[20];
+	for (int i = 0; i < 20; i++) to[i] = 0x10 + i;
+	size_t tx_len = build_legacy(tx, 20, 21000, to, 1000);
+	uint32_t path[3] = { 0x80000000u | 44, 0x80000000u | 60,
+	                     0x80000000u | 0 };           /* m/44'/60'/0' */
+	uint8_t pl[HD_LINK_MAX_PAYLOAD];
+	size_t plen = build_sign_payload(pl, sizeof pl, "eth", path, 3, tx, tx_len);
+	if (plen == 0) { printf("FAIL build payload\n"); return 1; }
+
+	/* Single-verb contract: every non-SIGN verb is rejected. */
 	{
 		const uint8_t verbs[] = { 0x00, 0x01, 0x02, 0x04, 0x05, 0x7F, 0x80, 0xFE, 0xFF };
 		for (size_t i = 0; i < sizeof verbs; i++) {
-			rn = hd_link_serve(&se, NULL, verbs[i], (uint16_t)(10u + i), NULL, 0,
-			                   rep, sizeof rep);
+			rn = hd_link_serve(ui_confirm_tx, verbs[i], (uint16_t)(10u + i),
+			                   NULL, 0, rep, sizeof rep);
 			if (reply_type(rep, (size_t)rn) != HD_REPLY_ERR) {
-				printf("FAIL non-SIGN verb 0x%02x was not rejected\n", verbs[i]);
+				printf("FAIL non-SIGN verb 0x%02x not rejected\n", verbs[i]);
 				return 1;
 			}
 		}
@@ -68,27 +160,75 @@ int main(void)
 		       verbs[0], verbs[sizeof verbs - 1]);
 	}
 
-	/* non-SIGN verbs are rejected even after init */
-	s_init = 1;
-	rn = hd_link_serve(&se, NULL, 0x02, 20, NULL, 0, rep, sizeof rep);
-	if (reply_type(rep, (size_t)rn) != HD_REPLY_ERR) { printf("FAIL post-init reject\n"); return 1; }
-	printf("ok non-SIGN rejected post-init\n");
+	/* good structured SIGN, confirm true -> OK with sig64+recid+sig_count */
+	s_confirm_answer = 1;
+	rn = hd_link_serve(ui_confirm_tx, HD_CMD_SIGN, 4, pl, plen, rep, sizeof rep);
+	if (check_sig_rep(rep, (size_t)rn, 0, 1, "sign-confirmed")) return 1;
 
-	/* sign with valid digest, confirm true -> OK 64B */
-	rn = hd_link_serve(&se, ui_confirm, HD_CMD_SIGN, 4, digest, 32, rep, sizeof rep);
-	if (check_rep(rep, (size_t)rn, HD_REPLY_OK, NULL, 64, "sign-confirmed")) return 1;
-
-	/* sign with confirm=false -> err/auth */
-	s_confirm_result = false;
-	rn = hd_link_serve(&se, ui_confirm, HD_CMD_SIGN, 5, digest, 32, rep, sizeof rep);
+	/* user declines -> err/auth, no signature */
+	s_confirm_answer = 0;
+	rn = hd_link_serve(ui_confirm_tx, HD_CMD_SIGN, 5, pl, plen, rep, sizeof rep);
 	if (reply_type(rep, (size_t)rn) != HD_REPLY_ERR) { printf("FAIL declined\n"); return 1; }
 	printf("ok sign-declined -> err\n");
 
-	/* sign with bad digest length -> err param */
-	s_confirm_result = true;
-	rn = hd_link_serve(&se, ui_confirm, HD_CMD_SIGN, 6, digest, 16, rep, sizeof rep);
-	if (reply_type(rep, (size_t)rn) != HD_REPLY_ERR) { printf("FAIL badlen\n"); return 1; }
-	printf("ok sign-badlen -> err\n");
+	/* NULL confirm hook is a hard abort, never a bypass */
+	s_confirm_answer = 1;
+	rn = hd_link_serve(NULL, HD_CMD_SIGN, 6, pl, plen, rep, sizeof rep);
+	if (reply_type(rep, (size_t)rn) != HD_REPLY_ERR) { printf("FAIL NULL-confirm bypass\n"); return 1; }
+	printf("ok NULL confirm -> err (no bypass)\n");
+
+	/* unknown app -> state */
+	s_confirm_answer = 1;
+	plen = build_sign_payload(pl, sizeof pl, "nope", path, 3, tx, tx_len);
+	rn = hd_link_serve(ui_confirm_tx, HD_CMD_SIGN, 7, pl, plen, rep, sizeof rep);
+	if (reply_type(rep, (size_t)rn) != HD_REPLY_ERR) { printf("FAIL unknown app\n"); return 1; }
+	printf("ok unknown app -> err\n");
+
+	/* wrong coin branch path (m/44'/0'/0' for btc) -> param */
+	uint32_t bad_path[3] = { 0x80000000u | 44, 0x80000000u | 0,
+	                         0x80000000u | 0 };
+	plen = build_sign_payload(pl, sizeof pl, "eth", bad_path, 3, tx, tx_len);
+	rn = hd_link_serve(ui_confirm_tx, HD_CMD_SIGN, 8, pl, plen, rep, sizeof rep);
+	if (reply_type(rep, (size_t)rn) != HD_REPLY_ERR) { printf("FAIL wrong path\n"); return 1; }
+	printf("ok wrong coin path -> err\n");
+
+	/* malformed tx -> param */
+	plen = build_sign_payload(pl, sizeof pl, "eth", path, 3, tx, 8);
+	rn = hd_link_serve(ui_confirm_tx, HD_CMD_SIGN, 9, pl, plen, rep, sizeof rep);
+	if (reply_type(rep, (size_t)rn) != HD_REPLY_ERR) { printf("FAIL short tx\n"); return 1; }
+	printf("ok malformed tx -> err\n");
+
+	/* truncated/bad payload shapes -> param */
+	rn = hd_link_serve(ui_confirm_tx, HD_CMD_SIGN, 10, pl, 1, rep, sizeof rep);
+	if (reply_type(rep, (size_t)rn) != HD_REPLY_ERR) { printf("FAIL len1\n"); return 1; }
+	uint8_t tiny[2] = { 0x10, 0x05 };               /* app_len 16, no room */
+	rn = hd_link_serve(ui_confirm_tx, HD_CMD_SIGN, 11, tiny, sizeof tiny, rep, sizeof rep);
+	if (reply_type(rep, (size_t)rn) != HD_REPLY_ERR) { printf("FAIL truncated\n"); return 1; }
+	printf("ok bad payload shapes -> err\n");
+
+	/* full wire roundtrip: host encodes the frame, device serves it */
+	{
+		uint8_t frm[HD_LINK_MAX_FRAME];
+		plen = build_sign_payload(pl, sizeof pl, "eth", path, 3, tx, tx_len);
+		int fn = hd_link_frame_cmd(HD_CMD_SIGN, 21, pl, plen, frm, sizeof frm);
+		if (fn <= 0) { printf("FAIL frame enc\n"); return 1; }
+		uint8_t type; uint16_t seq; const uint8_t *p; size_t pn;
+		if (hd_link_parse(frm, (size_t)fn, &type, &seq, &p, &pn) != 0 ||
+		    type != HD_CMD_SIGN || seq != 21) {
+			printf("FAIL frame parse\n"); return 1;
+		}
+		s_confirm_answer = 1;
+		rn = hd_link_serve(ui_confirm_tx, type, seq, p, pn, rep, sizeof rep);
+		if (check_sig_rep(rep, (size_t)rn, 0, 1, "wire-roundtrip")) return 1;
+		printf("ok frame wire roundtrip\n");
+	}
+
+	/* wiped device refuses to sign -> state */
+	se_mock_reset();
+	plen = build_sign_payload(pl, sizeof pl, "eth", path, 3, tx, tx_len);
+	rn = hd_link_serve(ui_confirm_tx, HD_CMD_SIGN, 30, pl, plen, rep, sizeof rep);
+	if (reply_type(rep, (size_t)rn) != HD_REPLY_ERR) { printf("FAIL unprovisioned\n"); return 1; }
+	printf("ok unprovisioned -> err\n");
 
 	printf("ALL PASS\n");
 	return 0;

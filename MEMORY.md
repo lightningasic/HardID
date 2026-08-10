@@ -1,5 +1,15 @@
 # MEMORY.md
 
+## 已完成 (单动词 SIGN 契约, commit `8f725c7`, 2026-08-11)
+- **linkproto/linksvc 按 PRD v1.1 §3.4 收敛**: 删除开放接口的 HD_CMD_PING /
+  HD_CMD_STATUS, 唯一可调用动词 = SIGN。其余一切动词 (旧 PING/STATUS 码、
+  未知字节) 一律 HD_ERR_PARAM 拒绝 —— 落定"非 SIGN 动词 100% 拒绝"验收标准。
+- linkproto.h / linksvc.h 头注释同步 (不再有 xpub/status 出接口, 只有签名出设备)。
+- test_linksvc 重写: status/ping 测试 → fuzz 拒绝环 (0x00..0xFF 采样) + 初始化后
+  仍拒绝。host 测试全绿, S3 固件构建通过。
+- **未烧录**: 板脱机 (无 /dev/ttyACM*, USB 无设备), 待回线后 `idf.py flash` +
+  串口 boot 验证 (starting UI task)。
+
 ## V2.0 架构升级与多轮循环审计 (当前主线, 2026-08)
 
 ### 工作流约定 (用户确认 2026-08-09)

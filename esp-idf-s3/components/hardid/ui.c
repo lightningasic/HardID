@@ -62,10 +62,11 @@ static int menu_build_visible(int *vis, int max)
 #define RARROW_X0 160
 #define RARROW_X1 225
 /* selection box framing the single visible menu item. Only the box (or
- * the OK key) activates the item — taps outside do nothing. */
-#define ITEM_X0   14
+ * the OK key) activates the item — taps outside do nothing. Full panel
+ * width: the widest label ("FACTORY RESET", 232px at 2x) must fit. */
+#define ITEM_X0   0
 #define ITEM_Y0   134
-#define ITEM_X1   226
+#define ITEM_X1   240
 #define ITEM_Y1   186
 
 /* Draw `s` centered horizontally with 8x16 glyphs at 2x scale (16x32px

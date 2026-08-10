@@ -463,6 +463,15 @@ static void kp_draw_phrase_area(const char *title, int nwords,
 			snprintf(line, sizeof line, "+%d more", total - 23);
 			lcd_line(x, y, line, C_DIM, C_BG);
 		}
+	} else {
+		/* idle: nothing typed or resolved yet on this word. Show what to
+		 * do next, centred in the box, so the eye lands on an explicit
+		 * prompt rather than an empty area. */
+		const char *g = (nwords == 0) ? "enter word" : "enter next word";
+		int gw = (int)strlen(g) * FONT_CHAR_W;
+		int gx = PREV_X0 + ((PREV_X1 - PREV_X0) - gw) / 2;
+		int gy = PREV_Y0 + ((PREV_Y1 - PREV_Y0) - FONT_CHAR_H) / 2;
+		lcd_line(gx, gy, g, C_DIM, C_BG);
 	}
 }
 

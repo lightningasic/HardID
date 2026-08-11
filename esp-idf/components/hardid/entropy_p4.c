@@ -36,7 +36,7 @@ void os_entropy_force_link(void)
 {
 }
 
-#define TOUCH_COLLECT_MS   150
+#define TOUCH_COLLECT_MS   900
 #define TOUCH_SAMPLES_MAX  64
 #define TSENS_SAMPLES      8
 #define BUS_ROUNDS         8
@@ -67,7 +67,7 @@ static int collect_touch(os_phys_pool_t *pool)
 			break;
 	}
 	if (n > 0)
-		ESP_LOGD(TAG, "touch jitter samples=%d", n);
+		ESP_LOGI(TAG, "touch jitter samples=%d", n);
 	return n > 0;
 }
 

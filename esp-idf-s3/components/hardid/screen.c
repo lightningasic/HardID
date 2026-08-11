@@ -529,6 +529,34 @@ void screen_run_initialize(void)
 		    ui_pt_in(rx, ry, 15, 195, 225, 240)) { elen = 0; break; }
 	}
 
+	/* Optional touch-entropy invitation (design 08 §2.1 S4): the seed
+	 * hook samples coordinate-LSB jitter while a finger is held on the
+	 * screen. SKIP or 10s idle proceeds with the non-interactive
+	 * sources only — never fail-closed. */
+	lcd_fill(C_BG);
+	lcd_text_wrap(2, 10, "Touch entropy (optional)", C_LBL, C_BG);
+	lcd_text_wrap(2, 30, "Press & HOLD the screen anywhere:", C_FG, C_BG);
+	lcd_text_wrap(2, 46, "your finger's micro-jitter is mixed", C_FG, C_BG);
+	lcd_text_wrap(2, 62, "into the new seed.", C_FG, C_BG);
+	lcd_text_wrap(2, 82, "Hold ~1s, then release to continue.", C_FG, C_BG);
+	lcd_rect_text(15, 250, 115, 300, "SKIP", C_FG, C_BTN);
+	{
+		TickType_t t0 = xTaskGetTickCount();
+		for (;;) {
+			int px, py;
+			if (ui_touch_now(&px, &py)) {
+				if (ui_pt_in(px, py, 15, 250, 115, 300)) {
+					int rx = px, ry = py;
+					ui_wait_release(&rx, &ry);
+				}
+				break;   /* SKIP tapped, or finger held elsewhere */
+			}
+			if (xTaskGetTickCount() - t0 > pdMS_TO_TICKS(10000))
+				break;
+			vTaskDelay(pdMS_TO_TICKS(10));
+		}
+	}
+
 	esp_fill_random(host, sizeof(host));
 	if (os_seed_generate(host, sizeof(host), seed32) != 0) {
 		lcd_text_wrap(2, 10, "seed gen failed", C_ERR, C_BG);

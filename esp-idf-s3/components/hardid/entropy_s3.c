@@ -48,8 +48,10 @@ void os_entropy_force_link(void)
 }
 
 /* Bounded collection window — the hook runs inside seed generation and must
- * never stall it, so every source is time-limited. */
-#define TOUCH_COLLECT_MS   150
+ * never stall it, so every source is time-limited. The touch window is sized
+ * so TOUCH_SAMPLES_MAX is reachable at the effective ~10ms/tick poll rate
+ * (CONFIG_FREERTOS_HZ=100 floors pdMS_TO_TICKS(2) to 1 tick). */
+#define TOUCH_COLLECT_MS   900
 #define TOUCH_SAMPLES_MAX  64
 #define TSENS_SAMPLES      8
 #define BUS_ROUNDS         8
@@ -82,7 +84,7 @@ static int collect_touch(os_phys_pool_t *pool)
 			break;
 	}
 	if (n > 0)
-		ESP_LOGD(TAG, "touch jitter samples=%d", n);
+		ESP_LOGI(TAG, "touch jitter samples=%d", n);
 	return n > 0;
 }
 

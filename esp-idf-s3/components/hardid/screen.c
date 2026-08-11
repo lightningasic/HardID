@@ -99,10 +99,10 @@ bool screen_confirm_intent(const os_tx_intent *it)
 
 	if (it->kind == OS_INTENT_UNKNOWN) {
 		lcd_text_wrap(2, 18, "UNKNOWN CALL", C_ERR, C_BG);
-		lcd_text_wrap(2, 34, "Not parseable. Tap twice to sign.", C_WARN, C_BG);
-		ui_wait_ack();
-		ui_wait_ack();
-		return true;
+		lcd_text_wrap(2, 34, "Not parseable. Confirm twice to sign.", C_WARN, C_BG);
+		if (!ui_confirm_yesno())
+			return false;
+		return ui_confirm_yesno();
 	}
 
 	const char *kind = "transfer";
@@ -154,9 +154,11 @@ bool screen_confirm_intent(const os_tx_intent *it)
 		lcd_line(2, 86, line, C_FG, C_BG);
 	}
 
-	lcd_line(2, 100, "tap to CONFIRM", C_LBL, C_BG);
-	ui_wait_ack();
-	return true;
+	/* Explicit Yes/No — a signature is NEVER granted by a stray tap on a
+	 * label that reads "tap to CONFIRM" while the only tappable control is
+	 * BACK. Confirm returns false unless the user presses Yes. */
+	lcd_line(2, 100, "sign?", C_LBL, C_BG);
+	return ui_confirm_yesno();
 }
 
 void screen_run_sign_for_app(const os_app *app)

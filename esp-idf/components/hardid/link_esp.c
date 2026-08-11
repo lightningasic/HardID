@@ -90,7 +90,13 @@ void screen_run_link_host(void)
 					usb_serial_jtag_write_bytes(reply, (size_t)rn,
 					                            pdMS_TO_TICKS(100));
 				rxlen = 0;
-				lcd_line(2, 26, "frame served", C_DIM, C_BG);
+				/* return to the session screen: the confirm hook drew its
+				 * own full-screen intent + Yes/No, so restore the waiting
+				 * view (never leave a stale confirm up) */
+				lcd_fill(C_BG);
+				lcd_line(2, 2, "Host link serving", C_OK, C_BG);
+				lcd_line(2, 14, "waiting for frames", C_LBL, C_BG);
+				lcd_rect_text(60, 288, 180, 318, "BACK", C_FG, C_BTN);
 			} else if (rxlen >= (int)sizeof(rxbuf)) {
 				rxlen = 0;   /* overrun/dropped sync: reset */
 			}

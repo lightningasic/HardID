@@ -1,5 +1,18 @@
 # MEMORY.md
 
+## 已完成 (循环代码审计 3 轮 + 自动修复, commits `3f1968d`/`fcd6b40`/`afde203`, 2026-08-11)
+- **第1轮 (熵代码)**: phys_entropy extract out_len>32 尾部未初始化 → 清零;
+  mix_one 死分支删除; entropy_s3 无条件 got=1 死分支修复; entropy_p4 补 got
+  跟踪 (原全源失败也打"mixed"日志); collect_touch 容忍 3 次瞬断;
+  collect_bus 不依赖手指 (I2C 事务本身抖动, 无触摸也采 S6); header 注释更正。
+- **第2轮 (注入器/提示屏)**: 注入器竞态修复 (先写坐标再置 active, 防跨核读旧
+  坐标); 注入坐标钳位到屏边界; 'R' 改整行匹配; 日志仅状态变化时打 (防 wiggle
+  洪泛)。
+- **第3轮 (core 安全面)**: eip712 encode_word 补 pad_left+len≤32 检查;
+  扫描确认 memcmp 全用于公开数据、bip39/base58/clearsign memcpy 均有界、
+  rng_uniform 拒绝采样无模偏、se_mock strcpy 有前置边界。
+- 每轮验证: host 25/26 (composite t3 预存失败除外) + S3/P4 构建干净 + 原子提交。
+
 ## 已完成 (多熵源 Layer A 落地 + 真机验证, commit `46c3252`, 2026-08-11)
 - **docs/08 多熵源设计审核通过 → 实现 Layer A (纯固件零 BOM)**:
   `core/phys_entropy.c` 无条件熵池 (SHA-256 链式混合 + 前缀安全长度域 +

@@ -9,7 +9,7 @@ jobs:
         run: |
           cd tests
           set -e
-          for t in rng hkdf seed keccak sha512 bip39 base58 bip32 pin policy clearsign multisig se psbt boot ecdsa eip712 acl16 composite app transport_esp32 transport_i2c board linkproto linksvc phys_entropy; do
+          for t in rng hkdf seed keccak sha512 bip39 base58 bip32 pin policy clearsign multisig se psbt boot ecdsa eip712 acl16 composite app transport_esp32 transport_i2c board linkproto linksvc phys_entropy secp256r1; do
             if [ "$t" = "hkdf" ]; then
               gcc -Wall -Wextra -O1 -o test_$t test_$t.c ../core/hkdf.c
             elif [ "$t" = "phys_entropy" ]; then

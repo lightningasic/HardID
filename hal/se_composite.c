@@ -72,10 +72,10 @@ static int comp_verify_pin(const uint8_t *pin, size_t len,
                            uint32_t *wait_seconds, bool *is_duress)
 {
 	int rc = se_acl16_verify_pin(&g_se2, pin, len, wait_seconds, is_duress);
-	if (rc == SE_SW_OK)
+	if (rc == 0)
 		g_pin_set = true;
-	return rc == SE_SW_OK ? SE_OK
-	       : (rc == SE_SW_LOCKED ? SE_ERR_LOCKED : SE_ERR_AUTH);
+	return rc == 0 ? SE_OK
+	       : (rc == SE_ERR_LOCKED ? SE_ERR_LOCKED : SE_ERR_AUTH);
 }
 
 static int comp_set_pin(const uint8_t *pin, size_t len)

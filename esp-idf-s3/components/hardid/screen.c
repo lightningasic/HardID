@@ -540,8 +540,10 @@ void screen_run_initialize(void)
 	lcd_text_wrap(2, 30, "Press & HOLD the screen anywhere:", C_FG, C_BG);
 	lcd_text_wrap(2, 46, "your finger's micro-jitter is mixed", C_FG, C_BG);
 	lcd_text_wrap(2, 62, "into the new seed.", C_FG, C_BG);
-	lcd_text_wrap(2, 82, "Keep holding through the countdown.", C_FG, C_BG);
+	lcd_text_wrap(2, 82, "Holding starts a 3s countdown, then", C_FG, C_BG);
+	lcd_text_wrap(2, 98, "the seed is generated automatically.", C_FG, C_BG);
 	lcd_rect_text(15, 250, 115, 300, "SKIP", C_FG, C_BTN);
+	bool held = false;
 	{
 		TickType_t t0 = xTaskGetTickCount();
 		for (;;) {
@@ -551,12 +553,13 @@ void screen_run_initialize(void)
 					int rx = px, ry = py;
 					ui_wait_release(&rx, &ry);
 				} else {
-					for (int s = 3; s >= 1; s--) {
+					held = true;
+					for (int s = 3; s >= 0; s--) {
 						char cd[24];
 						snprintf(cd, sizeof cd,
 						         "Keep holding... %d", s);
 						lcd_rect(0, 110, 240, 200, C_BG);
-						lcd_line_big(10, 140, cd, C_LBL, C_BG);
+						lcd_line_big(10, 140, cd, C_ERR, C_BG);
 						vTaskDelay(pdMS_TO_TICKS(1000));
 					}
 				}
@@ -574,8 +577,13 @@ void screen_run_initialize(void)
 		return;
 	}
 
-	/* The entropy-hold finger may still be down — drain it so the
-	 * mnemonic walkthrough's first ui_wait_press is not skipped. */
+	/* The entropy-hold finger may still be down — tell the user to let go,
+	 * then drain it so the mnemonic walkthrough's first ui_wait_press is
+	 * not skipped. */
+	if (held) {
+		lcd_rect(0, 110, 240, 200, C_BG);
+		lcd_line_big(10, 140, "OK, release now", C_OK, C_BG);
+	}
 	{
 		int hx, hy;
 		ui_wait_release(&hx, &hy);

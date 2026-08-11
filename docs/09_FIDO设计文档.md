@@ -19,7 +19,7 @@ V2.0 路线（PRD §5）把 FIDO2/WebAuthn（CTAP2 认证器）列为远期目�
 3. **原生 USB HID 传输**——升级到 ESP32-S3 原生 USB 的 HID（TinyUSB），
    浏览器可直接识别为 FIDO 认证器（CTAP HID 设备）。
 4. **第一版里程碑收敛**——non-resident（non-discoverable）凭证 + ES256
-   (P-256) + 基础 attestation，跑通 `makeCredential`/`getAssertion`；
+   (P-256) + attestation fmt "none"，跑通 `makeCredential`/`getAssertion`；
    resident keys / PIN/UV 协议 / 高级扩展列入后续。
 
 ### 术语
@@ -78,7 +78,7 @@ PHY（GPIO19/20）**，同一时刻只能启用一个（ESP-IDF 文档明确）�
     GetInfo 应答、凭证派生、attestation 组装。
   - `core/ctap2.c` — CTAP2 CBOR 命令解析/编码 + 错误码映射。
   - `core/fido_ctaphid.c` — HID 帧拆分/重组，INIT/CONT 状态机，CRC。
-  - `core/se_driver.h` 扩展：`se_p256*` 接口（见 §5）。
+  - `core/se_driver.h` 扩展：`fido_cred_*` 接口（见 §5.2）。
   - `esp-idf-s3/components/hardid/usb_desc.c` — TinyUSB 描述符
     （FIDO usage page 0xF1D0，HID + CDC composite）。
   - `esp-idf-s3/components/hardid/fido_esp.c` — FIDO 屏幕入口
@@ -89,11 +89,11 @@ PHY（GPIO19/20）**，同一时刻只能启用一个（ESP-IDF 文档明确）�
 ### 3.1 支持的 CTAP2 命令
 | 命令 | CTAP2 值 | 第一版 | 备注 |
 |------|---------|--------|------|
-| authenticicatorMakeCredential | 0x01 | ✅ | non-resident 凭证注册 |
-| authenticicatorGetAssertion | 0x02 | ✅ | 用 allowList 匹配；返回签名断言 |
+| authenticatorMakeCredential | 0x01 | ✅ | non-resident 凭证注册 |
+| authenticatorGetAssertion | 0x02 | ✅ | 用 allowList 匹配；返回签名断言 |
 | authenticatorGetInfo | 0x04 | ✅ | 声明算法支持、选项 |
 | authenticatorClientPIN | 0x06 | ❌ 后续 | PIN/UV 协议第二版 |
-| authenticatorReset | 0x07 | ⚠️ 受限 | 仅真机长按组合 + 本机 UI 双重确认 |
+| authenticatorReset | 0x07 | ⚠️ 受限 | 仅插入后 10s 内 + 本机触摸确认；**只使 FIDO 凭证失效（推进 FIDO epoch），绝不动钱包种子**（见 §4.4） |
 | authenticatorGetNextAssertion | 0x08 | ❌ 后续 | 依赖 discoverable keys |
 | authenticatorConfig | 0x0D | ❌ 后续 | |
 
@@ -132,30 +132,45 @@ PHY（GPIO19/20）**，同一时刻只能启用一个（ESP-IDF 文档明确）�
 
 ### 4.1 non-resident 凭证
 - **宿主持有 credential ID**，每次断言由 RP 在 allowList 里回传。
-- 设备为每个凭证分配唯一 **cred_idx**，派生独立 P-256 密钥对（见 §5），
-  **私钥只存在于 SE 内部**，不落 MCU 存储。非 resident 模式下设备侧
-  无需持久凭证存储；断言时按 allowList 的 credential ID 恢复 cred_idx，
-  命中即签名。
-- **credential ID 编码**：`credID = HMAC-SHA256(SE_master, cred_idx || rpIdHash)`
-  截断 16～128 字节——**设备侧完全可幂等重算**（不用查表）：收到
-  RP 回传的 credID 后，对 allowList 里每个候选 cred_idx 验 HMAC 即可
-  命中。**没有任何私钥/派生种子流出 SE。**
-- 持久化：不依赖 NVS 存凭证；SE 内仅需维护 cred_idx 分配水位线
-  （防指纹，用现有 monotonic 或 SE 内部计数器）。
+- 每个凭证由 SE 内部分配唯一 **cred_idx**，派生独立 P-256 密钥对（见 §5），
+  **私钥只存在于 SE 内部**，不落 MCU 存储。设备侧无需持久凭证表。
+- **credential ID 是自描述、带 MAC 的不透明 blob**（与主流认证器一致）：
+  ```
+  credID = epoch(1B) || cred_idx(4B BE) || tag(16B)
+  tag    = HMAC-SHA256(SE_master, "fido-credid" || epoch || cred_idx || rpIdHash)[0:16]
+  ```
+  总长 21 字节（≤ GetInfo 声明的 maxCredentialIdLength=128）。**tag 只能由
+  SE 计算/验证**（SE_master 不出 SE）——fido_core 在 MCU 上没有 SE_master，
+  因此 credID 的生成与校验全部封装进 SE 接口（§5.2），MCU 只透传。
+  getAssertion 时 fido_core 无需查表/扫描：把 credID 原样交给 SE，SE 解析
+  cred_idx、验 tag（绑定 rpIdHash 防跨 RP 重放）、验 epoch 后才签名。
+- **防伪造**：host 篡改 cred_idx/epoch 会使 tag 失配 → SE 拒绝签名，设备
+  不会成为"任意派生密钥签名预言机"。
+- 持久化：不依赖 NVS 存凭证；SE 内维护 cred_idx 分配计数器（每注册 +1，
+  存 SE NVM，与 PIN 状态同级持久）。
 
 ### 4.2 派生路径（已定案，SE 后端确认前 mock 先行）
 FIDO 凭证密钥由 **SE 内部 KDF** 从 SE 主种子确定性派生：
-`priv(cred_idx) = HMAC-SHA256(SE_master, "fido-p256" || cred_idx)`，
+`priv = HMAC-SHA256(SE_master, "fido-p256" || epoch || cred_idx)`，
 公钥由 SE 计算。这样：
 - 私钥永不输到 MCU；签名在 SE 内完成（复用现有 SE 签名能力逻辑）。
-- 凭证**无需持久化**（幂等重派生），reset/恢复种子后与链账户一致地恢复。
+- 凭证**无需持久化**（幂等重派生），恢复种子后 FIDO 凭证随之恢复。
+- 同一 cred_idx 跨 RP 产生同一密钥，但每个凭证 cred_idx 唯一 → 公钥
+  唯一 → RP 间不可关联（unlinkability 成立）；RP 绑定由 credID tag 强制。
 - mock SE 用软实现 P-256 复刻同一 KDF（`se_mock.c`），host 测试可全跑。
 
 ### 4.3 凭证计数
-- 每个 RP 维护 signCount（uint32），断言返回；用于 detect cloned
-  authenticator。**决策：SE 内单调计数**，复用 se_driver.h 现有
-  `monotonic_read/increment`（按 RP 派生，非全局）——与 §4.1 的
-  cred_idx 水位线共享同一单调源，避免多套计数器状态。
+- 每个断言返回 signCount（uint32）；用于 detect cloned authenticator。
+- **决策：SE 内独立的 FIDO 签名计数器（全局单调，每断言 +1）**，存 SE
+  NVM。**不复用** `monotonic_read/increment`——那是固件防回滚楼层计数器，
+  语义不同（之前草案"按 RP 派生复用 monotonic"不成立：该计数器是全局
+  单例，无 per-RP 维度）。WebAuthn 允许全局计数器，隐私代价可接受。
+
+### 4.4 authenticatorReset 语义（防砖红线）
+CTAP2 reset 只**推进 FIDO epoch**（SE NVM 中 epoch+1）→ 所有旧 credID 的
+tag 因 epoch 失配而失效，FIDO 凭证全部作废；**钱包种子/PIN/链账户完全
+不受影响**。绝不允许 reset 触碰 SE 主种子——否则一次浏览器 reset 即
+销毁用户全部链上资产。epoch 同时混入派生（§4.2）与 credID tag（§4.1）。
 
 ## 5. 密码学：ES256 (P-256) 软实现 + SE 扩展
 
@@ -170,52 +185,61 @@ FIDO 凭证密钥由 **SE 内部 KDF** 从 SE 主种子确定性派生：
 | P-256 域运算 + ECDSA | `core/secp256r1.c`（新增，host 可测） | 保证 ES256 可用性；支持验签（断言自检）；万一 SE 不支持 P-256 时的兜底路径（DEV 明确标注） |
 | SE 接口扩展 | `se_driver.h` + `se_mock.c` | 生产形态：P-256 私钥在 SE、签名在 SE；接口签名沿用签名语义 |
 
-SE 接口建议新增（沿用现有四参数风格，向后兼容）。**注意两个约束**
-（eng review A4/A5 定案）：
-- 派生必须在 SE 内部可重算——接口要用 `cred_idx` 做确定性子密钥派生，
-  不能只接受已算好的材质（否则非 resident 凭证无法幂等恢复）。
-- 未实现的 SE 后端（如 ACL16 未确认 P-256 前）**必须返回明确错误**而非
-  NULL 调用崩溃：`fido_*` 字段未设置时 fido_core 走"不支持"分支报
-  CTAP2 `CTAP2_ERR_UNSUPPORTED_ALGORITHM`，绝不解引用空指针。
+SE 接口新增（eng review A4/A5 定案 + 复审 P3 修正）。**设计要点**：
+- **credID 的生成与校验全部在 SE 内**——fido_core 在 MCU 上没有
+  SE_master，无法自算 HMAC tag，所以接口按"整 blob 进出 SE"设计，
+  MCU 只透传（修正前稿 fido_core 验 HMAC 的架构漏洞）。
+- 派生在 SE 内部由 cred_idx + epoch 确定性重算（非 resident 幂等恢复）。
+- 未实现的 SE 后端（ACL16 未确认 P-256 前）字段留 NULL，fido_core
+  **必须 NULL 检查后走"不支持"分支**报 CTAP2
+  `CTAP2_ERR_UNSUPPORTED_ALGORITHM`，绝不解引用空指针（A5）。
 
 ```c
-/* FIDO: derive-or-create a P-256 credential key for cred_idx in SE-internal
- * KDF keyed by the SE master, then sign digest32. Output 64-byte compact
- * r||s (big-endian). No raw key material ever crosses the SE boundary. */
-int (*fido_p256_sign)(uint32_t cred_idx,
+/* FIDO makeCredential: allocate the next cred_idx (SE-internal counter),
+ * derive the P-256 key from SE master (epoch||cred_idx KDF), and return
+ * the public key (uncompressed 65B) plus the RP-bound, MAC'd credential ID
+ * (§4.1 blob). Public data only; no secret crosses the SE boundary. */
+int (*fido_cred_make)(const uint8_t rp_hash32[32],
+                      uint8_t pub65[65],
+                      uint8_t *credid, size_t *credid_len);
+
+/* FIDO getAssertion: parse cred_idx from credid, verify epoch + MAC tag
+ * (bound to rp_hash32) INSIDE the SE, then sign digest32 with the derived
+ * key. Returns SE_ERR_AUTH on tag/epoch mismatch — never signs. */
+int (*fido_cred_sign)(const uint8_t *credid, size_t credid_len,
+                      const uint8_t rp_hash32[32],
                       const uint8_t digest32[32],
                       uint8_t sig64[64]);
-/* FIDO: export ONLY the P-256 public key (x||y, uncompressed 65B) for
- * cred_idx — public data, needed for attObj creation. */
-int (*fido_p256_pubkey)(uint32_t cred_idx,
-                        uint8_t pub65[65]);
 ```
-- `cred_idx` 由 fido_core 唯一分配，凭证 ID = `HMAC-SHA256(SE_master,
-  cred_idx || rpIdHash)`（$4.1）。
-- mock SE：`se_mock.c` 用软实现 P-256 + 内部 `cred_idx`→私钥表实现两接口。
-- ACL16：**需向硬件确认原生 P-256 + SHA-256 支持与否**；新接口形态不变，
-  仅后端实现不同。未确认前 `fido_*` 留 NULL → fido_core 明确报错。
+- mock SE：`se_mock.c` 用软实现 P-256 + mock master + RAM 计数器实现两接口。
+- ACL16：**需向硬件确认原生 P-256 + SHA-256/HMAC 支持**；接口形态不变，
+  仅后端实现不同。未确认前 `fido_*` 留 NULL → fido_core 明确报错（A5）。
 
 ### 5.3 数据流
 ```
 host (浏览器) ──CTAP2 CBOR──> fido_core
-   makeCredential -> cred_idx = fido_core 分配
-                    -> SE fido_p256_pubkey(cred_idx) 取公钥，拼 authData(含 rpIdHash|flags|signCount|attObj)
-                    -> SE fido_p256_sign(cred_idx, authData||clientDataHash)
-                    -> attestation = fmt "none" + AAGUID（决策 A1）
-   getAssertion   -> 解析 allowList credId，fido_core 恢复 cred_idx
-                    ->（关键：进入 §6 用户确认屏 UV/UP，获确认才继续——A3）
-                    -> 拼 authData (含 rpIdHash|flags|signCount)
-                    -> SE fido_p256_sign(cred_idx, authData||clientDataHash)
+   makeCredential -> §6 确认屏 (RP 域名, "注册新登录密钥?")
+                    -> SE fido_cred_make(rpIdHash) -> pub65 + credID
+                    -> 拼 authData (rpIdHash|flags AT=1|signCount=0|
+                                     AAGUID|credID|COSE_pubkey)
+                    -> attestationObject = {fmt:"none", authData, attStmt:{}}
+                       （fmt "none" 无 attestation 签名——决策 A1）
+   getAssertion   -> §6 确认屏 (RP 域名, "确认登录?")，未确认绝不签名（A3）
+                    -> 拼 authData (rpIdHash|flags UP=1|signCount)
+                    -> SE fido_cred_sign(credID, rpIdHash,
+                                         authData||clientDataHash)
+                    -> signCount++ (SE 内)
                     -> 返回 {credential, authData, signature}
 ```
-注：CTAP2 §6.1/§6.2 签名对象恒为 `authData ‖ clientDataHash`（rpIdHash 已作为
-authData 首字段包含在内），非旁列 rpIdHash。
+注：CTAP2 §6.1/§6.2 中**只有 getAssertion 产生签名**，对象恒为
+`authData ‖ clientDataHash`（rpIdHash 已是 authData 首字段）。fmt "none"
+的 makeCredential **不签名**（attStmt 为空 CBOR map）——修正前稿
+"makeCredential 用凭证自签"的错误（那是 packed self-attestation 的行为）。
 
 > **决策 A1（eng review 定案）：attestation 用 "none"**。
 > 注册回应 `attestationObject = { fmt:"none", authData, attStmt:{} }` +
-> AAGUID，由凭证自身 P-256 签名 `authData||clientDataHash` 即可，无需
-> SE 证书链。软件认证器主流做法，conformance 可过；后续可加 packed。
+> AAGUID（构建期固定的 16 字节产品标识）。无需 SE 证书链，软件/平台
+> 认证器主流做法，conformance 可过；后续可加 packed。
 
 ## 6. 用户交互（复用 WYSIWYS 精神）
 
@@ -264,7 +288,7 @@ CI：host-tests workflow 增加 P-256/CTAP/CTAPHID 套件；保留既有"每轮�
 |------|------|------|
 | ACL16 无原生 P-256 | 生产后端要变 | 设计已隔离 SE 接口变化；MCU 软实现先可用（标注 DEV），等硬件确认 |
 | USB 双控制器互斥 | 影响现有 CDC 控制台/链路签名 | 设计默认 TinyUSB composite（HID+CDC 同设备）；改造 link_esp 到 composite CDC |
-| Sign count 存储一致性 | 克隆检测失效 | 确定性派生计数 or SE 内单调计数（选一，实现文档固化） |
+| reset 误清钱包种子 | 资产永久丢失 | §4.4：reset 只推进 FIDO epoch，禁碰主种子；测试断言种子不变 |
 | CBOR 攻击面 | 解析器漏洞 | 只在 core 用有界解析（同 psbt/clearsign 的 review 惯例），host fuzz 补 |
 | 浏览器互操作细节 | 过不了 WebAuthn demo | F4/F5 真机 demo + conformance 预排为硬性出口 |
 
@@ -287,9 +311,22 @@ CI：host-tests workflow 增加 P-256/CTAP/CTAPHID 套件；保留既有"每轮�
 | A1 | attestation 方案不可行（SE 无 P-256 证书链能力） | ✅ 用户定案：attestation=none + AAGUID | §3.3 决策、§5.3 数据流、§6 |
 | A2 | up/uv 语义未定（影响浏览器是否强制 PIN） | ✅ 用户定案：uv=false + 触摸 UP | §3.2 GetInfo、§3.3 决策 |
 | A3 | getAssertion 无用户确认的复用漏洞 | ✅ 修正：getAssertion 与 makeCredential 同走确认屏 | §6、§5.3 数据流 |
-| A4 | `fido_p256_sign` 无法派生/无法取公钥 | ✅ 修正：接口增 `fido_p256_pubkey`；派生用 SE 内 KDF + cred_idx | §5.2 |
+| A4 | `fido_p256_sign` 无法派生/无法取公钥 | ✅ 修正：接口增公钥导出；派生用 SE 内 KDF + cred_idx（复审 P3 进一步收敛为 `fido_cred_make/sign` 整 blob 进出 SE） | §5.2 |
 | A5 | 未实现 SE 字段会 NULL 崩溃 | ✅ 修正：fido_core 对 NULL 字段走显式不支持分支 | §5.2 |
 | A6 | FIDO 会话与 linkproto 的 PIN 门未对齐 | ✅ 修正：FIDO 会话进入前先设备 PIN 解锁（仍不在 CTAP 层声明 uv） | §6 |
 
 范围核对：核心目标 ~4 个新源文件（fido_core / ctap2 / fido_ctaphid /
 secp256r1）+ SE 接口扩展 + 传输适配，F1-F6 里程碑已按依赖排序。
+
+### 复审（同日二次审核）修正记录
+
+| # | 问题 | 修正 |
+|---|------|------|
+| P1 | §5.3 称 fmt "none" 的 makeCredential 用凭证自签——错误，"none" 的 attStmt 为空、不签名（自签是 packed self 行为） | 数据流改正：makeCredential 不签名，仅 getAssertion 签 `authData‖clientDataHash` |
+| P2 | credID"截断 16～128 字节"不可能——HMAC-SHA256 输出仅 32B | credID 定为 21B 自描述 blob（epoch‖cred_idx‖tag16） |
+| P3 | credID tag 用 SE_master 计算，但 MCU 的 fido_core 没有 SE_master，无法自验 HMAC——架构漏洞 | credID 生成/校验全部封入 SE 接口（`fido_cred_make/sign`），MCU 只透传 |
+| P4 | §4.1"对每个候选 cred_idx 验 HMAC 扫描"与"不查表"矛盾且不可行 | 自描述 credID 内嵌 cred_idx，SE 解析即得，无需扫描 |
+| P5 | 命令名拼写 authenticicator→authenticator | §3.1 表修正 |
+| P6 | authenticatorReset 语义危险：若触碰主种子则一次浏览器 reset 毁掉全部链上资产 | §4.4：reset 只推进 FIDO epoch；派生与 tag 均混入 epoch |
+| P7 | §4.3"复用 monotonic 按 RP 派生"不成立——monotonic 是全局单例固件防回滚计数器，无 per-RP 维度 | 改为 SE 内独立 FIDO 全局签名计数器（§4.3），§9 风险表同步清理 |
+| P8 | §2 文件清单 `se_p256*` 与 §5.2 接口命名不一致 | 统一为 `fido_cred_*` |

@@ -1,5 +1,27 @@
 # MEMORY.md
 
+## 已完成 (多熵源 Layer A 落地 + 真机验证, commit `46c3252`, 2026-08-11)
+- **docs/08 多熵源设计审核通过 → 实现 Layer A (纯固件零 BOM)**:
+  `core/phys_entropy.c` 无条件熵池 (SHA-256 链式混合 + 前缀安全长度域 +
+  单次提取); `core/seed.c` 新增可选 `os_seed_phys_extra` 钩子混入 HKDF
+  Extract (weak 默认返回 1, 绝不 fail-closed)。
+- **entropy_s3.c / entropy_p4.c 采集**: 触摸坐标 LSB 抖动 + 温度传感器
+  热噪声 + I2C 总线时序抖动 + RTC/esp_timer 漂移 → 熵池 → 输出 32B。
+- **关键链接坑 (已修)**: entropy TU 唯一导出 `os_seed_phys_extra`, 而
+  seed.c 的同名 weak 默认在 archive 扫描时满足引用 → strong 版从未被拉入,
+  seedgen 只花 10ms (根本没跑触摸 150ms 采样+温度传感器)。board_* 调用
+  `os_entropy_force_link()` 保证 strong 钩子入图。ELF 符号 W→T 验证。
+- **真机验证通过**: DEV touch injector (`CONFIG_HARDID_DEV_TOUCH_INJECT`,
+  'P x y'/'R' 经 USB-JTAG RX 合成触摸, 原子变量跨核) 驱动 UI:
+  menu OK → 4-words TEST → seedgen begin → `temperature_sensor: Range` →
+  `physical entropy mixed into seed` → seedgen done rc=0。之后恢复生产配置
+  (dev 三项全关), 引导干净无 panic。
+- **两个调试坑记录**: ① `idf.py set-target` 会重置 sdkconfig 的 dev 选项
+  为默认 n (之前手动开的 DEV_NO_PIN/TEST_SEED 被冲掉, 设备卡 PIN 屏);
+  ② USB-JTAG 端口 open 会触发复位, 驱动脚本必须等 boot 完成再发命令。
+- host 全回归 (22+phys_entropy) 绿 (composite t3 预存失败除外) + fuzz 50k
+  干净 + S3/P4 构建过。已推送 (c4ca262..46c3252)。
+
 ## 已完成 (HOST LINK 真机走查通过, 2026-08-11)
 - **S3 板回线, HOST LINK 结构化 SIGN 端到端真机验证通过**:
   进 HOST LINK 不再重启 → 收 SIGN 帧 → 屏显交易意图 + Yes/No → Yes 确认 →

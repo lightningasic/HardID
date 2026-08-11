@@ -26,6 +26,8 @@
 #include <stdint.h>
 #include <stddef.h>
 
+#include "driver/usb_serial_jtag.h"
+#include "driver/usb_serial_jtag_vfs.h"
 #include "rng.h"
 #include "se_driver.h"
 #include "boot.h"
@@ -78,6 +80,20 @@ int os_seed_se2_trng(uint8_t *buf, size_t len)
 void os_board_hw_init(void)
 {
 	ESP_LOGI(TAG, "board hw init");
+	/* The on-board USB-Serial-JTAG port is shared between the console log
+	 * VFS and the HOST LINK session (link_esp.c drives it with the low-level
+	 * usb_serial_jtag_* API). The low-level API only works once the driver
+	 * is installed, so bring it up here and switch the console VFS over to
+	 * the driver-backed path — otherwise link_esp.c dereferences a NULL
+	 * driver object and panics on the first USB read. */
+	usb_serial_jtag_driver_config_t usj = USB_SERIAL_JTAG_DRIVER_CONFIG_DEFAULT();
+	usj.rx_buffer_size = 1024;
+	usj.tx_buffer_size = 1024;
+	esp_err_t err = usb_serial_jtag_driver_install(&usj);
+	if (err != ESP_OK)
+		ESP_LOGE(TAG, "usb_serial_jtag driver install rc=%d", err);
+	else
+		usb_serial_jtag_vfs_use_driver();
 	int rc = lcd_init();
 	ESP_LOGI(TAG, "LCD init rc=%d", rc);
 }

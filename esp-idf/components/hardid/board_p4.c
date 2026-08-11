@@ -31,6 +31,8 @@
 #include <stdint.h>
 #include <stddef.h>
 
+#include "driver/usb_serial_jtag.h"
+#include "driver/usb_serial_jtag_vfs.h"
 #include "rng.h"
 #include "boot.h"
 #include "display.h"
@@ -86,6 +88,19 @@ int os_seed_se2_trng(uint8_t *buf, size_t len)
 void os_board_hw_init(void)
 {
 	ESP_LOGI(TAG, "board hw init");
+	/* Same shared-port story as the S3 build: HOST LINK (link_esp.c) drives
+	 * the USB-Serial-JTAG port with the low-level usb_serial_jtag_* API,
+	 * which requires the driver to be installed first. Install it and route
+	 * the console VFS through the driver so the low-level read/write calls
+	 * do not dereference a NULL driver object (panic on first USB read). */
+	usb_serial_jtag_driver_config_t usj = USB_SERIAL_JTAG_DRIVER_CONFIG_DEFAULT();
+	usj.rx_buffer_size = 1024;
+	usj.tx_buffer_size = 1024;
+	esp_err_t err = usb_serial_jtag_driver_install(&usj);
+	if (err != ESP_OK)
+		ESP_LOGE(TAG, "usb_serial_jtag driver install rc=%d", err);
+	else
+		usb_serial_jtag_vfs_use_driver();
 	int rc = lcd_init();
 	ESP_LOGI(TAG, "LCD init rc=%d", rc);
 }

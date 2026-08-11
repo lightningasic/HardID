@@ -532,13 +532,15 @@ void screen_run_initialize(void)
 	/* Optional touch-entropy invitation (design 08 §2.1 S4): the seed
 	 * hook samples coordinate-LSB jitter while a finger is held on the
 	 * screen. SKIP or 10s idle proceeds with the non-interactive
-	 * sources only — never fail-closed. */
+	 * sources only — never fail-closed. On hold, a 3-2-1 countdown
+	 * runs, then seed generation starts automatically — no release
+	 * needed; keeping the finger down through it maximizes samples. */
 	lcd_fill(C_BG);
 	lcd_text_wrap(2, 10, "Touch entropy (optional)", C_LBL, C_BG);
 	lcd_text_wrap(2, 30, "Press & HOLD the screen anywhere:", C_FG, C_BG);
 	lcd_text_wrap(2, 46, "your finger's micro-jitter is mixed", C_FG, C_BG);
 	lcd_text_wrap(2, 62, "into the new seed.", C_FG, C_BG);
-	lcd_text_wrap(2, 82, "Hold ~1s, then release to continue.", C_FG, C_BG);
+	lcd_text_wrap(2, 82, "Keep holding through the countdown.", C_FG, C_BG);
 	lcd_rect_text(15, 250, 115, 300, "SKIP", C_FG, C_BTN);
 	{
 		TickType_t t0 = xTaskGetTickCount();
@@ -548,8 +550,17 @@ void screen_run_initialize(void)
 				if (ui_pt_in(px, py, 15, 250, 115, 300)) {
 					int rx = px, ry = py;
 					ui_wait_release(&rx, &ry);
+				} else {
+					for (int s = 3; s >= 1; s--) {
+						char cd[24];
+						snprintf(cd, sizeof cd,
+						         "Keep holding... %d", s);
+						lcd_rect(0, 110, 240, 200, C_BG);
+						lcd_line_big(10, 140, cd, C_LBL, C_BG);
+						vTaskDelay(pdMS_TO_TICKS(1000));
+					}
 				}
-				break;   /* SKIP tapped, or finger held elsewhere */
+				break;   /* SKIP tapped, or countdown finished */
 			}
 			if (xTaskGetTickCount() - t0 > pdMS_TO_TICKS(10000))
 				break;
@@ -561,6 +572,13 @@ void screen_run_initialize(void)
 	if (os_seed_generate(host, sizeof(host), seed32) != 0) {
 		lcd_text_wrap(2, 10, "seed gen failed", C_ERR, C_BG);
 		return;
+	}
+
+	/* The entropy-hold finger may still be down — drain it so the
+	 * mnemonic walkthrough's first ui_wait_press is not skipped. */
+	{
+		int hx, hy;
+		ui_wait_release(&hx, &hy);
 	}
 
 	if (elen == 0) {

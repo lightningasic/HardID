@@ -65,7 +65,9 @@ extract_input = S1 || S2 || S3 || S4 || S5 || S6 || S7
 ### 2.1 S4 触摸噪声 (CST816D)
 
 - 提示"触摸屏幕任意位置" (仅创建钱包时一次; 实现为 INITIALIZE 选词数后的
-  "Touch entropy (optional)" 屏: 按住即采, SKIP 或 10s 超时跳过)。
+  "Touch entropy (optional)" 屏: 按住触发 3-2-1 倒数, 倒数结束自动进 seedgen,
+  无需松手; SKIP 或 10s 空闲跳过)。seedgen 后等待松手再进助记词翻页,
+  防止按住穿透后续 ui_wait_press。
 - 采集: 按住期间采样 `touch_get()`, 取坐标低 4 位抖动, ≤64 样本
   (~10ms/tick 轮询, 900ms 窗口; 无需刻意移动手指, 电容噪声自带 LSB 抖动)。
 - 可用性: 加一次触摸引导, 用户可接受 (创建钱包本就需交互); 可跳过。
@@ -189,9 +191,10 @@ if (os_seed_phys_extra(phys, sizeof phys) == 0) {
   S6/S7 (无条件执行)。S4 触摸抖动**当时未实证**——驱动脚本在触发 seedgen
   前已抬起手指, collect_touch 采到 0 样本且该计数日志为 DEBUG 级默认不可见。
 - **S4 已闭环 (同日稍晚)**: INITIALIZE 流程在选词数后插入"Touch entropy
-  (optional)"提示屏——按住屏幕即进入 seedgen 并采样, SKIP 或 10s 空闲跳过
-  (永不 fail-closed)。触摸窗口 150→900ms (~10ms/tick 下可采满 64 样本),
-  样本计数日志提升为 INFO。真机注入器模拟按住验证: `touch jitter
+  (optional)"提示屏——按住触发 3-2-1 倒数, 倒数结束自动进 seedgen (无需松手),
+  SKIP 或 10s 空闲跳过 (永不 fail-closed); seedgen 后 `ui_wait_release` 排空
+  防穿透助记词翻页。触摸窗口 150→900ms (~10ms/tick 下可采满 64 样本),
+  样本计数日志提升为 INFO。真机注入器按住贯穿倒数验证: `touch jitter
   samples=64` + `physical entropy mixed into seed`。P4 同步。
 
 **已知坑 (链接, 已修复)**

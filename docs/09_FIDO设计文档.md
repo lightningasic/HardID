@@ -104,8 +104,8 @@ PHY（GPIO19/20）**，同一时刻只能启用一个（ESP-IDF 文档明确）�
   "extensions": [],
   "options": {
     "rk": false,          // first version: non-resident
-    "up": true,           // user presence = 触摸确认
-    "uv": false,          // first version: 无 PIN/UV 认证
+    "up": true,           // user presence = 触摸确认屏 Yes/No
+    "uv": false,          // 明确不做 PIN/UV（决策 A2）
     "clientPin": false,
     "credentialManagement": false,
     "attestationConveyancePreferenceSupported": false
@@ -122,28 +122,40 @@ PHY（GPIO19/20）**，同一时刻只能启用一个（ESP-IDF 文档明确）�
 - PIN/UV 协议、bio 指纹、largeBlob、credentialManagement、config。
 - 外部 NFC / Hybrid QR（CTAP 2.3 新通道）——无硬件。
 
+> **决策 A2（eng review 定案）**：`up=true, uv=false, clientPin=false`。
+> 用户在场 = 设备触摸确认屏（与现有 linkproto/签名 UX 一致），UI 层保留
+> 设备级 PIN 解锁门（进 FIDO 会话先 PIN——见 §6），但**不在 CTAP 层声明
+> uv**。后果：浏览器流程最短、无 PIN-UV 协议开发量；安全上设备仍由
+> 触摸确认兜底，与链签名同级信任。
+
 ## 4. 凭证模型与存储
 
 ### 4.1 non-resident 凭证
 - **宿主持有 credential ID**，每次断言由 RP 在 allowList 里回传。
-- 设备为每个凭证派生独立 P-256 密钥对（见 §5 派生），**私钥只存在于
-  SE 内部**，不落 MCU 存储。非 resident 模式下设备侧无需持久凭证存储；
-  断言时按 allowList 的 credential ID 反查/重派生，命中即签名。
-- 凭证 ID = `HMAC-SHA256(master_seed, credIdSource)`（16-byte 截断作为
-  对外呈现的 credentialId；派生信息存入 SE 内部，或由 SE 用内部 KDF
-  可重算）。**关键：没有任何私钥/派生种子流出 SE。**
+- 设备为每个凭证分配唯一 **cred_idx**，派生独立 P-256 密钥对（见 §5），
+  **私钥只存在于 SE 内部**，不落 MCU 存储。非 resident 模式下设备侧
+  无需持久凭证存储；断言时按 allowList 的 credential ID 恢复 cred_idx，
+  命中即签名。
+- **credential ID 编码**：`credID = HMAC-SHA256(SE_master, cred_idx || rpIdHash)`
+  截断 16～128 字节——**设备侧完全可幂等重算**（不用查表）：收到
+  RP 回传的 credID 后，对 allowList 里每个候选 cred_idx 验 HMAC 即可
+  命中。**没有任何私钥/派生种子流出 SE。**
+- 持久化：不依赖 NVS 存凭证；SE 内仅需维护 cred_idx 分配水位线
+  （防指纹，用现有 monotonic 或 SE 内部计数器）。
 
-### 4.2 派生路径（建议，待 SE 后端确认）
-在 SE 内维护一个 **FIDO 凭证根**（由主种子经 BIP32 派生第 44' 或 +
-高位到专用分支，或 SE 独立生成）。每个注册的凭证按
-`credential_index || rpIdHash` 派生 P-256 子密钥。这样：
+### 4.2 派生路径（已定案，SE 后端确认前 mock 先行）
+FIDO 凭证密钥由 **SE 内部 KDF** 从 SE 主种子确定性派生：
+`priv(cred_idx) = HMAC-SHA256(SE_master, "fido-p256" || cred_idx)`，
+公钥由 SE 计算。这样：
 - 私钥永不输到 MCU；签名在 SE 内完成（复用现有 SE 签名能力逻辑）。
 - 凭证**无需持久化**（幂等重派生），reset/恢复种子后与链账户一致地恢复。
+- mock SE 用软实现 P-256 复刻同一 KDF（`se_mock.c`），host 测试可全跑。
 
 ### 4.3 凭证计数
 - 每个 RP 维护 signCount（uint32），断言返回；用于 detect cloned
-  authenticator。存 SE 内单调计数器或派生确定性计数（决定：SE 内计数，
-  复用现有 `monotonic` 语义，见 se_driver.h）。
+  authenticator。**决策：SE 内单调计数**，复用 se_driver.h 现有
+  `monotonic_read/increment`（按 RP 派生，非全局）——与 §4.1 的
+  cred_idx 水位线共享同一单调源，避免多套计数器状态。
 
 ## 5. 密码学：ES256 (P-256) 软实现 + SE 扩展
 
@@ -158,31 +170,52 @@ PHY（GPIO19/20）**，同一时刻只能启用一个（ESP-IDF 文档明确）�
 | P-256 域运算 + ECDSA | `core/secp256r1.c`（新增，host 可测） | 保证 ES256 可用性；支持验签（断言自检）；万一 SE 不支持 P-256 时的兜底路径（DEV 明确标注） |
 | SE 接口扩展 | `se_driver.h` + `se_mock.c` | 生产形态：P-256 私钥在 SE、签名在 SE；接口签名沿用签名语义 |
 
-SE 接口建议新增（沿用现有四参数风格，向后兼容）：
+SE 接口建议新增（沿用现有四参数风格，向后兼容）。**注意两个约束**
+（eng review A4/A5 定案）：
+- 派生必须在 SE 内部可重算——接口要用 `cred_idx` 做确定性子密钥派生，
+  不能只接受已算好的材质（否则非 resident 凭证无法幂等恢复）。
+- 未实现的 SE 后端（如 ACL16 未确认 P-256 前）**必须返回明确错误**而非
+  NULL 调用崩溃：`fido_*` 字段未设置时 fido_core 走"不支持"分支报
+  CTAP2 `CTAP2_ERR_UNSUPPORTED_ALGORITHM`，绝不解引用空指针。
+
 ```c
-/* FIDO: derive-or-create a P-256 credential key for (cred_idx, rp_hash32)
- * inside the SE and sign digest32, outputting 64-byte compact
- * r||s (big-endian). recid is N/A for P-256 (assertion uses raw R,S point). */
-int (*fido_p256_sign)(uint32_t cred_idx, const uint8_t rp_hash32[32],
+/* FIDO: derive-or-create a P-256 credential key for cred_idx in SE-internal
+ * KDF keyed by the SE master, then sign digest32. Output 64-byte compact
+ * r||s (big-endian). No raw key material ever crosses the SE boundary. */
+int (*fido_p256_sign)(uint32_t cred_idx,
                       const uint8_t digest32[32],
                       uint8_t sig64[64]);
+/* FIDO: export ONLY the P-256 public key (x||y, uncompressed 65B) for
+ * cred_idx — public data, needed for attObj creation. */
+int (*fido_p256_pubkey)(uint32_t cred_idx,
+                        uint8_t pub65[65]);
 ```
-- mock SE：先在 `se_mock.c` 用 §4.2 派生物理实现（喂入 P-256 软实现）。
-- ACL16：**需向硬件确认原生 P-256 + SHA-256 支持与否**（决策已选 b 方案，
-  预留 `fido_p256_sign` 接口形态不变，仅后端实现不同）。
+- `cred_idx` 由 fido_core 唯一分配，凭证 ID = `HMAC-SHA256(SE_master,
+  cred_idx || rpIdHash)`（$4.1）。
+- mock SE：`se_mock.c` 用软实现 P-256 + 内部 `cred_idx`→私钥表实现两接口。
+- ACL16：**需向硬件确认原生 P-256 + SHA-256 支持与否**；新接口形态不变，
+  仅后端实现不同。未确认前 `fido_*` 留 NULL → fido_core 明确报错。
 
 ### 5.3 数据流
 ```
 host (浏览器) ──CTAP2 CBOR──> fido_core
-   makeCredential -> 派生 cred key (SE 内)，拼 authData (含 rpIdHash|flags|signCount|凭证)
-                   -> SE fido_p256_sign(digest = authData || clientDataHash)
-                   -> 组装 attestation (COSE x/cert，用 SE attest 密钥)
-   getAssertion   -> 按 allowList credId 重派生，拼 authData (含 rpIdHash|flags|signCount)
-                   -> SE fido_p256_sign(digest = authData || clientDataHash)
-                   -> 返回 {credential, authData, signature}
+   makeCredential -> cred_idx = fido_core 分配
+                    -> SE fido_p256_pubkey(cred_idx) 取公钥，拼 authData(含 rpIdHash|flags|signCount|attObj)
+                    -> SE fido_p256_sign(cred_idx, authData||clientDataHash)
+                    -> attestation = fmt "none" + AAGUID（决策 A1）
+   getAssertion   -> 解析 allowList credId，fido_core 恢复 cred_idx
+                    ->（关键：进入 §6 用户确认屏 UV/UP，获确认才继续——A3）
+                    -> 拼 authData (含 rpIdHash|flags|signCount)
+                    -> SE fido_p256_sign(cred_idx, authData||clientDataHash)
+                    -> 返回 {credential, authData, signature}
 ```
 注：CTAP2 §6.1/§6.2 签名对象恒为 `authData ‖ clientDataHash`（rpIdHash 已作为
 authData 首字段包含在内），非旁列 rpIdHash。
+
+> **决策 A1（eng review 定案）：attestation 用 "none"**。
+> 注册回应 `attestationObject = { fmt:"none", authData, attStmt:{} }` +
+> AAGUID，由凭证自身 P-256 签名 `authData||clientDataHash` 即可，无需
+> SE 证书链。软件认证器主流做法，conformance 可过；后续可加 packed。
 
 ## 6. 用户交互（复用 WYSIWYS 精神）
 
@@ -190,11 +223,15 @@ authData 首字段包含在内），非旁列 rpIdHash。
   FIDO 新增 **FIDO 会话屏**（从主菜单进入，与 HOST LINK 同级）：
   1. 进入前先 PIN 解锁（复用 `ui_enter_pin`，启用设备 PIN 时）——与
      linkproto 握手一致。
-  2. makeCredential：显示屏显示 **RP 域名**（明文）+"注册新登录密钥?" ，
+  2. **makeCredential**：显示屏显示 **RP 域名**（明文）+"注册新登录密钥?"，
      Yes/No。允许多 RP 明文长于屏幕则滚动/截断提示。
-  3. getAssertion：显示 RP 域名 + "确认登录?"，Yes/No；signCount 变化
-     提示（检测克隆风险）。
-  4. 触摸即 User Presence（up=true）：Yes 按键即确认，无需额外按钮。
+  3. **getAssertion**：显示 RP 域名 + "确认登录?"，Yes/No，**未获确认
+     绝不签名**（decision A3：getAssertion 与 makeCredential 同走确认屏，
+     杜绝 RP 静默拉取账号）；signCount 变化提示（检测克隆风险）。
+  4. 触摸即 User Presence（up=true，decision A2）：Yes 按键即确认，
+     无需额外按钮。
+- A1 定案：attestation 为 "none"——注册阶段不再依赖 SE 证书链，凭证
+  自身 P-256 签名即满足 WebAuthn 要求，conformance 可过。
 - **不做**：RP 提供的完整 user 展示（个人隐私），第一版只显示 RP 名。
 
 ## 7. 测试与验证计划
@@ -218,7 +255,7 @@ CI：host-tests workflow 增加 P-256/CTAP/CTAPHID 套件；保留既有"每轮�
 | F2 | `core/secp256r1` 软实现 + host 单测 | RFC6979 双过 + Python 对齐 + CI 入套件 |
 | F3 | TinyUSB composite 上板（HID FIDO usage + CDC），CTAPHID 帧层 | 真机 `lsusb` 见 FIDO 设备；host 测试 CTAPHID；linkproto 经 CDC 仍通 |
 | F4 | `fido_core` + `ctap2`：makeCredential/getAssertion/GetInfo，SE mock 后端 | host Python 生命周期双过；无 PIN dev 构建真机浏览器 demo |
-| F5 | FIDO 确认屏 + PIN 门 + attestation | 真机两条完整流程 + 截图证据；`ctap-hid-fido2` 通过 |
+| F5 | FIDO 确认屏 + PIN 门 + attestation none+AAGUID | 真机两条完整流程 + 截图证据；`ctap-hid-fido2` 通过 |
 | F6 | (视硬件) ACL16 P-256 后端；FIDO2 conformance 预排 | SE 真机流程双过 |
 
 ## 9. 风险与缓解
@@ -239,3 +276,20 @@ CI：host-tests workflow 增加 P-256/CTAP/CTAPHID 套件；保留既有"每轮�
   追加接口，老后端编译不受破坏（新增字段可弱符号/函数指针数组扩展）。
 - **主菜单**：新增 FIDO 入口（初始化后可见）；无 PIN dev 构建下仍可直接进
   FIDO（对齐 HOST LINK dev 行为）。
+
+## 11. Eng Review 记录（2026-08-12）
+
+评审方式：gstack plan-eng-review。发现 6 项，2 项阻塞（A1/A2）已定案，
+4 项直接修正（A3-A6）。
+
+| # | 问题 | 状态 | 落点 |
+|---|------|------|------|
+| A1 | attestation 方案不可行（SE 无 P-256 证书链能力） | ✅ 用户定案：attestation=none + AAGUID | §3.3 决策、§5.3 数据流、§6 |
+| A2 | up/uv 语义未定（影响浏览器是否强制 PIN） | ✅ 用户定案：uv=false + 触摸 UP | §3.2 GetInfo、§3.3 决策 |
+| A3 | getAssertion 无用户确认的复用漏洞 | ✅ 修正：getAssertion 与 makeCredential 同走确认屏 | §6、§5.3 数据流 |
+| A4 | `fido_p256_sign` 无法派生/无法取公钥 | ✅ 修正：接口增 `fido_p256_pubkey`；派生用 SE 内 KDF + cred_idx | §5.2 |
+| A5 | 未实现 SE 字段会 NULL 崩溃 | ✅ 修正：fido_core 对 NULL 字段走显式不支持分支 | §5.2 |
+| A6 | FIDO 会话与 linkproto 的 PIN 门未对齐 | ✅ 修正：FIDO 会话进入前先设备 PIN 解锁（仍不在 CTAP 层声明 uv） | §6 |
+
+范围核对：核心目标 ~4 个新源文件（fido_core / ctap2 / fido_ctaphid /
+secp256r1）+ SE 接口扩展 + 传输适配，F1-F6 里程碑已按依赖排序。

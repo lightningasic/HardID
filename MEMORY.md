@@ -1,5 +1,26 @@
 # MEMORY.md
 
+## 已完成 (HOST LINK 真机走查通过, 2026-08-11)
+- **S3 板回线, HOST LINK 结构化 SIGN 端到端真机验证通过**:
+  进 HOST LINK 不再重启 → 收 SIGN 帧 → 屏显交易意图 + Yes/No → Yes 确认 →
+  签名 + OK 回复 (recid=0, sig_count=1, 确定性签名复现一致), 确认屏关闭回到
+  "Host link serving / waiting for frames"。
+- **真机暴露两个新缺陷已修 (commit `e58a37e`)**:
+  1. 确认屏只有 BACK、按 BACK 即确认 → 改 `ui_confirm_yesno()` 显式 Yes/No,
+     Yes 才签名 (true), No 拒绝 (HD_ERR_AUTH); UNKNOWN 双重确认同样走显式按钮。
+  2. 服务帧后只画 "frame served" 行, 确认屏残留 → 服务完重绘完整等待屏。
+- **真机暴露崩溃已修 (commit `14a37ca`)**: `usb_serial_jtag_read_bytes` 空指针
+  panic (LoadProhibited EXCVADDR=0x4) — 低层 API 需要驱动已 install, 而 console
+  VFS 默认走 LL 直读不需要驱动, 所以 boot 日志正常但 HOST LINK 首次真机即崩。
+  S3+P4 均在 os_board_hw_init install driver + vfs_use_driver。抓崩溃用
+  **自动重开端口** 的 python 脚本 (设备重启 USB 重枚举导致 fd 失效, 普通 cat 抓不到)。
+- **走查脚本教训**: 用户确认要 ~130s, link_send.py 60s 超时误报"无回复" —
+  用 180s 窗口 (link_verify2.py)。确认屏"点击无效"是脚本超时假象, 非设备问题。
+- **显示层经验 (用户反馈)**: 彩色长条 + LOGO 颜色两个 bug, DeepSeek 未能解决,
+  KIMI 解决。这类显示问题不要依赖 DeepSeek 反复试错。
+- host 22 套件全绿 (composite t3 pin 预存失败除外) + fuzz 50k 干净 +
+  16 对抗套件全过 + S3/P4 构建过。已推送 (23cff6b..e58a37e)。
+
 ## 已完成 (HOST LINK 盲签红线关闭: 结构化 SIGN 改道 signsvc, commit `f40a653`, 2026-08-11)
 - **废除 link_esp 裸 digest 主密钥签名入口** (`sign_digest(NULL,0,...)`)。
   HD_CMD_SIGN 载荷改为结构化: `app_id_len | app_id | path_len | path*(u32 BE) | tx`。
@@ -16,6 +37,13 @@
   OK(recid/count), declined, NULL-confirm 无旁路, 未知 app, 错误 coin path,
   畸形 tx, wire roundtrip, 未初始化拒绝。
 - host 22 套件全绿 (composite t3 pin 预存失败除外) + S3/P4 构建过。
+
+## 待办 (下一步)
+- **多熵源设计 (用户指定方向)**: 加密芯片、元器件随机性、摄像头、麦克风等 —
+  写设计文档 `docs/` (见下轮), 待用户评审。
+- 剩余红线: M8 防降级根治 (NVS 墓碑 + SE 单调计数器 + secure boot v2);
+  test_composite t3 pin 预存失败 (真机联调前查清)。
+- 循环代码审计继续。
 - **未真机验证**: 板未连接, 待回线烧录 HOST LINK 走查 (见 06 联调清单)。
 - fuzz 修复 `4ee8531`: fuzz_parsers.c 补 coin_type 参数, Makefile 补 hkdf.c/base58.c
   (psbt API 变更后 CI fuzz 步骤必红, 已恢复绿)。

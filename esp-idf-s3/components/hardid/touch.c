@@ -65,14 +65,19 @@ static void touch_inject_task(void *arg)
 				line[n] = '\0';
 				if (n > 0) {
 					int x, y;
-					if (line[0] == 'R') {
+					if (n == 1 && line[0] == 'R') {
+						if (s_inj_active)
+							ESP_LOGW(TAG, "INJ release");
 						s_inj_active = 0;
-						ESP_LOGW(TAG, "INJ release");
 					} else if (sscanf(line, "P %d %d", &x, &y) == 2) {
-						s_inj_active = 1;
+						/* coordinates BEFORE active: a reader on the
+						 * other core must never see active=1 with
+						 * the previous press's stale coordinates. */
+						if (!s_inj_active)
+							ESP_LOGW(TAG, "INJ press %d,%d", x, y);
 						s_inj_x = x;
 						s_inj_y = y;
-						ESP_LOGW(TAG, "INJ press %d,%d", x, y);
+						s_inj_active = 1;
 					} else {
 						ESP_LOGW(TAG, "INJ bad cmd '%s'", line);
 					}
@@ -137,8 +142,15 @@ bool touch_get(int *x, int *y)
 {
 #ifdef CONFIG_HARDID_DEV_TOUCH_INJECT
 	if (s_inj_active) {
-		if (x) *x = s_inj_x;
-		if (y) *y = s_inj_y;
+		int ix = s_inj_x, iy = s_inj_y;
+		/* clamp like the physical path: a scripted out-of-range tap
+		 * must not feed negative/oversized coords into the UI */
+		if (ix < 0) ix = 0;
+		if (iy < 0) iy = 0;
+		if (ix > LCD_W) ix = LCD_W;
+		if (iy > LCD_H) iy = LCD_H;
+		if (x) *x = ix;
+		if (y) *y = iy;
 		return true;
 	}
 #endif

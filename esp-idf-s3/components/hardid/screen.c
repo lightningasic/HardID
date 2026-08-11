@@ -532,7 +532,7 @@ void screen_run_initialize(void)
 	/* Optional touch-entropy invitation (design 08 §2.1 S4): the seed
 	 * hook samples coordinate-LSB jitter while a finger is held on the
 	 * screen. SKIP or 10s idle proceeds with the non-interactive
-	 * sources only — never fail-closed. On hold, a 3-2-1 countdown
+	 * sources only — never fail-closed. On hold, a 3-2-1-0 countdown
 	 * runs, then seed generation starts automatically — no release
 	 * needed; keeping the finger down through it maximizes samples. */
 	lcd_fill(C_BG);

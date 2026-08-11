@@ -83,7 +83,7 @@ HardID 从 BitExchange Wallet 进化而来，坚持三条原始原则：**完全
 **功能描述**:
 1. **离线生成**
    - 设备开机自检（RNG 健康测试）通过后，在安全芯片内生成种子
-   - 熵源：SE 内部 TRNG + 主控 TRNG + 主机可选外部熵，HKDF-SHA256 混合（任一单源失效不致命）
+   - 熵源：SE 内部 TRNG + 主控 TRNG + 主机可选外部熵 + **物理熵池**（触摸坐标抖动 / 温度传感器热噪声 / 总线时序 / RTC 漂移，Layer A 纯固件），HKDF-SHA256 混合（任一单源失效不致命）
    - 助记词（BIP39，12/18/24 词）仅在屏幕显示一次，手写备份，**不支持任何形式的导出**
 2. **密钥派生**
    - BIP32/BIP44 分层确定性派生，多币种路径隔离（m/44'/coin'/account'/change/index）
@@ -252,6 +252,28 @@ HardID 从 BitExchange Wallet 进化而来，坚持三条原始原则：**完全
 
 **遗留红线（真机联调/真实资金前必修，见 MEMORY.md）**
 - link_esp.c 盲签入口改走 signsvc；host 侧 v/r/s 组装与 witness 注入；M8 防降级根治；test_composite t3 预存失败；P2SH-P2WPKH/P2WSH 扩展；BTC 多路径输入
+
+---
+
+## 8. 实现进展快照（2026-08-11，多熵源 Layer A 落地）
+
+本日提交 `c4ca262`..`46c3252`，实现设计文档 `08_HardID_多熵源设计.md` 的 Layer A 物理熵源，覆盖 §3.1.1 熵源需求与 §3.3 设备安全的纵深防御。以下为已落地的需求项与偏差说明：
+
+**已落地（真机验证）**
+- **物理熵池（Layer A，纯固件零 BOM）**：`core/phys_entropy.c` 无条件 SHA-256 熵池（前缀安全长度域 + 单次提取擦除），`core/seed.h` 新增可选 `os_seed_phys_extra` 钩子混入种子生成的 HKDF Extract 输入（缺省 weak = 返回 1，绝不 fail-closed）。
+- **四源采集（entropy_s3.c / entropy_p4.c）**：S4 触摸坐标 LSB 抖动（150ms 窗口 ≤64 样本）+ S5 温度传感器热噪声（esp_driver_tsens，替代原背光 ADC 设计——实机确认背光为数字电平）+ S6 I2C 总线应答延迟 LSB + S7 RTC 慢时钟漂移（P4 用 esp_timer 替代）。
+- **熵混入真机走查通过**：seedgen 日志链 `temperature_sensor: Range [-10°C~80°C]` → `physical entropy mixed into seed` → `seedgen done rc=0`，证明物理熵确实进入种子。
+- **链接坑修复**：entropy 模块唯一导出符号与 seed.c 的 weak 缺省同名，GNU ld 归档扫描不提取 strong 版 → 板层 `os_entropy_force_link()` 强制入图，ELF 符号 W→T 验证（详见 08 设计文档 §7.5）。
+- **DEV 触摸注入器**（`HARDID_DEV_TOUCH_INJECT`，dev-only，生产关闭）：串口合成触摸驱动 UI，无触屏环境真机联调手段。
+
+**测试与构建**
+- host 新增 `phys_entropy` 套件，全回归绿（composite t3 为既有预存失败除外）；fuzz 50k 无崩溃；S3 + P4 双构建通过；CI workflow 纳入 phys_entropy。
+- 生产配置（dev 三项全关）引导干净无 panic。
+
+**需求覆盖映射**
+- §3.1.1 离线生成熵源：更新为"核心熵（SE1/SE2/主控/host）+ 物理熵池"七源混合
+- §3.3 设备安全 RNG 自检：熵池为纵深防御，信任根仍为 SE TRNG
+- §4.1 RNG 标准：物理源经无条件池处置，非密钥材料直用
 
 ---
 

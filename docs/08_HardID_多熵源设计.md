@@ -1,7 +1,7 @@
 # HardID 多熵源设计 — 扩展物理熵源进入种子生成信任链
 
 - 日期: 2026-08-11
-- 状态: 设计提案, 待用户评审
+- 状态: **已实现并真机验证** (commit `46c3252`, S3/P4 双构建 + S3 真机走查)
 - 范围: 硬件钱包种子生成的多源熵采集与混合, 不改变派生规范/签名管线
 
 ## 0. 背景与目标
@@ -31,14 +31,19 @@ seed = HKDF-Expand(PRK, "mnemonic", 32)
 | S1 | SE1 ACL16 TRNG | ✅ | 现成 SPI 读 | 高 (独立芯片) | 低 | 无 |
 | S2 | SE2 ACL16 TRNG | ✅ (生产) | 现成 SPI 读 | 高 | 低 | 无 |
 | S3 | 主控 ESP32-S3 TRNG | ✅ | esp_random() | 中 (同一 SoC) | 低 | 无 |
-| S4 | 触摸屏触点噪声 (CST816D) | 用户手势 | 采集触摸坐标抖动的低位 | 中 | 低 | 中 (需一次触摸) |
-| S5 | 屏幕像素/背光噪声 | — | ADC 采样背光纹波 | 中 | 低 | 无 (瞬时) |
-| S6 | I2C/SPI 总线时序抖动 | — | 对已知序文测应答延迟 LSB | 中 | 低 | 无 |
-| S7 | 实时时钟 RTC 漂移 | — | 多次读 RTC 差值低位 | 低-中 | 低 | 无 |
+| S4 | 触摸屏触点噪声 (CST816D) | ✅ 已实现 | 采集触摸坐标抖动的低位 | 中 | 低 | 中 (需一次触摸) |
+| S5 | 内部温度传感器热噪声 | ✅ 已实现 | esp_driver_tsens 采样摄氏值 LSB | 中 | 低 | 无 |
+| S6 | I2C 总线时序抖动 | ✅ 已实现 | 对 touch_get 测应答延迟 LSB | 中 | 低 | 无 |
+| S7 | RTC 慢时钟漂移 | ✅ 已实现 | 读 RTC_CNTL_TIME 低位 (P4 用 esp_timer) | 低-中 | 低 | 无 |
 | S8 | 射频/近场天线噪声 (若加 WiFi/BLE) | — | 射频 RSSI 采样 | 高 | 高 (加硬件) | 无 |
 | S9 | 摄像头传感器噪声 | 硬件可加 | 传感器暗电流采样 | 高 | 高 (加硬件) | 中 (需遮光/校准) |
 | S10 | 麦克风环境噪声 | 硬件可加 | ADC 采样本底噪声 | 高 | 高 (加硬件) | 中 (需安静/校准) |
 | S11 | 元器件随机性 (分立噪声源) | 硬件可加 | 反相器环/齐纳击穿 ADC | 高 | 高 (加硬件) | 无 |
+
+> **实现说明 (2026-08-11)**: S5 原设计为背光 ADC 纹波, 实机确认背光 GPIO1 是
+> 数字电平输出无纹波可采, 改为内部温度传感器 (esp_driver_tsens) 的摄氏值 LSB
+> 抖动; S7 在 P4 上无 RTC 计数器寄存器 (RTC_CNTL_TIME0_REG 为 S3 专属), 用
+> esp_timer 微秒值 LSB 替代。
 
 **分层建议**:
 - **Layer A (零成本, 纯固件, 强烈建议)**: S4 触摸噪声 + S5 背光 ADC +
@@ -65,11 +70,14 @@ extract_input = S1 || S2 || S3 || S4 || S5 || S6 || S7
 - 可用性: 加一次触摸引导, 用户可接受 (创建钱包本就需交互)。
 - 风险: 坐标抖动可能高度结构化 — 必须过无条件熵池 (见 §4), 不单独依赖。
 
-### 2.2 S5 背光/电源纹波 (ADC)
+### 2.2 S5 温度传感器热噪声 (内部 tsens, 实现替代背光 ADC)
 
-- 用 ESP32-S3 内建 ADC (SOC_ADC) 采样背光 PWM 驱动节点的模拟纹波。
-- 需确认背光 PWM 频率避开采样混叠; 采集 ADC 最低有效位抖动。
-- 无用户交互, 瞬时 (<100ms)。
+- **定案变更 (2026-08-11)**：原设计用背光 ADC 采样纹波。实机确认本板背光
+  (GPIO1) 是数字电平输出，无模拟纹波可采 → 改为 ESP32-S3 内建温度传感器
+  (esp_driver_tsens，`TEMPERATURE_SENSOR_CONFIG_DEFAULT(-10,80)`)。
+- 采集：install → enable → 连续 `get_celsius` 多次，取 float 原始位的 LSB
+  抖动（热噪声，与 MCU TRNG 独立）。采样后 disable + uninstall 恢复。
+- 无用户交互，瞬时（<100ms）。采集失败（驱动不可用）→ 跳过该子源不失败整体。
 
 ### 2.3 S6 总线时序抖动
 
@@ -79,6 +87,8 @@ extract_input = S1 || S2 || S3 || S4 || S5 || S6 || S7
 ### 2.4 S7 RTC 漂移
 
 - 多次读 RTC 计数值, 差值低位。若 RTC 晶振太稳, 熵低 — 仅作辅助源。
+- **实现**：S3 读 `RTC_CNTL_TIME0_REG` (150kHz 慢时钟计数) 低位；
+  P4 无此寄存器，改用 esp_timer 微秒值 LSB（同样含亚微秒读出抖动）。
 
 ### 2.5 Layer B/C 摄像头/麦克风/分立噪声 (硬件阶段)
 
@@ -154,6 +164,39 @@ if (os_seed_phys_extra(phys, sizeof phys) == 0) {
 4. 各子源失败降级: 关掉任意单个子源, 种子生成仍成功。
 5. 文档: 04 工程文档三源熵 → 更新为"核心熵 (SE1/SE2/主控) + 物理熵池
    (触摸/ADC/总线/RTC)"。
+
+## 7.5 实现记录 (2026-08-11, commit `46c3252`)
+
+**落地文件**
+- `core/phys_entropy.h/.c` — 无条件熵池 (SHA-256 链式吸收, 前缀安全长度域,
+  单次提取擦除)。新增 host 测试 `tests/test_phys_entropy.c`, CI 加入。
+- `core/seed.h/.c` — `os_seed_phys_extra` 弱符号钩子 (缺省返回 1) 混入
+  HKDF Extract 输入; `tests/test_seed.c` 加 stub。
+- `esp-idf-s3/components/hardid/entropy_s3.c` — S4 触摸坐标 LSB 抖动
+  (150ms 窗口 / ≤64 样本, 2ms 采样间隔) + S5 tsens + S6 I2C 读延迟 +
+  S7 RTC 寄存器。实现 `os_seed_phys_extra` (strong)。
+- `esp-idf/components/hardid/entropy_p4.c` — 同上, S7 改 esp_timer。
+- 两个 CMakeLists 加 phys_entropy.c + entropy_*.c + REQUIRES
+  esp_driver_tsens esp_timer。
+
+**真机验证 (S3, 经 DEV touch injector 驱动 UI)**
+- 走查日志链: `seedgen begin elen=0` → `temperature_sensor: Range [-10°C ~
+  80°C]` → `hardid.entropy: physical entropy mixed into seed` → `seedgen
+  done rc=0`。物理熵确实进入种子生成。
+
+**已知坑 (链接, 已修复)**
+- `os_seed_phys_extra` 是 entropy_s3.c 唯一导出符号, 而 seed.c 提供同名
+  weak 缺省。GNU ld archive 扫描时 seed.c.obj 先被 os_seed_generate 拉入,
+  其内部引用被同文件 weak 定义满足 → ld 不再提取 entropy_s3.c.obj
+  (strong), 最终 ELF 保留 weak no-op (seedgen 仅 10ms, 无熵混入日志)。
+  修复: 板层 `os_board_hw_init` 调用 `os_entropy_force_link()` 哑符号
+  强制提取; ELF 符号 W→T 验证。**给后续单导出符号模块的通用教训**:
+  同名单符号 weak/strong 覆盖只在整 obj 已因其他符号被拉入时才生效。
+
+**DEV 触摸注入器 (`CONFIG_HARDID_DEV_TOUCH_INJECT`, dev-only)**
+- 无触屏环境的真机驱动手段: 串口 (USB-JTAG RX) 收 `P x y` / `R` 行合成
+  按下/抬起, atomic 变量跨核同步, 与真实 CST816D 事件同一入口。用于驱动
+  UI 走查 (初始化流程全链路) 与熵采集回归。
 
 ## 8. 落地方案建议
 

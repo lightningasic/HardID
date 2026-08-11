@@ -55,6 +55,7 @@
 - **SE2「守卫」**：PIN 验证+退避、SignPolicy 限额计数、单调计数器（防降级）、出厂证明、TRNG#2
 - **职责分离**：单点被攻破不全局失守；签名授权可由两颗独立芯片交叉强制
 - **三源熵升级**：`SE1_TRNG || SE2_TRNG || host_entropy` —— 主控 TRNG 退出信任链
+  （S3 测试板当前无双 SE，软件侧由 §3.3 物理熵池补强，2026-08-11 落地）
 - **关键待验证**：ACL16 是否硬件原生支持 secp256k1（若否需重评）
 
 ### 2.3 备选 SE（若 ACL16 secp256k1 不支持）
@@ -147,14 +148,27 @@ typedef struct {
 - 错误标志恢复（SEIS/CEIS 清除 + RNG 块复位，RM0090 序列）
 - 有界轮询 + 失败安全停机（`rng_fatal_error`，可覆写显示错误）
 - 启动自检 `rng_self_test()`（stuck-at / 重复输出检测）
-- **升级点**: 旧版单源（STM32 TRNG）→ 新版三源混合
+- **升级点**: 旧版单源（STM32 TRNG）→ 新版多源混合（核心熵 + 物理熵池）
 
 ```c
-// 种子生成的三源混合（HKDF-SHA256, RFC 5869）
-// PRK = HMAC(salt="HardID seed v1", se_trng || mcu_trng || host_entropy)
+// 种子生成的多源混合（HKDF-SHA256, RFC 5869）
+// PRK = HMAC(salt="HardID seed v1", se_trng || se2_trng || mcu_trng || host_entropy || phys[32])
 // OKM = HMAC(PRK, "mnemonic" || 0x01)
 ```
 HKDF 已用 RFC 5869 Test Case 1 验证（rng-test/test_hkdf.c）。
+
+**物理熵池（2026-08-11 落地，设计见 08_HardID_多熵源设计.md）**
+- `core/phys_entropy.c`：无条件 SHA-256 熵池，全部物理源先过池再混入 Extract
+  输入（禁止任何单源原始字节直接作密钥材料）；前缀安全长度域 + 单次提取擦除。
+- `core/seed.h` 新增可选钩子 `os_seed_phys_extra(buf, len)`（弱符号缺省返回 1
+  = 跳过，绝不 fail-closed）。板层 entropy_s3.c / entropy_p4.c 实现 strong 版。
+- 物理源：S4 触摸坐标 LSB 抖动 + S5 温度传感器热噪声（esp_driver_tsens）+
+  S6 I2C 应答延迟 LSB + S7 RTC 慢时钟漂移（S3 读 RTC_CNTL_TIME0_REG，
+  P4 无此寄存器用 esp_timer）。
+- **链接陷阱（已修复）**：entropy 模块唯一导出符号与 seed.c 的 weak 缺省同名，
+  GNU ld 归档扫描用 weak 满足引用、不提取 strong obj → 板层
+  `os_entropy_force_link()` 强制拉入（`os_board_hw_init` 调用），ELF W→T 验证。
+- REQUIRES 增加 `esp_driver_tsens`、`esp_timer`。
 
 ### 3.4 Clear Sign 引擎
 
@@ -208,8 +222,8 @@ sha256sum hardid-v1.0.0.bin
 
 | 层 | 方法 | 已验证资产 |
 |----|------|-----------|
-| 单元 | 主机模拟（stub 寄存器/SE） | rng.c 8/8 通过；HKDF RFC5869 向量通过 |
-| 解析 | fuzzing（PSBT/EIP-712 畸形输入） | 待建 |
+| 单元 | 主机模拟（stub 寄存器/SE） | rng.c 8/8 通过；HKDF RFC5869 向量通过；phys_entropy 池通过 |
+| 解析 | fuzzing（PSBT/EIP-712 畸形输入） | fuzz 50k 无崩溃 |
 | 集成 | 主机模拟全流程（初始化→签名→退避→升级） | 待建 |
 | 故障注入 | 调试器强制 SEIS、断电恢复退避计时 | 待真机 |
 | 审计 | 第三方固件安全审计 + 渗透测试 | 发布前 |
@@ -261,6 +275,43 @@ sha256sum hardid-v1.0.0.bin
 **测试**：host 22 套件 + 3 adversarial 套件全绿（composite t3 pin 预存失败除外，与本轮无关）。新增：test_se t8（brain phrase KDF 固定向量）、test_clearsign t13（EIP-155 官方向量+拒绝项）、test_psbt t6/t7（per-coin 地址、BIP143 官方向量+拒绝项）、test_app t17/t18（目录链签名+族摘要锁定）。测试构造器 RLP 改规范编码（单字节 <0x80 直编）、witness_utxo fixture 改规范 CTxOut
 
 **dev-only Kconfig**（均依赖 SE_MOCK，生产默认关）：`HARDID_DEV_NO_PIN`、`HARDID_DEV_TEST_SEED`（4 词测试种子）
+
+---
+
+## 9. 实现进展（2026-08-11，多熵源 Layer A）
+
+本日提交 `c4ca262`..`46c3252`，落地设计文档 08 的 Layer A 物理熵源。模块级变更：
+
+**phys_entropy（新模块，core/）**
+- 无条件 SHA-256 熵池：`os_phys_pool_init/absorb/extract`；absorb 带前缀安全
+  长度域（长度字段入池），extract 输出 32B 且擦除池（单次使用）。host 测试
+  `tests/test_phys_entropy.c` 覆盖长度域混淆 / 顺序敏感性 / 提取后擦除。
+- 设计原则：禁止任何单源原始字节直接作密钥材料——全部物理源先过池。
+
+**seed.c 钩子**
+- `os_seed_phys_extra()` 弱符号缺省返回 1（跳过）；strong 实现（板层）返回 0
+  时混入 HKDF Extract 输入。任一子源失败仅跳过该子源，整体不 fail-closed。
+
+**entropy_s3.c / entropy_p4.c（板层采集）**
+- S4 触摸：CST816D 坐标低 4 位抖动，150ms 窗口 ≤64 样本（2ms 间隔，有界防
+  stall）；S5 tsens：install→enable→8×get_celsius 取 float LSB→disable+uninstall；
+  S6 总线：touch_get 读延迟（esp_timer 差）LSB；S7 RTC：S3 读 RTC_CNTL_TIME0_REG
+  低位，P4 用 esp_timer。
+- `os_entropy_force_link()`：见 §3.3 链接陷阱修复。
+- CMakeLists 增 REQUIRES `esp_driver_tsens`、`esp_timer`；两平台构建通过。
+
+**DEV 触摸注入器（touch.c + Kconfig，dev-only）**
+- `CONFIG_HARDID_DEV_TOUCH_INJECT`（依赖 SE_MOCK，默认 n）：USB-JTAG RX 收
+  `P x y` / `R` 行合成触摸，atomic_int 跨核同步，与真实 CST816D 事件同入口。
+  用途：无触屏/自动化真机走查（初始化全链路、熵采集回归）。
+
+**真机验证（S3）**
+- DEV 注入器驱动 UI：menu OK → 4 词 TEST → `seedgen begin` → `temperature_sensor:
+  Range [-10°C~80°C]` → `physical entropy mixed into seed` → `seedgen done rc=0`。
+- 链接修复后 ELF 符号 `os_seed_phys_extra` 由 W 变 T；恢复生产配置引导干净。
+
+**测试**：host 新增 phys_entropy 套件，22+1 套件全绿（composite t3 预存失败
+除外）；fuzz 50k 无崩溃；CI host-tests.yml 加入 phys_entropy 分支。
 
 ---
 

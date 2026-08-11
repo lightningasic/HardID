@@ -77,6 +77,11 @@ fee = total_in(被污染) - total_out  →  用户看到错误的手续费
 | `core/ecdsa.c` | `k[32]`, `z[32]`, `tmp[32]`, `w[32]`, `u1/u2[32]` | nonce、消息标量、签名中间量 |
 | `core/rfc6979.c` | `V[32]`, `K[32]`, `bx[64]` | nonce 生成种子材料 |
 | `core/seed.c` | `se[32]`, `mcu[32]`, `prk[32]` | 三源熵、HKDF PRK |
+
+> **2026-08-11 补充**：新增 `core/phys_entropy.c`（物理熵池）已按本发现标准实现——
+> 池状态与中间值 `os_secure_bzero()` 清零，`extract()` 单次使用后擦除池，杜绝
+> 二次取料。熵源从三源扩展为核心熵（SE1/SE2/主控/host）+ 物理熵池（触摸/tsens/
+> 总线/RTC，见 08_多熵源设计）。
 | `core/hkdf.c` | `key32[32]`, `inner[32]`, `prk[32]` | 压缩密钥、内部哈希、PRK |
 | `core/sha512.c` | `key64[64]`, `inner[64]`, `block[64]`, `u[64]` | PBKDF2 派生中间量 |
 

@@ -32,6 +32,7 @@
 
 #include "seed.h"
 #include "phys_entropy.h"
+#include "secure_zero.h"
 #include "touch.h"
 
 static const char *TAG = "hardid.entropy";
@@ -70,17 +71,20 @@ static void absorb_u32(os_phys_pool_t *pool, uint32_t v)
 /* S4: touch coordinate LSB jitter. Returns 1 if any samples were collected. */
 static int collect_touch(os_phys_pool_t *pool)
 {
-	int n = 0;
-	int start = (int)(esp_timer_get_time() / 1000);
+	int n = 0, miss = 0;
+	int64_t start = esp_timer_get_time();
 
 	while (n < TOUCH_SAMPLES_MAX) {
 		int x, y;
-		if (!touch_get(&x, &y))
-			break;
-		absorb_u32(pool, (uint32_t)((x & 0x0f) | ((y & 0x0f) << 4)));
-		n++;
+		if (touch_get(&x, &y)) {
+			miss = 0;
+			absorb_u32(pool, (uint32_t)((x & 0x0f) | ((y & 0x0f) << 4)));
+			n++;
+		} else if (++miss >= 3) {
+			break;   /* tolerate transient read glitches, then give up */
+		}
 		vTaskDelay(pdMS_TO_TICKS(2));
-		if ((int)(esp_timer_get_time() / 1000) - start > TOUCH_COLLECT_MS)
+		if (esp_timer_get_time() - start > (int64_t)TOUCH_COLLECT_MS * 1000)
 			break;
 	}
 	if (n > 0)
@@ -115,7 +119,8 @@ static int collect_tsens(os_phys_pool_t *pool)
 	return n > 0;
 }
 
-/* S6: I2C bus timing jitter — measure touch-chip read latency LSBs. */
+/* S6: I2C bus timing jitter — measure touch-chip read latency LSBs. The
+ * transaction runs (and jitters) whether or not a finger is down. */
 static int collect_bus(os_phys_pool_t *pool)
 {
 	int n = 0;
@@ -123,8 +128,7 @@ static int collect_bus(os_phys_pool_t *pool)
 
 	for (int i = 0; i < BUS_ROUNDS; i++) {
 		int64_t t0 = esp_timer_get_time();
-		if (!touch_get(&x, &y))
-			continue;
+		(void)touch_get(&x, &y);
 		int64_t dt = esp_timer_get_time() - t0;
 		absorb_u32(pool, (uint32_t)dt);      /* sub-us LSBs carry jitter */
 		n++;
@@ -156,11 +160,11 @@ int os_seed_phys_extra(uint8_t *buf, size_t len)
 	if (collect_touch(&pool)) got = 1;
 	if (collect_tsens(&pool)) got = 1;
 	if (collect_bus(&pool))   got = 1;
-	collect_rtc(&pool);                    /* always present */
-	got = 1;
+	if (collect_rtc(&pool))   got = 1;
 
 	if (!got) {
-		os_phys_pool_extract(&pool, buf, len);   /* wipe; buf stays zero */
+		/* every source unavailable: leave buf zeroed, skip the mix */
+		os_secure_bzero(&pool, sizeof pool);
 		memset(buf, 0, len);
 		return 1;
 	}

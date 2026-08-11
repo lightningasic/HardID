@@ -61,8 +61,11 @@
 - host 22 套件全绿 (composite t3 pin 预存失败除外) + S3/P4 构建过。
 
 ## 待办 (下一步)
-- **多熵源设计 (用户指定方向)**: 加密芯片、元器件随机性、摄像头、麦克风等 —
-  写设计文档 `docs/` (见下轮), 待用户评审。
+- **营销操作视频 (代码冻结后做)**: host UI 模拟器 — display_host.c 实现
+  display.h API 渲染到 240x320 RGB565 帧缓冲 (font7/font8x16 纯 C 数组,
+  与真机逐像素一致), screen.c/ui.c/inter.c 编译进 host harness, touch 用
+  脚本事件, FreeRTOS 打桩; 逐帧 PNG → ffmpeg 合成 mp4。用户明确: 等第一版
+  代码冻结后再做。
 - 剩余红线: M8 防降级根治 (NVS 墓碑 + SE 单调计数器 + secure boot v2);
   test_composite t3 pin 预存失败 (真机联调前查清)。
 - 循环代码审计继续。

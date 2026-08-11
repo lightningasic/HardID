@@ -31,10 +31,7 @@ static void mix_one(os_phys_pool_t *p, uint8_t tag,
 	in[1 + OS_PHYS_POOL_LEN + 2] = (uint8_t)(len >> 8);
 	in[1 + OS_PHYS_POOL_LEN + 3] = (uint8_t)(len & 0xff);
 
-	if (data && len > 0)
-		os_sha256(in, sizeof in, out);         /* state+len||data in next block */
-	else
-		os_sha256(in, sizeof in, out);
+	os_sha256(in, sizeof in, out);
 	os_secure_bzero(in, sizeof in);
 
 	if (data && len > 0) {
@@ -76,9 +73,6 @@ void os_phys_pool_absorb(os_phys_pool_t *p, const uint8_t *data, size_t len)
 
 void os_phys_pool_extract(os_phys_pool_t *p, uint8_t *out, size_t out_len)
 {
-	uint8_t d[OS_PHYS_POOL_LEN];
-	size_t n;
-
 	if (!p || p->used || !out || out_len == 0) {
 		if (out && out_len)
 			memset(out, 0, out_len);
@@ -86,11 +80,12 @@ void os_phys_pool_extract(os_phys_pool_t *p, uint8_t *out, size_t out_len)
 	}
 
 	mix_one(p, 0x02, NULL, out_len);
-	n = out_len < OS_PHYS_POOL_LEN ? out_len : OS_PHYS_POOL_LEN;
-	memcpy(d, p->st, OS_PHYS_POOL_LEN);
-	memcpy(out, d, n);
-	os_secure_bzero(d, sizeof d);
+	if (out_len > OS_PHYS_POOL_LEN) {
+		/* pool is 32 bytes; never leave caller bytes uninitialized */
+		memset(out + OS_PHYS_POOL_LEN, 0, out_len - OS_PHYS_POOL_LEN);
+		out_len = OS_PHYS_POOL_LEN;
+	}
+	memcpy(out, p->st, out_len);
 	os_secure_bzero(p, sizeof(*p));   /* single-use: wipe state */
 	p->used = 1;
-	(void)n;
 }

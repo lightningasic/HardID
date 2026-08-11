@@ -428,8 +428,8 @@ void screen_run_initialize(void)
 	lcd_text_wrap(2, 30, "Press & HOLD the screen anywhere:", C_FG, C_BG);
 	lcd_text_wrap(2, 46, "your finger's micro-jitter is mixed", C_FG, C_BG);
 	lcd_text_wrap(2, 62, "into the new seed.", C_FG, C_BG);
-	lcd_text_wrap(2, 82, "Holding starts a 3s countdown, then", C_FG, C_BG);
-	lcd_text_wrap(2, 98, "the seed is generated automatically.", C_FG, C_BG);
+	lcd_text_wrap(2, 82, "Holding starts a 3-2-1-0 count,", C_FG, C_BG);
+	lcd_text_wrap(2, 98, "then the seed generates by itself.", C_FG, C_BG);
 	lcd_rect_text(15, 250, 115, 300, "SKIP", C_FG, C_BTN);
 	bool held = false;
 	{

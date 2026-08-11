@@ -35,6 +35,16 @@ __attribute__((weak)) int os_seed_se2_trng(uint8_t *buf, size_t len)
 }
 #endif
 
+/* Weak default for optional physical entropy (touch/ADC/bus/RTC Layer A):
+ * not available. Never fail-closed — seed generation works without it. */
+#ifndef OS_SEED_NO_DEFAULT_HOOK
+__attribute__((weak)) int os_seed_phys_extra(uint8_t *buf, size_t len)
+{
+	(void)buf; (void)len;
+	return 1;
+}
+#endif
+
 int os_seed_generate(const uint8_t *host_entropy, size_t host_len,
                      uint8_t *seed_out32)
 {
@@ -59,6 +69,19 @@ int os_seed_generate(const uint8_t *host_entropy, size_t host_len,
 	os_hmac_sha256_update(&h, mcu, sizeof mcu);
 	if (host_entropy && host_len > 0)
 		os_hmac_sha256_update(&h, host_entropy, host_len);
+
+	/* Optional physical entropy (touch/ADC/bus/RTC). The board layer has
+	 * already mixed all physical sources through an unconditional pool,
+	 * so its bytes are statistically independent of anything an attacker
+	 * can predict. Purely additive: failure to collect must not block
+	 * seed generation. */
+	{
+		uint8_t phys[OS_SEED_LEN];
+		if (os_seed_phys_extra(phys, sizeof phys) == 0)
+			os_hmac_sha256_update(&h, phys, sizeof phys);
+		os_secure_bzero(phys, sizeof phys);
+	}
+
 	os_hmac_sha256_final(&h, prk);
 
 	/* Expand (single 32-byte block) */

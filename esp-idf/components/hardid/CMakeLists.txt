@@ -29,6 +29,7 @@ idf_component_register(
         "${HARDID_ROOT}/core/sha512.c"
         "${HARDID_ROOT}/core/keccak.c"
         "${HARDID_ROOT}/core/seed.c"
+        "${HARDID_ROOT}/core/phys_entropy.c"
         "${HARDID_ROOT}/core/bip39.c"
         "${HARDID_ROOT}/core/bip32.c"
         "${HARDID_ROOT}/core/base58.c"
@@ -57,6 +58,7 @@ idf_component_register(
         "link_esp.c"
         "ui.c"
         "board_p4.c"
+        "entropy_p4.c"
     INCLUDE_DIRS
         "${HARDID_ROOT}/core"
         "${HARDID_ROOT}/hal"
@@ -64,7 +66,7 @@ idf_component_register(
     REQUIRES
         mbedtls esp_lcd esp_driver_spi esp_driver_gpio esp_driver_i2c
         esp_driver_usb_serial_jtag spi_flash bootloader_support esp_app_format
-        nvs_flash
+        esp_driver_tsens esp_timer nvs_flash
 )
 
 target_compile_definitions(${COMPONENT_LIB} PUBLIC ESP_PLATFORM=1)

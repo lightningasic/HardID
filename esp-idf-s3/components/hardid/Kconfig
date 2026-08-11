@@ -58,4 +58,15 @@ config HARDID_DEV_TEST_SEED
         device build and trivially brute-forceable. DEVELOPMENT ONLY.
         Requires the mock SE backend.
 
+config HARDID_DEV_TOUCH_INJECT
+    bool "Development: inject synthetic touches over USB-JTAG RX"
+    depends on HARDID_SE_MOCK
+    default n
+    help
+        Bring-up convenience: a background task reads one-command-per-line
+        touch events on the USB-Serial-JTAG console (P x y = press at
+        pixel, R = release) and feeds them into touch_get(), so the whole
+        UI can be driven from a host script. DEVELOPMENT ONLY. Requires
+        the mock SE backend.
+
 endmenu

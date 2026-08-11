@@ -33,6 +33,8 @@
 #include "boot.h"
 #include "display.h"
 
+void os_entropy_force_link(void);   /* entropy_s3.c: pull strong os_seed_phys_extra in */
+
 static const char *TAG = "hardid.board";
 
 /* ---- RNG platform hooks (drives core/rng.c) ---- */
@@ -80,6 +82,7 @@ int os_seed_se2_trng(uint8_t *buf, size_t len)
 void os_board_hw_init(void)
 {
 	ESP_LOGI(TAG, "board hw init");
+	os_entropy_force_link();   /* ensure the physical-entropy hook is linked */
 	/* The on-board USB-Serial-JTAG port is shared between the console log
 	 * VFS and the HOST LINK session (link_esp.c drives it with the low-level
 	 * usb_serial_jtag_* API). The low-level API only works once the driver

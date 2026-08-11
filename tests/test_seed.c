@@ -25,6 +25,13 @@ int os_seed_se2_trng(uint8_t *buf, size_t len)
 	return 0;
 }
 
+/* no physical entropy in the host test build (optional Layer A hook) */
+int os_seed_phys_extra(uint8_t *buf, size_t len)
+{
+	(void)buf; (void)len;
+	return 1;
+}
+
 #define OS_RNG_NO_DEFAULT_FATAL
 #include "../core/rng.c"
 #include "../core/hkdf.c"

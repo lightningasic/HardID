@@ -16,6 +16,7 @@
  */
 
 #include <string.h>
+#include <stdio.h>
 #include "driver/i2c.h"
 #include "esp_log.h"
 #include "esp_err.h"
@@ -23,6 +24,11 @@
 #include "freertos/task.h"
 
 #include "touch.h"
+
+#ifdef CONFIG_HARDID_DEV_TOUCH_INJECT
+#include "driver/usb_serial_jtag.h"
+#include <stdatomic.h>
+#endif
 
 #define TOUCH_I2C_PORT       I2C_NUM_0
 #define TOUCH_SDA_GPIO       48
@@ -34,6 +40,52 @@
 #define LCD_H 320
 
 static const char *TAG = "hardid.touch";
+
+#ifdef CONFIG_HARDID_DEV_TOUCH_INJECT
+/* DEV-ONLY: synthetic touches injected over the USB-JTAG console RX so the
+ * UI can be driven from a host script without touching the panel.
+ * Protocol (one command per line):
+ *   P <x> <y>   press down at screen pixel (x,y)
+ *   R           release
+ * touch_get() prefers an injected touch over the physical panel. */
+static atomic_int   s_inj_active;
+static atomic_int   s_inj_x, s_inj_y;
+
+static void touch_inject_task(void *arg)
+{
+	(void)arg;
+	char line[24];
+	int n = 0;
+	for (;;) {
+		char c;
+		int rc = usb_serial_jtag_read_bytes((uint8_t *)&c, 1,
+		                                    pdMS_TO_TICKS(20));
+		if (rc == 1 && c != '\r') {
+			if (c == '\n') {
+				line[n] = '\0';
+				if (n > 0) {
+					int x, y;
+					if (line[0] == 'R') {
+						s_inj_active = 0;
+						ESP_LOGW(TAG, "INJ release");
+					} else if (sscanf(line, "P %d %d", &x, &y) == 2) {
+						s_inj_active = 1;
+						s_inj_x = x;
+						s_inj_y = y;
+						ESP_LOGW(TAG, "INJ press %d,%d", x, y);
+					} else {
+						ESP_LOGW(TAG, "INJ bad cmd '%s'", line);
+					}
+				}
+				n = 0;
+			} else if (n < (int)sizeof(line) - 1) {
+				line[n++] = c;
+			}
+		}
+	}
+}
+#endif
+
 
 int touch_init(void)
 {
@@ -49,6 +101,11 @@ int touch_init(void)
 		return -1;
 	if (i2c_driver_install(TOUCH_I2C_PORT, I2C_MODE_MASTER, 0, 0, 0) != ESP_OK)
 		return -1;
+
+#ifdef CONFIG_HARDID_DEV_TOUCH_INJECT
+	xTaskCreate(touch_inject_task, "tpinj", 4096, NULL, 2, NULL);
+	ESP_LOGW(TAG, "DEV touch injector active (P x y / R)");
+#endif
 
 	/* probe the chip ID (reg 0xA7): confirms the bus + address are right */
 	uint8_t id = 0;
@@ -78,6 +135,13 @@ static int touch_read_raw(uint8_t *buf, size_t len)
 
 bool touch_get(int *x, int *y)
 {
+#ifdef CONFIG_HARDID_DEV_TOUCH_INJECT
+	if (s_inj_active) {
+		if (x) *x = s_inj_x;
+		if (y) *y = s_inj_y;
+		return true;
+	}
+#endif
 	uint8_t d[6];
 	if (touch_read_raw(d, sizeof(d)) != 0)
 		return false;

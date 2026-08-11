@@ -22,6 +22,8 @@ static int encode_word(uint8_t *buf, size_t cap, size_t offset,
 	/* bounds-checked 32-byte word write; pad_left bytes are zeroed first */
 	if (offset > cap || 32 > cap - offset)
 		return 0;
+	if (pad_left > 32 || len > 32 - pad_left)
+		return 0;
 	memset(buf + offset, 0, 32);
 	memcpy(buf + offset + pad_left, src, len);
 	return 1;

@@ -173,8 +173,9 @@ if (os_seed_phys_extra(phys, sizeof phys) == 0) {
 - `core/seed.h/.c` — `os_seed_phys_extra` 弱符号钩子 (缺省返回 1) 混入
   HKDF Extract 输入; `tests/test_seed.c` 加 stub。
 - `esp-idf-s3/components/hardid/entropy_s3.c` — S4 触摸坐标 LSB 抖动
-  (150ms 窗口 / ≤64 样本, 2ms 采样间隔) + S5 tsens + S6 I2C 读延迟 +
-  S7 RTC 寄存器。实现 `os_seed_phys_extra` (strong)。
+  (150ms 窗口 / ≤64 样本; 请求 2ms 间隔, 实际受 CONFIG_FREERTOS_HZ=100
+  限为 ~10ms/tick) + S5 tsens + S6 I2C 读延迟 + S7 RTC 寄存器。
+  实现 `os_seed_phys_extra` (strong)。
 - `esp-idf/components/hardid/entropy_p4.c` — 同上, S7 改 esp_timer。
 - 两个 CMakeLists 加 phys_entropy.c + entropy_*.c + REQUIRES
   esp_driver_tsens esp_timer。
@@ -183,6 +184,11 @@ if (os_seed_phys_extra(phys, sizeof phys) == 0) {
 - 走查日志链: `seedgen begin elen=0` → `temperature_sensor: Range [-10°C ~
   80°C]` → `hardid.entropy: physical entropy mixed into seed` → `seedgen
   done rc=0`。物理熵确实进入种子生成。
+- **验证盲区 (诚实记录)**: 该走查实证的源为 S5 (tsens 驱动日志可见) +
+  S6/S7 (无条件执行)。S4 触摸抖动**未实证**——驱动脚本在触发 seedgen 前
+  已抬起手指, collect_touch 采到 0 样本且该计数日志为 DEBUG 级默认不可见。
+  S4 代码路径经 host 池测试与构建覆盖, 真机逐源验证 (手指按住屏幕触发
+  seedgen) 留待后续。
 
 **已知坑 (链接, 已修复)**
 - `os_seed_phys_extra` 是 entropy_s3.c 唯一导出符号, 而 seed.c 提供同名

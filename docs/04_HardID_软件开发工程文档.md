@@ -152,7 +152,8 @@ typedef struct {
 
 ```c
 // 种子生成的多源混合（HKDF-SHA256, RFC 5869）
-// PRK = HMAC(salt="HardID seed v1", se_trng || se2_trng || mcu_trng || host_entropy || phys[32])
+// PRK = HMAC(salt="HardID seed v1", se1_trng || se2_trng || host_entropy || phys[32])
+//   注: se2 槽位由 os_seed_se2_trng 提供, weak 缺省回退主控 TRNG (单 SE 构建)
 // OKM = HMAC(PRK, "mnemonic" || 0x01)
 ```
 HKDF 已用 RFC 5869 Test Case 1 验证（rng-test/test_hkdf.c）。
@@ -293,8 +294,8 @@ sha256sum hardid-v1.0.0.bin
   时混入 HKDF Extract 输入。任一子源失败仅跳过该子源，整体不 fail-closed。
 
 **entropy_s3.c / entropy_p4.c（板层采集）**
-- S4 触摸：CST816D 坐标低 4 位抖动，150ms 窗口 ≤64 样本（2ms 间隔，有界防
-  stall）；S5 tsens：install→enable→8×get_celsius 取 float LSB→disable+uninstall；
+- S4 触摸：CST816D 坐标低 4 位抖动，150ms 窗口 ≤64 样本（请求 2ms 间隔，
+  实际受 CONFIG_FREERTOS_HZ=100 限制为 ~10ms/tick，有界防 stall）；S5 tsens：install→enable→8×get_celsius 取 float LSB→disable+uninstall；
   S6 总线：touch_get 读延迟（esp_timer 差）LSB；S7 RTC：S3 读 RTC_CNTL_TIME0_REG
   低位，P4 用 esp_timer。
 - `os_entropy_force_link()`：见 §3.3 链接陷阱修复。
@@ -310,7 +311,7 @@ sha256sum hardid-v1.0.0.bin
   Range [-10°C~80°C]` → `physical entropy mixed into seed` → `seedgen done rc=0`。
 - 链接修复后 ELF 符号 `os_seed_phys_extra` 由 W 变 T；恢复生产配置引导干净。
 
-**测试**：host 新增 phys_entropy 套件，22+1 套件全绿（composite t3 预存失败
+**测试**：host 新增 phys_entropy 套件，26 套件全绿（composite t3 预存失败
 除外）；fuzz 50k 无崩溃；CI host-tests.yml 加入 phys_entropy 分支。
 
 ---

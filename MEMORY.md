@@ -19,7 +19,7 @@
 - **两个调试坑记录**: ① `idf.py set-target` 会重置 sdkconfig 的 dev 选项
   为默认 n (之前手动开的 DEV_NO_PIN/TEST_SEED 被冲掉, 设备卡 PIN 屏);
   ② USB-JTAG 端口 open 会触发复位, 驱动脚本必须等 boot 完成再发命令。
-- host 全回归 (22+phys_entropy) 绿 (composite t3 预存失败除外) + fuzz 50k
+- host 全回归 (26 套件含 phys_entropy) 绿 (composite t3 预存失败除外) + fuzz 50k
   干净 + S3/P4 构建过。已推送 (c4ca262..46c3252)。
 
 ## 已完成 (HOST LINK 真机走查通过, 2026-08-11)

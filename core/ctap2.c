@@ -142,6 +142,33 @@ static int parse_pkcp(cbor_reader_t *r, bool *has_es256)
 	return CBOR_OK;
 }
 
+/* Parse the options map (keys: 0x01 up, 0x02 uv). Missing "up" defaults to
+ * true (CTAP2 §6.1.9: user presence is implied when not requested). "uv"
+ * is never honored in v1 (decision A2) but must be tolerated/validated. */
+static int parse_options(cbor_reader_t *r, bool *up)
+{
+	size_t members;
+	int rc = cbor_read_map_head(r, &members);
+	if (rc != CBOR_OK)
+		return rc;
+	if (up)
+		*up = true;   /* default: presence required */
+	for (size_t i = 0; i < members; i++) {
+		uint64_t key;
+		if ((rc = cbor_read_uint(r, &key)) != CBOR_OK)
+			return rc;
+		bool v = false;
+		if ((rc = cbor_read_bool(r, &v)) != CBOR_OK)
+			return rc;
+		if (key == 0x01 && up) {
+			if (!v)
+				*up = false;   /* explicit up:false */
+		}
+		/* key 0x02 (uv) accepted and ignored (A2) */
+	}
+	return CBOR_OK;
+}
+
 /* Parse the user map (skipped beyond rp_id in v1). */
 static int parse_user(cbor_reader_t *r, char *name, size_t name_cap)
 {
@@ -177,6 +204,7 @@ static int handle_make_credential(const uint8_t *req, size_t req_len,
 
 	fido_make_cred_req_t mcr;
 	memset(&mcr, 0, sizeof mcr);
+	mcr.up_required = true;   /* CTAP2 §6.1.9: presence implied by default */
 	char rp_id[MAX_TEXT_LEN], rp_name[MAX_TEXT_LEN], user_name[MAX_TEXT_LEN];
 
 	bool have_cdh = false, have_pkcp = false, have_es256 = false;
@@ -206,9 +234,14 @@ static int handle_make_credential(const uint8_t *req, size_t req_len,
 			break;
 		case K_EXCLUDE_LIST:
 		case K_EXTENSIONS:
-		case K_OPTIONS:
 			/* v1: parse (validate) but treat as no-op. */
 			if ((rc = cbor_skip(&rd)) != CBOR_OK)
+				return rc;
+			break;
+		case K_OPTIONS:
+			/* options.up defaults true (CTAP2 §6.1.9); parse so an
+			 * explicit up:false (probe) really reports absent UP. */
+			if ((rc = parse_options(&rd, &mcr.up_required)) != CBOR_OK)
 				return rc;
 			break;
 		default:
@@ -247,6 +280,7 @@ static int handle_get_assertion(const uint8_t *req, size_t req_len,
 
 	fido_get_assert_req_t gar;
 	memset(&gar, 0, sizeof gar);
+	gar.up_required = true;   /* CTAP2 §6.2: presence implied by default */
 	char rp_id[MAX_TEXT_LEN];
 
 	bool have_rpid = false, have_cdh = false;
@@ -297,6 +331,10 @@ static int handle_get_assertion(const uint8_t *req, size_t req_len,
 			break;
 		}
 		case K_GA_OPTIONS:
+			/* options.up defaults true; honor explicit up:false. */
+			if ((rc = parse_options(&rd, &gar.up_required)) != CBOR_OK)
+				return rc;
+			break;
 		case K_EXTENSIONS:
 			if ((rc = cbor_skip(&rd)) != CBOR_OK)
 				return rc;

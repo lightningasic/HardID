@@ -73,6 +73,17 @@ static int emit_tx(ctaphid_t *h, uint8_t (*out)[CTAPHID_PACKET_SIZE],
                    int max_out)
 {
 	int n = 0;
+	/* A staged message always produces at least its header frame, even
+	 * when the payload length is zero (e.g. WINK/LOCK ack). */
+	if (h->tx_len == 0 && n < max_out) {
+		uint8_t *p = out[n];
+		memset(p, 0, CTAPHID_PACKET_SIZE);
+		put_u32(p, h->cid_target);
+		p[4] = (uint8_t)(h->tx_cmd | 0x80);
+		put_u16(p + 5, 0);
+		h->tx_sent = 1;
+		n++;
+	}
 	while (h->tx_sent < h->tx_len && n < max_out) {
 		uint8_t *p = out[n];
 		memset(p, 0, CTAPHID_PACKET_SIZE);

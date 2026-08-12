@@ -50,6 +50,11 @@ void screen_run_recover(void);
  * USB-Serial-JTAG port. See link_esp.c. Returns on tap. */
 void screen_run_link_host(void);
 
+/* FIDO (F3 transport): PIN-unlock (A6) then serve CTAPHID frames over the
+ * TinyUSB HID interface (usb_desc.c / fido_esp.c). Per-request confirm
+ * screen is F5. Returns on tap. */
+void screen_run_fido(void);
+
 /* About: show hardware and firmware version, tap to return. */
 void screen_run_about(void);
 

@@ -58,6 +58,8 @@ idf_component_register(
         "keypad.c"
         "screen.c"
         "link_esp.c"
+        "usb_desc.c"
+        "fido_esp.c"
         "ui.c"
         "board_s3.c"
         "entropy_s3.c"
@@ -67,7 +69,7 @@ idf_component_register(
     REQUIRES
         mbedtls esp_lcd esp_driver_spi esp_driver_gpio esp_driver_i2c
         esp_driver_usb_serial_jtag spi_flash bootloader_support esp_app_format
-        esp_driver_tsens esp_timer nvs_flash
+        esp_driver_tsens esp_timer nvs_flash esp_tinyusb
 )
 
 target_compile_definitions(${COMPONENT_LIB} PUBLIC ESP_PLATFORM=1)

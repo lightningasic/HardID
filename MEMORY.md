@@ -26,6 +26,35 @@
 - **已提交**: `32ec4fb` (feat) 推送前待推; 下一步 F3 on-board 部分
   （usb_desc.c TinyUSB composite HID 0xF1D0+CDC + fido_esp.c）需网络/真机。
 
+## 已完成 (FIDO F3 on-board 胶合代码, commit WIP, 2026-08-12)
+- **`esp-idf-s3/components/hardid/usb_desc.c`** (新增): TinyUSB composite
+  描述符——配置头(9B) + IAD | CDC-ACM | CDC data | FIDO HID，共 138B，
+  全部**手排原始字节**（对齐 TinyUSB sample 风格），已用 Python 模型逐段
+  校验（wTotalLength=138、report 长度字段=31、端点号一致）。
+  - FIDO HID: usage page 0xF1D0 / usage 0x01, report id 1, 64B
+    IN/OUT interrupt EP, VID 0x1209 / PID 0xF1D0。
+  - CDC: ACM + union, notify EP 0x81, bulk 0x03/0x82 —— linkproto/HOST
+    LINK 经 composite CDC 共存（设计 §1.1/§2/§10）。
+- **`esp-idf-s3/components/hardid/fido_esp.c`** (新增): 薄胶合层。
+  - TinyUSB HID OUT 回调 → 8 槽 ring FIFO → fido_task 泵入 `ctaphid_feed`
+    → `ctap2_handle` (dispatch，与 host 验证配置逐字节一致) → staged 帧
+    → `tud_hid_report` 逐包发 IN。全在 core/ 的 host 单测覆盖同一路径。
+  - `screen_run_fido()`: 设备 PIN 门(决策 A6，与 link_esp 同款) → 起
+    fido_task → "FIDO serving / plug into a browser / BACK"屏。
+  - `fido_confirm_ui`: 连线 core 确认钩子 (core/ctap2 缺省 NULL=DENY 兜底
+    A3)，F3 先用朴素 Yes/No，F5 再做丰富渲染。
+- **ui.c/screen.h 接线**: 主菜单 MENU_COUNT 7→8，新增 "FIDO" 项
+  (index 4) → 调 `screen_run_fido()`; screen.h 声明对应入口。
+- **CMakeLists.txt (S3)**: SRCS 增 usb_desc.c/fido_esp.c; REQUIRES 增
+  `esp_tinyusb`。
+- **验证**: usb_desc.c/fido_esp.c 均通过 -fsyntax-only（stub tusb/esp 头）。
+  **编译/真机验证受阻**: 本机无网络拉 esp_tinyusb 托管组件 + 无 S3 硬件。
+  F3 出口标准（真机 lsusb 见 FIDO 设备 + linkproto 经 CDC 仍通）必须
+  在有网络的硬件环境跑。
+- **已知 F5 待办**: confirm 屏富渲染（RP 域名滚动/截断、Yes/No、signCount
+  变更提示）；confirm 阻塞期间 RX ring 可能溢出丢帧（浏览器保持信道开放，
+  慢确认场景）——终极解是 CTAPHID KEEPALIVE，F5 处理。
+
 ## 已完成 (FIDO F4: CTAP2 + CTAPHID + cbor core, commit `597b5ec`, 2026-08-12)
 - **F4 出口标准全绿**: 30/30 host 套件 PASS (CI 循环), fuzz 200k ASan/UBSan 干净,
   S3+P4 两个 CMakeLists 均已含 FIDO 源。

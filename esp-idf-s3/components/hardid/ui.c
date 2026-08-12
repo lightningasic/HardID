@@ -23,11 +23,11 @@
 #include "secure_zero.h"
 #include "ui.h"
 
-#define MENU_COUNT 7
+#define MENU_COUNT 8
 
 static const char *const s_items[MENU_COUNT] = {
-	"INITIALIZE", "SIGN", "RECOVER", "HOST LINK", "FACTORY RESET",
-	"ABOUT", "APP MARKET",
+	"INITIALIZE", "SIGN", "RECOVER", "HOST LINK", "FIDO",
+	"FACTORY RESET", "ABOUT", "APP MARKET",
 };
 
 static int s_sel = 0;
@@ -163,9 +163,10 @@ static void menu_run_sel(int item)
 	case 1: screen_run_sign();          break;
 	case 2: screen_run_recover();       break;
 	case 3: screen_run_link_host();     break;
-	case 4: screen_run_factory_reset(); break;
-	case 5: screen_run_about();         break;
-	case 6: screen_run_apps();          break;
+	case 4: screen_run_fido();          break;
+	case 5: screen_run_factory_reset(); break;
+	case 6: screen_run_about();         break;
+	case 7: screen_run_apps();          break;
 	}
 }
 

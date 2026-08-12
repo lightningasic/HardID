@@ -1,5 +1,31 @@
 # MEMORY.md
 
+## 已完成 (FIDO F3 host 层: CTAPHID→CTAP2 端到端, commit `32ec4fb`, 2026-08-12)
+- **F3 = TinyUSB composite 上板**（设计文档 §8 表）——真机上板部分本机受阻
+  （无网络拉 esp_tinyusb 托管组件 + 无 S3 硬件），本里程碑交付 host 可验证的
+  **端到端帧层测试**（USB HID 回调将运行的真实路径），30/30 CI 套件 + fuzz
+  50k ASan/UBSan 全绿。
+- **合规修复 (ctap2.c)**: CTAP2 §6.1.9 —— `options.up` 缺省必须是 true。
+  原实现跳过 options map，UP 位永不置位。新增 `parse_options()`（key 0x01=up、
+  0x02=uv 容忍忽略 A2、缺省 true），接入 makeCredential K_OPTIONS 与
+  getAssertion K_GA_OPTIONS；两处 handler 显式 `up_required=true`。
+- **帧层 bug (fido_ctaphid.c)**: `emit_tx` 对 tx_len==0 的 staged 消息
+  （WINK/LOCK ack）永不发帧 —— `while(0<0)` 直接返回 0。修复后零长消息
+  也先发一个 bcnt=0 的 INIT 头帧（spec 要求响应至少一帧）。
+- **tests/test_ctaphid_net.c** (新增, 26 pass): 真实 INIT/CONT 多包帧 →
+  ctap2 dispatch → fido_core → mock SE → 应答重组。覆盖 INIT 协商
+  （非ce回显/cid 分配/caps 位于 out[0][23]=0x04）、GetInfo、多包
+  makeCredential + authData 字段解析（AAGUID "hardid"、UP/AT 旗标、
+  credIdLen 0x0015=21）、getAssertion 64B 签名存在、线级拒绝、乱序/超长
+  帧错误、未知 CID、WINK ack。
+- **踩坑**: ① `ACCUM` 宏参数若是函数调用 `ctaphid_feed(...)` 会被循环
+  `i<(k)` 反复求值 → 每轮重复 feed 丢帧/错帧（必须先用局部变量捕获返回
+  值）; ② INIT 应答 caps 是 out[0][23] 非 [20]（载荷 17B:
+  nonce8+cid4+proto1+maj1+min1+bld1+caps1）; ③ cbor_writer 字段名是
+  `len` 非 `pos`; ④ makecred/getassert 请求必须先写 CBOR map head。
+- **已提交**: `32ec4fb` (feat) 推送前待推; 下一步 F3 on-board 部分
+  （usb_desc.c TinyUSB composite HID 0xF1D0+CDC + fido_esp.c）需网络/真机。
+
 ## 已完成 (FIDO F4: CTAP2 + CTAPHID + cbor core, commit `597b5ec`, 2026-08-12)
 - **F4 出口标准全绿**: 30/30 host 套件 PASS (CI 循环), fuzz 200k ASan/UBSan 干净,
   S3+P4 两个 CMakeLists 均已含 FIDO 源。

@@ -1,5 +1,32 @@
 # MEMORY.md
 
+## 已完成 (FIDO F4: CTAP2 + CTAPHID + cbor core, commit `597b5ec`, 2026-08-12)
+- **F4 出口标准全绿**: 30/30 host 套件 PASS (CI 循环), fuzz 200k ASan/UBSan 干净,
+  S3+P4 两个 CMakeLists 均已含 FIDO 源。
+- **`core/cbor.c/.h`** (新增): canonical CBOR writer/reader, 深度上限 8 +
+  item budget; 修 reader 未推进 pos 的 bug (info<24); 26 项 host 测试。
+- **`core/ctap2.c/.h`** (新增): makeCredential/getAssertion 请求解析 +
+  指令分发; GetInfo 由 fido_core 直出; pkcp 必须含 alg -7 (否则 0x26)。
+- **`core/fido_core.c/.h`** (新增): attestationObject (fmt "none") +
+  authenticatorData 拼装; **ES256 签名对象是 SHA-256(authData||clientDataHash)
+  而非裸拼接 (审计发现并修复)**; 确认门: 无 confirm handler 即 OPERATION_DENIED;
+  GetInfo 10 键 map。
+- **`core/fido_ctaphid.c/.h`** (新增): INIT/CONT 帧状态机、广播 CID 分配、
+  maxMsg 7609、CBOR status 前置、CTAP1 MSG 拒绝、逐包 drain; 27 项测试
+  (含 120B 三包重组、乱序 CONT、超长 BCNT、未知 CID、drain)。
+- **`core/se_mock.c` 修复两 bug**: ① mock_fido_tag 栈溢出 (44B 写 51B);
+  ② credID 布局对齐设计 §4.1 — epoch(1B)||cred_idx(4B)||tag(16B)=21B
+  (原 mock 24B 溢出 21B 数组)。`fido_cred_sign` 签名对象即 digest32 (fido_core
+  负责预哈希), epoch/tag 校验失败 → SE_ERR_AUTH 不签名。
+- **`tests/test_fido.c`** (新增, 36 pass): 注册/断言全流程 + **真实验签**
+  (t3c: SE 公钥 + SHA-256 预哈希 + tamper/wrong-msg 拒收) + 伪造 epoch 拒收 +
+  signCount 单调 + 空 allowList + EdDSA 拒绝 + reset 失效凭证。
+- **踩坑**: ① fido_core 曾把 69B 拼接 (authData||cdh) 直接传 SE 当 digest32 —
+  SE 不会内部哈希, 必须 fido_core 先 SHA-256; ② os_secp256r1_verify 返回
+  1=valid/0=invalid (不是 errno 风格), 测试断言方向别写反。
+- **遗留 (非本轮)**: tests/test_hkdf.c 与 test_rfc6979 是陈旧文件, 不在 CI
+  循环内 (hkdf 由 CI 显式加 hkdf.c; rfc6979 无 .c 源), 未清理。
+
 ## 已完成 (FIDO F2: secp256r1 P-256 软实现 + host 单测, commit `67f5753`, 2026-08-12)
 - **F2 里程碑出口标准全绿**: RFC6979 双过 + Python 对齐 + CI 入套件。
 - **`core/secp256r1.c/.h`** (新增): clean-room P-256 域/点/ECDSA, 4x64 limbs +

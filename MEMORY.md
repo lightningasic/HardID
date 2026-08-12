@@ -1,5 +1,30 @@
 # MEMORY.md
 
+## 已完成 (FIDO F2: secp256r1 P-256 软实现 + host 单测, commit `67f5753`, 2026-08-12)
+- **F2 里程碑出口标准全绿**: RFC6979 双过 + Python 对齐 + CI 入套件。
+- **`core/secp256r1.c/.h`** (新增): clean-room P-256 域/点/ECDSA, 4x64 limbs +
+  __int128, Jacobian 坐标。公钥未压缩 65B (WebAuthn COSE ES256 要求, 与 k1 的
+  33B 压缩 API 不同, header 已注明)。NOT constant-time。
+- **`core/rfc6979.c/.h`** (重构): 群阶参数化 — 新增 `os_rfc6979_nonce_n(nbe32,..)`;
+  原 `os_rfc6979_nonce` 保留为 secp256k1 包装 (SECP256K1_ORDER 常量), ecdsa.c 零改动。
+- **`tests/test_secp256r1.c`** (新增): 10 项 — RFC6979 A.2.5 k 向量 KAT、
+  pubkey KAT (RFC priv→Ux/Uy)、sign KAT (low-s 归一)、raw high-s RFC sig 验签、
+  压缩公钥 + fe_sqrt 路径、point_add(G,G)==2G、scalar add/mul/inv、roundtrip
+  (keys 1-5 × 2 msg)、malformed 拒收、wrong msg/损坏 sig 拒收。
+- **Python 逐字节对齐** (cryptography 41): 50 pubkey 逐字节相等 + 50 sig 独立验签
+  (Prehashed + DER) + 20 组 scalar add/mul/inv — 全 PASS。
+- **踩坑记录 (重要)**: ① 初版曲线常量整体字节序颠倒 (P/N/GX/GY/B 全错) →
+  RFC vector 全挂; 修复并独立重算; ② `fe_sqrt` 的 (p+1)/4 指数原是逐 limb 加
+  1 丢弃进位 → 压缩公钥解析必挂; 改硬编码 E_SQRT 常量; ③ Python cryptography
+  的 ECDSA verify 必须 `encode_dss_signature(r,s)` 转 DER + `Prehashed`, 传裸
+  r||s 必拒; ④ RFC6979 向量用纯 Python hmac 复算 k 与 RFC 一致, 但纯 Python
+  点乘有 bug (r 对不上) → 改以 cryptography 算 r。
+- **循环审计顺带修复**: `hal/se_composite.c` comp_verify_pin 把 errno 风格 rc (0/-2/-3)
+  与状态字 SE_SW_OK(0x9000)/SE_SW_LOCKED(0x6983) 直接比较 → 恒等 SE_ERR_AUTH,
+  **t3 verify_pin 预存失败根因** (此前 MEMORY 多次记"composite t3 预存失败除外")。
+  现已修复, composite 全绿 — 26/26 套件全绿, fuzz 50k 干净。
+- 已推送 (4a3b9ed..67f5753)。
+
 ## 已完成 (循环代码审计 3 轮 + 自动修复, commits `3f1968d`/`fcd6b40`/`afde203`, 2026-08-11)
 - **第1轮 (熵代码)**: phys_entropy extract out_len>32 尾部未初始化 → 清零;
   mix_one 死分支删除; entropy_s3 无条件 got=1 死分支修复; entropy_p4 补 got

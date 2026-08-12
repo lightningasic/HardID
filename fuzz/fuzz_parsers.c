@@ -20,6 +20,7 @@
 #include "../core/clearsign.h"
 #include "../core/eip712.h"
 #include "../core/keccak.h"
+#include "../core/cbor.h"
 
 /* deterministic PRNG so failures reproduce */
 static uint64_t rng_state;
@@ -111,6 +112,23 @@ static size_t build_evm(uint8_t *o, size_t cap)
 	return h+t;
 }
 
+/* Valid CBOR seed: a map of the shape a CTAP2 request may carry. */
+static size_t build_cbor(uint8_t *o, size_t cap)
+{
+	cbor_writer_t w;
+	cbor_writer_init(&w, o, cap);
+	if (cbor_write_map_head(&w, 2) ||
+	    cbor_write_uint(&w, 1) ||
+	    cbor_write_bytes(&w, "\xaa\xbb\xcc\xdd", 4) ||
+	    cbor_write_uint(&w, 2) ||
+	    cbor_write_array_head(&w, 3) ||
+	    cbor_write_uint(&w, 0) || cbor_write_int(&w, -7) ||
+	    cbor_write_bool(&w, true) ||
+	    cbor_write_text(&w, "public-key"))
+		return 0;
+	return w.len;
+}
+
 /* ---- targets ---- */
 
 static void fuzz_psbt(const uint8_t *d, size_t n)
@@ -148,6 +166,33 @@ static void fuzz_domain(const uint8_t *d, size_t n)
 	uint8_t out[32];
 	os_eip712_domain_separator(&dom, out);
 }
+static void fuzz_cbor(const uint8_t *d, size_t n)
+{
+	/* Drive the bounded decoder over hostile input: skip the whole doc,
+	 * then a second pass decoding the head of each element. */
+	cbor_reader_t rd;
+	cbor_reader_init(&rd, d, n, 4096);
+	while (cbor_peek_type(&rd, &(uint8_t){0}, &(uint8_t){0}) == CBOR_OK)
+		if (cbor_skip(&rd) != CBOR_OK)
+			break;
+	cbor_reader_init(&rd, d, n, 1024);
+	size_t members = 0;
+	if (cbor_read_map_head(&rd, &members) == CBOR_OK) {
+		for (size_t i = 0; i < members; i++) {
+			uint64_t key;
+			if (cbor_read_uint(&rd, &key) != CBOR_OK)
+				break;
+			/* parse value best-effort against array/bytes/etc */
+			cbor_reader_t t = rd;
+			uint64_t v;
+			if (cbor_read_uint(&t, &v) != CBOR_OK &&
+			    cbor_read_int(&t, (int64_t *)&v) != CBOR_OK)
+				cbor_skip(&rd);
+			else
+				rd = t;
+		}
+	}
+}
 
 /* ---- mutation ---- */
 
@@ -172,11 +217,13 @@ int main(int argc, char **argv)
 	size_t n_psbt = build_psbt(seed_psbt, sizeof seed_psbt);
 	size_t n_evm = build_evm(seed_evm, sizeof seed_evm);
 	uint8_t work[1024];
+	uint8_t seed_cbor[256];
+	size_t seed_cbor_n = build_cbor(seed_cbor, sizeof seed_cbor);
 
 	rng_state = 0x853c49e6748fea9bULL;
 
 	for (long i = 0; i < iters; i++) {
-		int target = frand() % 4;
+		int target = frand() % 5;
 		int mode = frand() % 10;
 		size_t n;
 
@@ -184,14 +231,17 @@ int main(int argc, char **argv)
 			/* pure random bytes */
 			n = frand() % 300;
 			for (size_t k = 0; k < n; k++) work[k] = fbyte();
-		} else if (target == 0 || target == 1) {
+		} else if (target == 0 || target == 1 || target == 4) {
 			/* mutate valid structure */
 			if (target == 0) {
 				n = n_psbt < sizeof work ? n_psbt : sizeof work;
 				memcpy(work, seed_psbt, n);
-			} else {
+			} else if (target == 1) {
 				n = n_evm < sizeof work ? n_evm : sizeof work;
 				memcpy(work, seed_evm, n);
+			} else {
+				n = seed_cbor_n < sizeof work ? seed_cbor_n : sizeof work;
+				memcpy(work, seed_cbor, n);
 			}
 			mutate(work, n, mode > 5);
 			/* occasionally truncate */
@@ -201,7 +251,7 @@ int main(int argc, char **argv)
 			/* structured-ish random */
 			n = frand() % 200;
 			for (size_t k = 0; k < n; k++) work[k] = fbyte();
-			if (n >= 5 && frand() % 2) memcpy(work, "psbt\xff", 5);
+			if (n >= 5 && frand() % 3 == 0) work[0] = 0xa3;  /* map-ish */
 		}
 
 		switch (target) {
@@ -209,6 +259,7 @@ int main(int argc, char **argv)
 		case 1: fuzz_evm(work, n); break;
 		case 2: fuzz_keccak(work, n); break;
 		case 3: fuzz_domain(work, n); break;
+		case 4: fuzz_cbor(work, n); break;
 		}
 	}
 

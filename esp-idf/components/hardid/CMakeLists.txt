@@ -47,6 +47,11 @@ idf_component_register(
         "${HARDID_ROOT}/core/boot.c"
         "${HARDID_ROOT}/core/linkproto.c"
         "${HARDID_ROOT}/core/linksvc.c"
+        "${HARDID_ROOT}/core/secp256r1.c"
+        "${HARDID_ROOT}/core/cbor.c"
+        "${HARDID_ROOT}/core/fido_core.c"
+        "${HARDID_ROOT}/core/ctap2.c"
+        "${HARDID_ROOT}/core/fido_ctaphid.c"
         ${HARDID_SE_SRCS}
         "font7.c"
         "font8x16.c"

@@ -1,0 +1,256 @@
+/*
+ * HardID Hardware Wallet — FIDO core (credential lifecycle)
+ * Copyright (C) 2026 LightningASIC / HardID contributors
+ *
+ * Clean-room reimplementation. Not derived from TREZOR code.
+ * License: Apache License 2.0
+ *
+ * makeCredential / getAssertion / GetInfo. Design doc 09 §4/§5/§6.
+ * All key material lives in the SE; this module assembles the public
+ * authenticatorData + attestationObject and applies the user-presence
+ * confirm gate (design A3: never sign without confirmation).
+ */
+
+#include "fido_core.h"
+#include "cbor.h"
+#include "hkdf.h"
+#include "sha256.h"
+#include <string.h>
+
+/* Product AAGUID (design A1): fixed at build time, 16 bytes. */
+const uint8_t fido_aaguid[FIDO_AAGUID_LEN] = {
+	0x68, 0x61, 0x72, 0x64, 0x69, 0x64, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01
+};
+
+static fido_confirm_fn confirm_handler;
+
+void fido_set_confirm_handler(fido_confirm_fn fn)
+{
+	confirm_handler = fn;
+}
+
+static const se_driver_t *se(void)
+{
+	return se_active();
+}
+
+/* Attach the SE-backed make/sign interfaces if present; NULL when the
+ * backend has no P-256 yet (design A5). */
+static bool fido_se_available(void)
+{
+	return se()->fido_cred_make != NULL && se()->fido_cred_sign != NULL &&
+	       se()->fido_signcount_read != NULL;
+}
+
+/* ---- GetInfo (design §3.2) ---- */
+int fido_getinfo(uint8_t *resp, size_t resp_cap, size_t *resp_len)
+{
+	cbor_writer_t w;
+	cbor_writer_init(&w, resp, resp_cap);
+	if (cbor_write_map_head(&w, 10) != CBOR_OK)
+		return CTAP1_ERR_OTHER;
+
+	/* 0x01 versions: ["FIDO_2_0"] */
+	if (cbor_write_uint(&w, 1) || cbor_write_array_head(&w, 1) ||
+	    cbor_write_text(&w, "FIDO_2_0"))
+		return CTAP1_ERR_OTHER;
+	/* 0x02 extensions: [] */
+	if (cbor_write_uint(&w, 2) || cbor_write_array_head(&w, 0))
+		return CTAP1_ERR_OTHER;
+	/* 0x03 aaguid */
+	if (cbor_write_uint(&w, 3) || cbor_write_bytes(&w, fido_aaguid, 16))
+		return CTAP1_ERR_OTHER;
+	/* 0x04 options: rk=false, up=true, uv=false, clientPin=false */
+	if (cbor_write_uint(&w, 4) || cbor_write_map_head(&w, 4) ||
+	    cbor_write_text(&w, "rk") || cbor_write_bool(&w, false) ||
+	    cbor_write_text(&w, "up") || cbor_write_bool(&w, true) ||
+	    cbor_write_text(&w, "uv") || cbor_write_bool(&w, false) ||
+	    cbor_write_text(&w, "clientPin") || cbor_write_bool(&w, false))
+		return CTAP1_ERR_OTHER;
+	/* 0x05 maxMsgSize */
+	if (cbor_write_uint(&w, 5) || cbor_write_uint(&w, FIDO_GETINFO_MAX_MSG_SIZE))
+		return CTAP1_ERR_OTHER;
+	/* 0x06 pinUvAuthProtocols: [] */
+	if (cbor_write_uint(&w, 6) || cbor_write_array_head(&w, 0))
+		return CTAP1_ERR_OTHER;
+	/* 0x07 maxCredentialCountInList */
+	if (cbor_write_uint(&w, 7) || cbor_write_uint(&w, FIDO_GETINFO_MAX_CRED_COUNT))
+		return CTAP1_ERR_OTHER;
+	/* 0x08 maxCredentialIdLength */
+	if (cbor_write_uint(&w, 8) || cbor_write_uint(&w, FIDO_GETINFO_MAX_CRED_ID_LEN))
+		return CTAP1_ERR_OTHER;
+	/* 0x09 transports: ["usb"] */
+	if (cbor_write_uint(&w, 9) || cbor_write_array_head(&w, 1) ||
+	    cbor_write_text(&w, "usb"))
+		return CTAP1_ERR_OTHER;
+	/* 0x0A algorithms: [{"type":"public-key","alg":-7}] */
+	if (cbor_write_uint(&w, 10) || cbor_write_array_head(&w, 1) ||
+	    cbor_write_map_head(&w, 2) ||
+	    cbor_write_text(&w, "alg") || cbor_write_int(&w, COSE_ALG_ES256) ||
+	    cbor_write_text(&w, "type") || cbor_write_text(&w, "public-key"))
+		return CTAP1_ERR_OTHER;
+
+	*resp_len = w.len;
+	return CTAP2_OK;
+}
+
+/* ---- COSE EC2 public key (uncompressed 65B -> CBOR map) ---- */
+static int write_cose_pubkey(cbor_writer_t *w, const uint8_t pub65[65])
+{
+	if (pub65[0] != 0x04)
+		return CBOR_ERR_TYPE;
+	/* map: {1:kty,3:alg,-1:crv,-2:x,-3:y} in canonical (ascending) key
+	 * order: -3, -2, -1, 1, 3 */
+	if (cbor_write_map_head(w, 5))
+		return CBOR_ERR_OVERFLOW;
+	if (cbor_write_int(w, -3) || cbor_write_bytes(w, pub65 + 33, 32))
+		return CBOR_ERR_OVERFLOW;
+	if (cbor_write_int(w, -2) || cbor_write_bytes(w, pub65 + 1, 32))
+		return CBOR_ERR_OVERFLOW;
+	if (cbor_write_int(w, -1) || cbor_write_uint(w, COSE_CRV_P256))
+		return CBOR_ERR_OVERFLOW;
+	if (cbor_write_uint(w, 1) || cbor_write_uint(w, COSE_KTY_EC2))
+		return CBOR_ERR_OVERFLOW;
+	if (cbor_write_uint(w, 3) || cbor_write_int(w, COSE_ALG_ES256))
+		return CBOR_ERR_OVERFLOW;
+	return CBOR_OK;
+}
+
+/* Build authData with attested credential data:
+ *   rpIdHash(32) || flags(1) || signCount(4 BE) ||
+ *   aaguid(16) || credIdLen(2 BE) || credID || cosePubkey
+ * Returns bytes written to out, or -1. */
+static int build_attested_authdata(const uint8_t rp_hash32[32],
+                                   uint8_t flags,
+                                   const uint8_t zero_cnt[4],
+                                   const uint8_t credid[FIDO_CREDID_LEN],
+                                   const uint8_t pub65[65],
+                                   uint8_t *out, size_t out_cap)
+{
+	cbor_writer_t cose;
+	uint8_t cosebuf[128];
+	cbor_writer_init(&cose, cosebuf, sizeof cosebuf);
+	if (write_cose_pubkey(&cose, pub65) != CBOR_OK)
+		return -1;
+
+	size_t n = FIDO_AT_HEADER_LEN + FIDO_AAGUID_LEN + 2 +
+	           FIDO_CREDID_LEN + cose.len;
+	if (n > out_cap)
+		return -1;
+	memcpy(out, rp_hash32, 32);
+	out[32] = flags;
+	memcpy(out + 33, zero_cnt, 4);
+	memcpy(out + 37, fido_aaguid, 16);
+	out[53] = (uint8_t)(FIDO_CREDID_LEN >> 8);
+	out[54] = (uint8_t)FIDO_CREDID_LEN;
+	memcpy(out + 55, credid, FIDO_CREDID_LEN);
+	memcpy(out + 55 + FIDO_CREDID_LEN, cosebuf, cose.len);
+	return (int)n;
+}
+
+/* ---- makeCredential ---- */
+int fido_make_credential(const fido_make_cred_req_t *req,
+                         uint8_t *resp, size_t resp_cap, size_t *resp_len)
+{
+	if (!fido_se_available())
+		return CTAP2_ERR_UNSUPPORTED_ALGORITHM;  /* design A5 */
+
+	/* User presence confirm (design A2/A3). Default handler denies. */
+	if (confirm_handler && !confirm_handler(req->rp_name, true))
+		return CTAP2_ERR_OPERATION_DENIED;
+	if (!confirm_handler)
+		return CTAP2_ERR_OPERATION_DENIED;
+
+	uint8_t credid[FIDO_CREDID_LEN];
+	uint8_t pub65[65];
+	int rc = se()->fido_cred_make(req->rp_id_hash, pub65, credid);
+	if (rc != SE_OK)
+		return CTAP2_ERR_PROCESSING;
+
+	/* authData: flags AT|UP, signCount 0 */
+	uint8_t flags = FIDO_AT_FLAG_AT;
+	if (req->up_required)
+		flags |= FIDO_AT_FLAG_UP;
+	static const uint8_t zero_cnt[4] = {0, 0, 0, 0};
+	uint8_t authdata[FIDO_AT_HEADER_LEN + FIDO_AAGUID_LEN + 2 +
+	                  FIDO_CREDID_LEN + 128];
+	int adlen = build_attested_authdata(req->rp_id_hash, flags, zero_cnt,
+	                                    credid, pub65,
+	                                    authdata, sizeof authdata);
+	if (adlen < 0)
+		return CTAP2_ERR_PROCESSING;
+
+	/* attestationObject = {fmt:"none", authData, attStmt:{}} (design A1) */
+	cbor_writer_t w;
+	cbor_writer_init(&w, resp, resp_cap);
+	if (cbor_write_map_head(&w, 3) ||
+	    cbor_write_uint(&w, 1) || cbor_write_text(&w, "none") ||
+	    cbor_write_uint(&w, 2) || cbor_write_bytes(&w, authdata, (size_t)adlen) ||
+	    cbor_write_uint(&w, 3) || cbor_write_map_head(&w, 0))
+		return CTAP1_ERR_OTHER;
+	*resp_len = w.len;
+	return CTAP2_OK;
+}
+
+/* ---- getAssertion ---- */
+int fido_get_assertion(const fido_get_assert_req_t *req,
+                       uint8_t *resp, size_t resp_cap, size_t *resp_len)
+{
+	if (!fido_se_available())
+		return CTAP2_ERR_UNSUPPORTED_ALGORITHM;  /* design A5 */
+
+	/* User presence confirm BEFORE signing (design A3: no silent pulls). */
+	if (!confirm_handler)
+		return CTAP2_ERR_OPERATION_DENIED;
+	if (!confirm_handler(req->rp_name, false))
+		return CTAP2_ERR_OPERATION_DENIED;
+
+	if (req->allowlist_credid_len == 0)
+		return CTAP2_ERR_NO_CREDENTIALS;
+
+	/* authData: flags UP, signCount (SE-internal counter, §4.3) */
+	uint32_t sc = 0;
+	if (se()->fido_signcount_read(&sc) != SE_OK)
+		return CTAP2_ERR_PROCESSING;
+	uint8_t flags = req->up_required ? FIDO_AT_FLAG_UP : 0;
+	uint8_t authdata[FIDO_AT_HEADER_LEN];
+	memcpy(authdata, req->rp_id_hash, 32);
+	authdata[32] = flags;
+	authdata[33] = (uint8_t)(sc >> 24);
+	authdata[34] = (uint8_t)(sc >> 16);
+	authdata[35] = (uint8_t)(sc >> 8);
+	authdata[36] = (uint8_t)sc;
+
+	/* signature over SHA-256(authData || clientDataHash) — ES256 is
+	 * ECDSA-over-SHA-256, so the SE signs the 32-byte hash, not the raw
+	 * concatenation (WebAuthn verifies the hash in the same step). */
+	uint8_t prehash[FIDO_AT_HEADER_LEN + 32];
+	memcpy(prehash, authdata, sizeof authdata);
+	memcpy(prehash + sizeof authdata, req->client_data_hash, 32);
+	uint8_t digest[32];
+	os_sha256(prehash, sizeof prehash, digest);
+	os_secure_bzero(prehash, sizeof prehash);
+	uint8_t sig64[64];
+	int rc = se()->fido_cred_sign(req->allowlist_credid,
+	                              req->rp_id_hash, digest, sig64);
+	os_secure_bzero(digest, sizeof digest);
+	if (rc == SE_ERR_AUTH)
+		return CTAP2_ERR_INVALID_CREDENTIAL;  /* tag/epoch mismatch */
+	if (rc != SE_OK)
+		return CTAP2_ERR_PROCESSING;
+
+	/* response: {1:credential{1:id,2:type}, 2:authData, 3:signature} */
+	cbor_writer_t w;
+	cbor_writer_init(&w, resp, resp_cap);
+	if (cbor_write_map_head(&w, 3) ||
+	    cbor_write_uint(&w, 1) || cbor_write_map_head(&w, 2) ||
+	    cbor_write_uint(&w, 1) ||
+	    cbor_write_bytes(&w, req->allowlist_credid, req->allowlist_credid_len) ||
+	    cbor_write_uint(&w, 2) || cbor_write_text(&w, "public-key") ||
+	    cbor_write_uint(&w, 2) || cbor_write_bytes(&w, authdata, sizeof authdata) ||
+	    cbor_write_uint(&w, 3) || cbor_write_bytes(&w, sig64, 64))
+		return CTAP1_ERR_OTHER;
+	*resp_len = w.len;
+	return CTAP2_OK;
+}

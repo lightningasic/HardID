@@ -13,6 +13,8 @@
 #include "se_driver.h"
 #include "secure_zero.h"
 #include "sha512.h"
+#include "hkdf.h"
+#include "secp256r1.h"
 #include <string.h>
 
 /* ---- mock backend state (host tests / emulator only) ---- */
@@ -25,6 +27,16 @@ static uint32_t mock_rng_seq;
 static uint8_t  mock_pin[8];
 static size_t   mock_pin_len;
 static bool     mock_unlocked;   /* session unlocked by a successful PIN verify */
+
+/* ---- mock FIDO2 state (design doc 09 §4) ----
+ * The FIDO master key, epoch and cred_idx counters live only in the SE.
+ * credIDs are opaque self-describing blobs computed and validated here;
+ * the MCU only passes them through. Everything is persisted so FIDO
+ * credentials survive reboots on the emulator build (RAM-only otherwise). */
+static uint32_t mock_fido_epoch;    /* advanced by authenticatorReset (only
+                                       invalidates FIDO creds, never seed) */
+static uint32_t mock_fido_cred_idx; /* per-credential allocator, NVM-backed */
+static uint32_t mock_fido_signcount;/* global assertion counter, NVM-backed */
 
 #if defined(ESP_PLATFORM)
 #include "nvs_flash.h"
@@ -48,6 +60,9 @@ static void mock_nvs_save(void)
 		nvs_set_blob(h, "seed", mock_seed, sizeof mock_seed);
 	if (mock_pin_len)
 		nvs_set_blob(h, "pin", mock_pin, mock_pin_len);
+	nvs_set_u32(h, "fido_epoch", mock_fido_epoch);
+	nvs_set_u32(h, "fido_idx", mock_fido_cred_idx);
+	nvs_set_u32(h, "fido_sigcnt", mock_fido_signcount);
 	nvs_commit(h);
 	nvs_close(h);
 }
@@ -72,6 +87,12 @@ static void mock_nvs_load(void)
 	len = sizeof mock_pin;
 	if (nvs_get_blob(h, "pin", mock_pin, &len) == ESP_OK)
 		mock_pin_len = len;
+	if (nvs_get_u32(h, "fido_epoch", &mock_fido_epoch) != ESP_OK)
+		mock_fido_epoch = 0;
+	if (nvs_get_u32(h, "fido_idx", &mock_fido_cred_idx) != ESP_OK)
+		mock_fido_cred_idx = 0;
+	if (nvs_get_u32(h, "fido_sigcnt", &mock_fido_signcount) != ESP_OK)
+		mock_fido_signcount = 0;
 	nvs_close(h);
 }
 
@@ -191,6 +212,9 @@ static int mock_wipe(void)
 	memset(mock_pin, 0, sizeof(mock_pin));
 	mock_pin_len = 0;
 	mock_unlocked = false;
+	mock_fido_epoch = 0;
+	mock_fido_cred_idx = 0;
+	mock_fido_signcount = 0;
 	mock_nvs_erase();
 	return SE_OK;
 }
@@ -236,6 +260,132 @@ static int mock_attest(const uint8_t *ch32, uint8_t *resp, size_t *resp_len)
 	return SE_OK;
 }
 
+/* ---- mock FIDO2 (design doc 09 §4/§5.2) ----
+ * Mirror of the KDF a real SE backend implements in hardware:
+ *   master  = mock_seed (the SE-internal root; never leaves this file)
+ *   priv    = HMAC-SHA256(master, "fido-p256" || epoch || cred_idx)
+ *   credID  = epoch(4B BE) || cred_idx(4B BE) || tag(16B)
+ *   tag     = HMAC-SHA256(master, "fido-credid" || epoch || cred_idx
+ *                         || rp_hash32)[0:16]
+ * epoch/cred_idx are NVM-backed so credentials are idempotently
+ * re-derivable after reboot. FIDO keys live in this file only. */
+
+static void mock_fido_priv(const uint8_t rp_hash32[32], uint32_t epoch,
+                           uint32_t cred_idx, uint8_t priv32[32])
+{
+	uint8_t info[9 + 4 + 4];
+	os_secure_bzero(info, sizeof info);
+	memcpy(info, "fido-p256", 9);
+	info[9] = (uint8_t)(epoch >> 24);
+	info[10] = (uint8_t)(epoch >> 16);
+	info[11] = (uint8_t)(epoch >> 8);
+	info[12] = (uint8_t)epoch;
+	info[13] = (uint8_t)(cred_idx >> 24);
+	info[14] = (uint8_t)(cred_idx >> 16);
+	info[15] = (uint8_t)(cred_idx >> 8);
+	info[16] = (uint8_t)cred_idx;
+	(void)rp_hash32;
+	os_hmac_sha256(mock_seed, sizeof mock_seed, info, sizeof info, priv32);
+	os_secure_bzero(info, sizeof info);
+}
+
+static void mock_fido_tag(const uint8_t rp_hash32[32], uint32_t epoch,
+                          uint32_t cred_idx, uint8_t tag[16])
+{
+	/* "fido-credid"(11) || epoch(4 BE) || cred_idx(4 BE) || rp_hash32(32) */
+	uint8_t info[11 + 4 + 4 + 32];
+	os_secure_bzero(info, sizeof info);
+	memcpy(info, "fido-credid", 11);
+	info[11] = (uint8_t)(epoch >> 24);
+	info[12] = (uint8_t)(epoch >> 16);
+	info[13] = (uint8_t)(epoch >> 8);
+	info[14] = (uint8_t)epoch;
+	info[15] = (uint8_t)(cred_idx >> 24);
+	info[16] = (uint8_t)(cred_idx >> 16);
+	info[17] = (uint8_t)(cred_idx >> 8);
+	info[18] = (uint8_t)cred_idx;
+	memcpy(info + 19, rp_hash32, 32);
+	uint8_t h[32];
+	os_hmac_sha256(mock_seed, sizeof mock_seed, info, sizeof info, h);
+	memcpy(tag, h, 16);
+	os_secure_bzero(info, sizeof info);
+	os_secure_bzero(h, sizeof h);
+}
+
+static int mock_fido_cred_make(const uint8_t rp_hash32[32],
+                               uint8_t pub65[65],
+                               uint8_t credid[FIDO_CREDID_LEN])
+{
+	if (!mock_seed_stored)
+		return SE_ERR_STATE;
+	uint32_t idx = mock_fido_cred_idx++;
+	uint8_t priv[32];
+	mock_fido_priv(rp_hash32, mock_fido_epoch, idx, priv);
+	if (os_secp256r1_pubkey(priv, pub65) != 0) {
+		os_secure_bzero(priv, 32);
+		return SE_ERR_INTERNAL;
+	}
+	os_secure_bzero(priv, 32);
+
+	credid[0] = (uint8_t)mock_fido_epoch;
+	credid[1] = (uint8_t)(idx >> 24);
+	credid[2] = (uint8_t)(idx >> 16);
+	credid[3] = (uint8_t)(idx >> 8);
+	credid[4] = (uint8_t)idx;
+	mock_fido_tag(rp_hash32, mock_fido_epoch, idx, credid + 5);
+	mock_nvs_save();
+	return SE_OK;
+}
+
+static int mock_fido_cred_sign(const uint8_t credid[FIDO_CREDID_LEN],
+                               const uint8_t rp_hash32[32],
+                               const uint8_t digest32[32],
+                               uint8_t sig64[64])
+{
+	if (!mock_seed_stored)
+		return SE_ERR_STATE;
+	/* SECURITY INVARIANT: no FIDO signing without a verified session. */
+	if (!mock_unlocked)
+		return SE_ERR_AUTH;
+	/* credID layout (design §4.1): epoch(1B) || cred_idx(4B BE) || tag(16B) */
+	uint32_t epoch = credid[0];
+	uint32_t idx = ((uint32_t)credid[1] << 24) | ((uint32_t)credid[2] << 16) |
+	               ((uint32_t)credid[3] << 8) | credid[4];
+	if (epoch != mock_fido_epoch)
+		return SE_ERR_AUTH;  /* reset (or epoch roll) invalidated this credID */
+
+	uint8_t tag[16];
+	mock_fido_tag(rp_hash32, epoch, idx, tag);
+	if (!os_consttime_eq(tag, credid + 5, 16))
+		return SE_ERR_AUTH;  /* tampered credID / wrong RP — never sign */
+	os_secure_bzero(tag, sizeof tag);
+
+	uint8_t priv[32];
+	mock_fido_priv(rp_hash32, epoch, idx, priv);
+	int rc = os_secp256r1_sign(priv, digest32, sig64);
+	os_secure_bzero(priv, 32);
+	if (rc != 0)
+		return SE_ERR_INTERNAL;
+	mock_fido_signcount++;
+	mock_nvs_save();
+	return SE_OK;
+}
+
+static int mock_fido_signcount_read(uint32_t *count)
+{
+	*count = mock_fido_signcount;
+	return SE_OK;
+}
+
+/* DEV/emulator hook: advance the FIDO epoch (authenticatorReset semantics,
+ * §4.4). Only FIDO credentials are invalidated — the wallet seed/PIN are
+ * deliberately untouched. Real SE backends implement this in NVM. */
+void se_mock_fido_reset(void)
+{
+	mock_fido_epoch++;
+	mock_nvs_save();
+}
+
 /* DEV-ONLY: release the session lock with no PIN. Only wired for the mock
  * backend; production SEs must leave dev_unlock NULL so the build refuses
  * to compile a no-PIN image over real hardware. */
@@ -263,6 +413,9 @@ static const se_driver_t mock_driver = {
 	.monotonic_increment = mock_mono_inc,
 	.attest = mock_attest,
 	.dev_unlock = mock_dev_unlock,
+	.fido_cred_make = mock_fido_cred_make,
+	.fido_cred_sign = mock_fido_cred_sign,
+	.fido_signcount_read = mock_fido_signcount_read,
 };
 
 /* test helpers */

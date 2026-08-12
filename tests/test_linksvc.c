@@ -9,6 +9,8 @@
 
 #include "../core/se_mock.c"
 #include "../core/sha512.c"
+#include "../core/secp256r1.c"
+#include "../core/rfc6979.c"
 #include "../core/app_registry.c"
 #include "../core/app_catalog.c"
 #include "../core/signsvc.c"

@@ -31,6 +31,9 @@ void os_rng_hw_recover(void) {}
 #include "../core/rng.c"
 #include "../core/se_mock.c"
 #include "../core/sha512.c"
+#include "../core/hkdf.c"
+#include "../core/secp256r1.c"
+#include "../core/rfc6979.c"
 #include "../core/boot.c"
 
 static void reset_all(void)

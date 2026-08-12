@@ -6,6 +6,9 @@
 #include "../core/se_driver.h"
 
 #include "../core/sha512.c"
+#include "../core/hkdf.c"
+#include "../core/secp256r1.c"
+#include "../core/rfc6979.c"
 #include "../core/se_mock.c"
 
 int main(void)

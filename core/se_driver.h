@@ -130,6 +130,40 @@ typedef struct se_driver {
 	/* Genuine-check: sign a host challenge with the factory key so the
 	 * host can verify against the vendor certificate chain. */
 	int (*attest)(const uint8_t *challenge32, uint8_t *response, size_t *resp_len);
+
+	/* ---- FIDO2/CTAP2 (see docs/09_FIDO设计文档.md §4/§5.2) ----
+	 *
+	 * The SE is the sole owner of the FIDO master key and the FIDO epoch +
+	 * cred_idx counters. credential IDs are opaque, self-describing blobs
+	 * (epoch || cred_idx || HMAC tag) computed and validated ENTIRELY inside
+	 * the SE — the MCU merely passes them through and must never see the
+	 * master key. A backend that cannot (yet) do P-256 leaves these fields
+	 * NULL; fido_core MUST NULL-check and return CTAP2_ERR_UNSUPPORTED_ALGORITHM
+	 * rather than dereferencing (design review A5). */
+	#define FIDO_CREDID_LEN 21
+	#define FIDO_AAGUID_LEN 16
+
+	/* makeCredential: allocate the next cred_idx (SE-internal counter),
+	 * derive the P-256 key from the SE master with an epoch/cred_idx KDF,
+	 * and return the uncompressed public key (65 bytes) plus the RP-bound,
+	 * MAC'd credential ID blob. Public data only — no secret crosses the
+	 * SE boundary. */
+	int (*fido_cred_make)(const uint8_t rp_hash32[32],
+	                      uint8_t pub65[65],
+	                      uint8_t credid[FIDO_CREDID_LEN]);
+
+	/* getAssertion: parse cred_idx from credid, verify epoch + MAC tag
+	 * (bound to rp_hash32) INSIDE the SE, then sign digest32 with the
+	 * derived key. Returns SE_ERR_AUTH on epoch/tag mismatch — never signs. */
+	int (*fido_cred_sign)(const uint8_t credid[FIDO_CREDID_LEN],
+	                      const uint8_t rp_hash32[32],
+	                      const uint8_t digest32[32],
+	                      uint8_t sig64[64]);
+
+	/* Read the SE-internal FIDO sign counter (global, per-assertion +1,
+	 * stored in SE NVM). This is the signCount field of authenticatorData;
+	 * it is separate from the firmware anti-rollback monotonic counter. */
+	int (*fido_signcount_read)(uint32_t *count);
 } se_driver_t;
 
 /* Backend selection: exactly one is compiled in per build. */

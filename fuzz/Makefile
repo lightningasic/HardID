@@ -5,7 +5,7 @@ CORE = ../core
 
 all: fuzz_parsers
 
-fuzz_parsers: fuzz_parsers.c $(CORE)/psbt.c $(CORE)/clearsign.c $(CORE)/keccak.c $(CORE)/eip712.c $(CORE)/hkdf.c $(CORE)/base58.c
+fuzz_parsers: fuzz_parsers.c $(CORE)/psbt.c $(CORE)/clearsign.c $(CORE)/keccak.c $(CORE)/eip712.c $(CORE)/hkdf.c $(CORE)/base58.c $(CORE)/cbor.c
 	$(CC) $(SAN) -o $@ $^
 
 run: fuzz_parsers

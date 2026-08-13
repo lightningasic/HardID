@@ -26,13 +26,20 @@ CONFIG_COMPILER_OPTIMIZATION_PERF=y
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
 
 # Console: Waveshare ESP32-S3-Touch-LCD-2 has no USB-UART bridge / no UART0
-# exposed; the board exposes native USB only. USB-Serial-JTAG covers the
-# bootloader + early boot log. From F3 onward the USB-OTG port runs the
-# TinyUSB composite (CTAPHID HID + CDC-ACM): the app redirects the console
-# VFS to the composite CDC (usb_esp.c -> tinyusb_console_init), so logs
-# stay visible on the host after the hand-off.
+# exposed; the board exposes native USB only.
+#
+# IMPORTANT: GPIO19/20 is shared between USB-Serial-JTAG (USJ) and USB-OTG.
+# The OTG composite (CTAPHID HID + CDC-ACM) can only enumerate if the USJ
+# peripheral is fully disabled — the boot clock init only drops the USJ pad
+# when BOTH USJ_ENABLE_USB_SERIAL_JTAG=n AND the console is not on USJ.
+# Leaving the console on USJ keeps the pad driving GPIO19/20, so the host
+# never sees the composite (it keeps enumerating the ROM JTAG unit).
+#
+# So: no boot console; the app redirects stdout to the composite CDC at
+# runtime (usb_esp.c -> tinyusb_console_init) once the OTG is up.
 CONFIG_ESP_CONSOLE_UART_DEFAULT=n
-CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+CONFIG_ESP_CONSOLE_NONE=y
+CONFIG_USJ_ENABLE_USB_SERIAL_JTAG=n
 
 # TinyUSB composite for FIDO (HID) + linkproto (CDC-ACM)
 CONFIG_TINYUSB_HID_COUNT=1

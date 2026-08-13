@@ -1,21 +1,22 @@
 /*
- * HardID - host-link session screen for USB-Serial-JTAG
+ * HardID - host-link session screen over the TinyUSB CDC carrier
  * Copyright (C) 2026 LightningASIC / HardID contributors
  * License: Apache License 2.0
  *
- * One device screen that opens a short host session over the on-board
- * USB-Serial-JTAG port. A framed protocol (core/linkproto) carries a host
- * SIGN request — app id, BIP32 path, and the raw transaction bytes (PSBT /
- * EVM tx). The request is routed through the SAME sign service as the
- * on-device SIGN menu (os_signsvc_delegate): the device parses the tx,
- * renders the intent on screen and requires an explicit confirm, then signs
- * the real chain sighash (WYSIWYS). This is the transport foundation for the
- * manual's "verify before sign" goal (P1).
+ * One device screen that opens a short host session over the composite
+ * CDC-ACM interface exposed by esp_tinyusb (usb_esp.c / usb_desc.c). A
+ * framed protocol (core/linkproto) carries a host SIGN request — app id,
+ * BIP32 path, and the raw transaction bytes (PSBT / EVM tx). The request is
+ * routed through the SAME sign service as the on-device SIGN menu
+ * (os_signsvc_delegate): the device parses the tx, renders the intent on
+ * screen and requires an explicit confirm, then signs the real chain
+ * sighash (WYSIWYS). This is the transport foundation for the manual's
+ * "verify before sign" goal (P1).
  *
- * CAVEAT: the console driver shares this physical port for logs. On real
- * hardware the exact interop must be confirmed (see MEMORY.md) - the
- * protocol and service layers are host-tested in tests/test_linkproto.c and
- * tests/test_linksvc.c, so a host that only exchanges framed blocks works.
+ * Since F3 (design §1.1) the USB-Serial-JTAG port is released to the
+ * USB-OTG TinyUSB composite; the linkproto byte stream moved to the
+ * composite CDC. The protocol and service layers stay host-tested in
+ * tests/test_linkproto.c and tests/test_linksvc.c.
  */
 
 #include <stdio.h>
@@ -24,7 +25,7 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "driver/usb_serial_jtag.h"
+#include "usb_desc.h"
 
 #include "display.h"
 #include "devcfg.h"
@@ -36,6 +37,7 @@
 #include "inter.h"
 #include "keypad.h"
 #include "screen.h"
+#include "touch.h"
 
 void screen_run_link_host(void)
 {
@@ -68,6 +70,10 @@ void screen_run_link_host(void)
 	 * longer hangs forever and stray taps do not cancel it */
 	lcd_rect_text(60, 288, 180, 318, "BACK", C_FG, C_BTN);
 
+	/* Own the CDC carrier: pause the dev touch injector so it cannot
+	 * steal linkproto bytes, and release it when the session ends. */
+	touch_inject_set_busy(true);
+
 	/* byte-accreting frame reassembly. A full SIGN request can carry a
 	 * multi-KB tx, so keep the reassembly buffers out of the 8KB ui_task
 	 * stack. Single link session at a time, static is safe. */
@@ -77,7 +83,7 @@ void screen_run_link_host(void)
 	int px = 0, py = 0;
 	for (;;) {
 		uint8_t b;
-		int got = usb_serial_jtag_read_bytes(&b, 1, pdMS_TO_TICKS(30));
+		int got = hardid_usb_read_byte(&b, pdMS_TO_TICKS(30));
 		if (got == 1) {
 			if (rxlen < (int)sizeof(rxbuf))
 				rxbuf[rxlen++] = b;
@@ -87,8 +93,8 @@ void screen_run_link_host(void)
 				int rn = hd_link_serve(screen_confirm_intent, type, seq,
 				                       pl, plen, reply, sizeof reply);
 				if (rn > 0)
-					usb_serial_jtag_write_bytes(reply, (size_t)rn,
-					                            pdMS_TO_TICKS(100));
+					hardid_usb_write(reply, (size_t)rn,
+					                 pdMS_TO_TICKS(100));
 				rxlen = 0;
 				/* return to the session screen: the confirm hook drew its
 				 * own full-screen intent + Yes/No, so restore the waiting
@@ -106,6 +112,7 @@ void screen_run_link_host(void)
 				break;
 		}
 	}
+	touch_inject_set_busy(false);
 	lcd_line(2, 40, "session ended", C_DIM, C_BG);
 	ui_wait_ack();
 	return;

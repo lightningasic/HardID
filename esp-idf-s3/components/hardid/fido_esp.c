@@ -53,6 +53,8 @@
 #include "inter.h"
 #include "keypad.h"
 #include "screen.h"
+#include "touch.h"
+#include "usb_desc.h"
 
 static const char *TAG = "fido_esp";
 
@@ -82,22 +84,22 @@ static inline unsigned ring_next(unsigned i) { return (i + 1) % RX_RING_N; }
 
 static void fido_usb_rx(const uint8_t *report, uint16_t len)
 {
-	/* We wire only CTAPHID (report id 1). HID OUT reports carry the
-	 * realm/usage byte only in some stacks; esp_tinyusb's hid_device
-	 * gives us the raw report starting at the usage data. The first byte
-	 * of a CTAPHID packet is the CID high octet (0..0xFF), so a leading
-	 * report-id byte must be handled at the HID-driver layer, not here.
-	 * The HID descriptor uses id 1 and no usage prefix in OUT payload —
-	 * see usb_desc.c. If the host prepends the report id, drop it. */
 	if (ring_next(s_rx.tail) == s_rx.head) {
 		ESP_LOGW(TAG, "rx ring full, dropping HID packet");
 		return;
 	}
+	/* The composite descriptor assigns report ID 1 to the CTAPHID report,
+	 * so the host prefixes every OUT report with the 1-byte ID (65-byte
+	 * report). Step over it to reach the 64-byte CTAPHID packet. Detect by
+	 * LENGTH, not content: a packet's first CID byte may itself be 0x01. */
+	if (len == CTAPHID_PACKET_SIZE + 1) {
+		report++;
+		len--;
+	}
 	uint16_t n = len;
-	const uint8_t *p = report;
 	if (n > CTAPHID_PACKET_SIZE)
 		n = CTAPHID_PACKET_SIZE;
-	memcpy(s_rx.data[s_rx.tail], p, n);
+	memcpy(s_rx.data[s_rx.tail], report, n);
 	if (n < CTAPHID_PACKET_SIZE)
 		memset(s_rx.data[s_rx.tail] + n, 0,
 		       CTAPHID_PACKET_SIZE - n);
@@ -113,16 +115,38 @@ void tud_hid_set_report_cb(uint8_t itf, uint8_t report_id,
 	fido_usb_rx(buffer, bufsize);
 }
 
+/* TinyUSB HID class driver: return the CTAP-HID report descriptor. */
+uint8_t const *tud_hid_descriptor_report_cb(uint8_t itf)
+{
+	(void)itf;
+	return hardid_usb_hid_report_desc();
+}
+
+/* TinyUSB HID class driver: GET_REPORT. CTAPHID never polls reports via
+ * control GET_REPORT (host pushes OUT reports instead); return 0 so the
+ * request stalls cleanly. */
+uint16_t tud_hid_get_report_cb(uint8_t itf, uint8_t report_id,
+                               hid_report_type_t rtype,
+                               uint8_t *buf, uint16_t reqlen)
+{
+	(void)itf; (void)report_id; (void)rtype; (void)buf; (void)reqlen;
+	return 0;
+}
+
 /* ---- USB TX: drain staged CTAPHID frames out as HID IN reports ---- */
 
 static void fido_usb_tx_drain(uint8_t (*frames)[CTAPHID_PACKET_SIZE], int nframes)
 {
-	/* Wait for the previous IN report to complete before submitting the
-	 * next (single IN endpoint, 64-byte). tud_hid_report() queues into the
-	 * driver; the next report must wait for the IN transfer free counter.
-	 * TinyUSB's hid driver uses a fifo, so we can push them in order. */
-	for (int i = 0; i < nframes; i++)
-		tud_hid_report(HID_REPORT_CTAPHID, frames[i], CTAPHID_PACKET_SIZE);
+	/* tud_hid_report() claims the single IN endpoint buffer and starts the
+	 * transfer; it is NOT a fifo. Sending back-to-back while busy makes
+	 * usbd_edpt_claim() fail and silently drops the frame, so wait for the
+	 * previous report to complete before submitting the next. */
+	for (int i = 0; i < nframes; i++) {
+		for (int w = 0; w < 100 && !tud_hid_ready(); w++)
+			vTaskDelay(pdMS_TO_TICKS(1));
+		if (!tud_hid_report(HID_REPORT_CTAPHID, frames[i], CTAPHID_PACKET_SIZE))
+			ESP_LOGW(TAG, "hid report dropped (ep busy)");
+	}
 }
 
 /* ---- FIDO task: pump RX ring through ctaphid_feed, emit staged TX ---- */
@@ -137,8 +161,11 @@ static void fido_task(void *arg)
 		unsigned cur;
 		while (s_rx.head != s_rx.tail) {
 			cur = s_rx.head;
-			s_rx.head = ring_next(s_rx.head);
+			/* read the slot BEFORE advancing head: advancing first would
+			 * let the producer (TinyUSB task) treat this slot as free and
+			 * overwrite it mid-copy (torn 64-byte packet). */
 			memcpy(inpkt, s_rx.data[cur], CTAPHID_PACKET_SIZE);
+			s_rx.head = ring_next(s_rx.head);
 
 			int n = 0;
 			xSemaphoreTake(s_tx_lock, portMAX_DELAY);
@@ -227,6 +254,10 @@ void screen_run_fido(void)
 	lcd_line(2, 14, "plug into a browser", C_LBL, C_BG);
 	lcd_rect_text(60, 288, 180, 318, "BACK", C_FG, C_BTN);
 
+	/* Own the CDC carrier for the duration of the FIDO session so the
+	 * dev touch injector never steals HID-bound console bytes. */
+	touch_inject_set_busy(true);
+
 	/* Session loop: stay until BACK tapped. */
 	int px = 0, py = 0;
 	for (;;) {
@@ -234,6 +265,7 @@ void screen_run_fido(void)
 		if (ui_touch_now(&px, &py) && ui_pt_in(px, py, 60, 288, 180, 318))
 			break;
 	}
+	touch_inject_set_busy(false);
 	lcd_line(2, 40, "session ended", C_DIM, C_BG);
 	ui_wait_ack();
 }

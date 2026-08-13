@@ -15,6 +15,7 @@
 #include "cbor.h"
 #include "hkdf.h"
 #include "sha256.h"
+#include "secure_zero.h"
 #include <string.h>
 
 /* Product AAGUID (design A1): fixed at build time, 16 bytes. */

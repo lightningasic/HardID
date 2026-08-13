@@ -37,6 +37,7 @@
 #include "display.h"
 #include "font7.h"
 #include "font8x16.h"
+#include "logo.h"
 
 /* board pins */
 #define PIN_LCD_SCK  39
@@ -354,11 +355,14 @@ int lcd_text_wrap(int x, int y, const char *s, uint16_t fg, uint16_t bg)
 void os_board_display_home(void)
 {
 	if (!s_panel) { lcd_init(); }
-	lcd_fill(0x0000);
-	/* status bar */
-	lcd_line(2, 2, "HardID", 0xE73C, 0x0000);
-	lcd_line(2, 14, "Wallet v0.1 - mock SE", 0xAD75, 0x0000);
-	lcd_line(2, 28, "ready", 0x3F00, 0x0000);
+	lcd_fill(C_BG);
+	/* Brand boot frame: HardID logo centered, wordmark below it. Drawn at
+	 * the end of the boot gate so the first thing on screen is the logo,
+	 * not a developer status line. */
+	int x = (LCD_H_RES - LOGO_W) / 2;
+	lcd_bitmap(x, 60, LOGO_W, LOGO_H, logo_rgb565);
+	lcd_line_scaled((LCD_H_RES - 6 * (FONT_CHAR_W + 1) * 2) / 2,
+	                60 + LOGO_H + 18, "HardID", C_LBL, C_BG, 2);
 }
 
 void os_board_display_error(const char *line1, const char *line2)

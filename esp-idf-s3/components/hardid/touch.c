@@ -26,7 +26,7 @@
 #include "touch.h"
 
 #ifdef CONFIG_HARDID_DEV_TOUCH_INJECT
-#include "driver/usb_serial_jtag.h"
+#include "usb_desc.h"
 #include <stdatomic.h>
 #endif
 
@@ -42,14 +42,24 @@
 static const char *TAG = "hardid.touch";
 
 #ifdef CONFIG_HARDID_DEV_TOUCH_INJECT
-/* DEV-ONLY: synthetic touches injected over the USB-JTAG console RX so the
- * UI can be driven from a host script without touching the panel.
+/* DEV-ONLY: synthetic touches injected over the TinyUSB CDC console RX so
+ * the UI can be driven from a host script without touching the panel.
  * Protocol (one command per line):
  *   P <x> <y>   press down at screen pixel (x,y)
  *   R           release
- * touch_get() prefers an injected touch over the physical panel. */
+ * touch_get() prefers an injected touch over the physical panel.
+ * F3: the console moved to the composite CDC (design §1.1), so the
+ * injector reads that carrier instead of the old USB-Serial-JTAG.
+ * While a serial session (HOST LINK / FIDO) is active the injector pauses
+ * so it never steals bytes from the link protocol. */
 static atomic_int   s_inj_active;
 static atomic_int   s_inj_x, s_inj_y;
+static atomic_int   s_inj_busy;
+
+void touch_inject_set_busy(bool busy)
+{
+	atomic_store(&s_inj_busy, busy ? 1 : 0);
+}
 
 static void touch_inject_task(void *arg)
 {
@@ -57,10 +67,22 @@ static void touch_inject_task(void *arg)
 	char line[24];
 	int n = 0;
 	for (;;) {
+		/* Pause while a serial protocol session owns the CDC carrier
+		 * (HOST LINK / FIDO): never steal bytes from the linkproto or
+		 * CTAPHID framing. */
+		if (atomic_load(&s_inj_busy)) {
+			vTaskDelay(pdMS_TO_TICKS(20));
+			continue;
+		}
 		char c;
-		int rc = usb_serial_jtag_read_bytes((uint8_t *)&c, 1,
-		                                    pdMS_TO_TICKS(20));
-		if (rc == 1 && c != '\r') {
+		int rc = hardid_usb_read_byte((uint8_t *)&c, pdMS_TO_TICKS(20));
+		if (rc != 1) {
+			/* No byte: guarantee a real yield so a non-blocking CDC read
+			 * path can never spin this task and starve the boot/UI. */
+			vTaskDelay(pdMS_TO_TICKS(10));
+			continue;
+		}
+		if (c != '\r') {
 			if (c == '\n') {
 				line[n] = '\0';
 				if (n > 0) {
@@ -89,6 +111,11 @@ static void touch_inject_task(void *arg)
 		}
 	}
 }
+#else
+void touch_inject_set_busy(bool busy)
+{
+	(void)busy;   /* injector compiled out */
+}
 #endif
 
 
@@ -108,7 +135,11 @@ int touch_init(void)
 		return -1;
 
 #ifdef CONFIG_HARDID_DEV_TOUCH_INJECT
-	xTaskCreate(touch_inject_task, "tpinj", 4096, NULL, 2, NULL);
+	/* The injector runs at a priority ABOVE the boot/main task, so it must
+	 * always yield — a read loop that never blocks on a half-up TinyUSB CDC
+	 * would otherwise starve the boot task and trip the watchdog before the
+	 * UI (boot logo) ever runs. */
+	xTaskCreate(touch_inject_task, "tpinj", 4096, NULL, 1, NULL);
 	ESP_LOGW(TAG, "DEV touch injector active (P x y / R)");
 #endif
 

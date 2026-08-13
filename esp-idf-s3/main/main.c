@@ -51,6 +51,14 @@ void app_main(void)
 	/* Trezor-style three-function UI, on its own task with a large stack
 	 * (menu drawing + I2C touch polling overflow the 3.5K main stack). */
 	ESP_LOGI(TAG, "starting UI task");
-	xTaskCreate(ui_task, "ui", UI_TASK_STACK, NULL, UI_TASK_PRIO, NULL);
+	BaseType_t ui_ok = xTaskCreate(ui_task, "ui", UI_TASK_STACK, NULL,
+	                               UI_TASK_PRIO, NULL);
+	if (ui_ok != pdPASS) {
+		/* Surface a failed UI-task create on the LCD instead of silently
+		 * freezing on the boot home screen. */
+		ESP_LOGE(TAG, "ui task create failed rc=%d", (int)ui_ok);
+		os_board_display_error("UI task", "create failed");
+		for (;;) { }
+	}
 	vTaskDelete(NULL);   /* end main task: never spin, keep IDLE healthy */
 }

@@ -16,24 +16,21 @@
  *   - CDC interface: standard ACM console + linkproto carrier so HOST LINK
  *     (link_esp.c) keeps working after the transport move (design §§2/§10).
  *
- * Descriptors are hand-laid raw bytes (the same style as the TinyUSB
- * samples) so the layout is unambiguous and self-auditable here even
- * though this file cannot be compiled on the offline dev box.
+ * esp_tinyusb 2.x provides tud_descriptor_*_cb() itself (descriptors_control.c,
+ * bound through tinyusb_desc_config_t passed to tinyusb_driver_install()).
+ * This file therefore only EXPOSES the descriptor data; it must not define
+ * those callbacks or the link fails with duplicate symbols.
  *
- * BUILD NOTE (environment): this file compiles only with the espressif
- * esp_tinyusb managed component (v5.3 has it as a registry component, not
- * bundled). The CI box at build time had no network to fetch it and no
- * USB hardware, so this ship is the on-board half of F3 that cannot be
- * compiled/verified here — the transport layer (core/fido_ctaphid.c +
- * tests/test_ctaphid_net.c) IS fully host-verified.
+ * Descriptors are hand-laid raw bytes (the same style as the TinyUSB
+ * samples) so the layout is unambiguous and self-auditable here.
  */
 
 #include <stdint.h>
 #include <string.h>
 #include <stddef.h>
 
+#include "tinyusb.h"
 #include "tusb.h"
-#include "device/usbd.h"
 
 #define HARDID_USB_VID  0x1209       /* pid.codes (placeholder) */
 #define HARDID_USB_PID  0xF1D0
@@ -134,40 +131,40 @@ static const uint8_t s_config[CONFIG_LEN] = {
 	0x07, 0x05, 0x05, 0x03, 0x40, 0x00, 0x01,
 };
 
-/* ---- String descriptors ---- */
+/* ---- String descriptors ----
+ * esp_tinyusb 2.x expects a plain UTF-8 array; index 0 must be the 2-byte
+ * language id (US English, 0x0409 LE) and entries 1.. map to the
+ * iManufacturer / iProduct / iSerialNumber indexes of the device
+ * descriptor. descriptors_control.c converts them to UTF-16LE on the fly.
+ */
 static const char *const s_str[] = {
-	[0] = "HardID",
-	[1] = "LightningASIC",
-	[2] = "HardID Secure Wallet",
-	[3] = "000000000001",
+	"\x09\x04",            /* [0] LANGID: US English */
+	"LightningASIC",       /* [1] iManufacturer */
+	"HardID Secure Wallet",/* [2] iProduct */
+	"000000000001",        /* [3] iSerialNumber */
 };
 
-static uint16_t s_str_buf[64];
+/* ---- Exposed descriptor data (bound by usb_esp.c -> tinyusb_driver_install) ---- */
 
-const tusb_desc_device_t *tud_descriptor_device_cb(void)
+const tusb_desc_device_t *hardid_usb_device_desc(void)
 {
 	return &s_dev;
 }
 
-const uint8_t *tud_descriptor_configuration_cb(uint8_t index)
+const uint8_t *hardid_usb_fs_config_desc(void)
 {
-	(void)index;
 	return s_config;
 }
 
-const char *tud_descriptor_string_cb(uint8_t index, uint16_t langid)
+/* HID report descriptor lives inside the config blob (offset 93, 31 bytes). */
+const uint8_t *hardid_usb_hid_report_desc(void)
 {
-	(void)langid;
-	if (index >= sizeof s_str / sizeof s_str[0])
-		return NULL;
-	const char *s = s_str[index];
-	if (s == NULL)
-		return NULL;
-	size_t n = strlen(s);
-	if (n > 62) n = 62;                    /* max 31 UTF-16 codepoints */
-	s_str_buf[0] = TUSB_DESC_STRING;       /* bDescriptorType */
-	s_str_buf[1] = (uint16_t)(2 * n + 2);  /* bLength */
-	for (size_t i = 0; i < n; i++)
-		s_str_buf[2 + i] = (uint16_t)(uint8_t)s[i];
-	return (const char *)s_str_buf;
+	return s_config + 93;
+}
+
+const char **hardid_usb_strings(int *count)
+{
+	if (count)
+		*count = (int)(sizeof s_str / sizeof s_str[0]);
+	return (const char **)s_str;
 }

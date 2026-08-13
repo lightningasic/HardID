@@ -32,19 +32,14 @@
 #include "app_catalog.h"
 #include "signsvc.h"
 #include "screen.h"
-#include "logo.h"
 #include "font7.h"
 
 void screen_run_splash(void)
 {
-	/* Boot logo bitmap centered, HardID wordmark below it. */
-	lcd_fill(C_BG);
-	int x = (LCD_H_RES - LOGO_W) / 2;
-	lcd_bitmap(x, 60, LOGO_W, LOGO_H, logo_rgb565);
-
-/* "HardID" wordmark, 2x scale, centered under the mark. */
-	lcd_line_scaled((LCD_H_RES - 6 * (FONT_CHAR_W + 1) * 2) / 2,
-	                60 + LOGO_H + 18, "HardID", C_LBL, C_BG, 2);
+	/* The brand logo frame is drawn by os_board_display_home() (single
+	 * owner of logo.h, so the bitmap is not duplicated in the image).
+	 * Re-draw it here so the splash is self-contained, then hold. */
+	os_board_display_home();
 
 	/* Hold the splash for 2 s before handing over to the menu. */
 	vTaskDelay(pdMS_TO_TICKS(2000));

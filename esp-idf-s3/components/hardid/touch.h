@@ -29,6 +29,11 @@ int touch_init(void);
  * Returns true while a finger is down. */
 bool touch_get(int *x, int *y);
 
+/* DEV-ONLY (touch inject): pause the CDC console injector while a serial
+ * protocol session (HOST LINK / FIDO) owns the carrier. No-op when the
+ * injector is compiled out. */
+void touch_inject_set_busy(bool busy);
+
 #ifdef __cplusplus
 }
 #endif

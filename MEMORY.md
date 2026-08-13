@@ -38,13 +38,25 @@
   ② 提前 `usb_serial_jtag_ll_phy_enable_pad(false)` 释放 JTAG pad（无效，可能
   寄存器写没生效或还需关整个 USJ 外设）; ③ dwc2 `dcd_connect` 会自动连（清
   DCTL_SDIS + 配 USB_WRAP.otg_conf 上拉位）。
-- **下一_session 建议**: 用屏上标记/USB 分析仪确认 sw_usb_phy_sel 写是否真正生效；
-  尝试在 tinyusb_driver_install 前**完全禁用 USB-Serial-JTAG 外设**（关时钟/复位
-  外设，不止 pad）；核对 dwc2 VBUS 检测（self_powered=false, vbus_monitor_io=-1
-  时是否等待 VBUS）。注意：板无 UART，JTAG 串口在 PHY 切到 OTG 后不可用，调试
-  只能靠 LCD 标记。
+- **根因（2026-08-14 定位，`c6c885e` 已改，待真机验证）**: ESP32-S3 的 GPIO19/20
+  在 USB-Serial-JTAG (USJ) 与 USB-OTG 之间共享。启动时钟初始化
+  `esp_system/port/soc/esp32s3/clk.c` 只有在 **`!USJ_ENABLE_USB_SERIAL_JTAG` 且
+  控制台不在 USJ** 时才关 USJ pad + 时钟。之前控制台配在 USJ
+  (`CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y`)，导致条件不满足 → USJ 一直在驱动
+  GPIO19/20 → host 一直枚举 ROM 的 JTAG (303a:1001)，composite 永远出不来。
+  这解释了 physel=1（mux 确实切到 OTG）但 conn=0/host 仍见 JTAG 的矛盾。
+  之前"控制台→NONE 无效"是因为漏了同时关 `USJ_ENABLE_USB_SERIAL_JTAG`（默认 y，
+  被 ESP_CONSOLE_USB_SERIAL_JTAG select，但去掉控制台后仍默认 y）。
+- **修复（已提交 `c6c885e`，未真机验证）**: `sdkconfig.defaults` 改
+  `CONFIG_ESP_CONSOLE_NONE=y` + `CONFIG_USJ_ENABLE_USB_SERIAL_JTAG=n`。这样启动时
+  clk.c 会关 USJ pad + 时钟，OTG 干净接管 PHY。运行期 stdout 仍由
+  `tinyusb_console_init()` 重定向到 composite CDC（composite 枚举后才有日志）。
+- **下一_session 验证**: 烧 `c6c885e` 后 `lsusb` 应见 composite (1209:F1D0) 而非
+  JTAG (303a:1001)；`dmesg` 应看到 JTAG disconnect + 新设备枚举。若仍不枚举，再查
+  dwc2 VBUS（self_powered=false, vbus_monitor_io=-1 是否等待 VBUS）。注意：板无
+  UART、控制台 NONE 后 boot 早期无日志，调试只能靠 LCD 标记或 composite 起来后 CDC。
 - **相关文件**: usb_esp.c (hardid_usb_init), usb_desc.c (composite 描述符),
-  board_s3.c (os_board_hw_init 调 USB init)。
+  board_s3.c (os_board_hw_init 调 USB init), sdkconfig.defaults (控制台/USJ)。
 
 ## 已完成 (FIDO F3 host 层: CTAPHID→CTAP2 端到端, commit `32ec4fb`, 2026-08-12)
 - **F3 = TinyUSB composite 上板**（设计文档 §8 表）——真机上板部分本机受阻

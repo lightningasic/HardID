@@ -63,6 +63,12 @@ static const char *TAG = "fido_esp";
 static ctaphid_t s_ctaphid;
 static SemaphoreHandle_t s_tx_lock;
 
+/* Session lifecycle: fido_task loops while s_fido_run is set, then sets
+ * s_fido_exited before deleting itself so screen_run_fido can tear the
+ * session down safely (no task/semaphore leak on menu re-entry). */
+static volatile bool s_fido_run;
+static volatile bool s_fido_exited;
+
 /* TinyUSB HID report ids: matching the descriptor in usb_desc.c (id 1 =
  * CTAPHID 64-byte report). */
 enum { HID_REPORT_CTAPHID = 1 };
@@ -156,7 +162,7 @@ static void fido_task(void *arg)
 	uint8_t inpkt[CTAPHID_PACKET_SIZE];
 	uint8_t out[2][CTAPHID_PACKET_SIZE];
 
-	for (;;) {
+	while (s_fido_run) {
 		/* process each queued host packet, then drain staged responses */
 		unsigned cur;
 		while (s_rx.head != s_rx.tail) {
@@ -183,10 +189,12 @@ static void fido_task(void *arg)
 			xSemaphoreGive(s_tx_lock);
 			if (n > 0)
 				fido_usb_tx_drain(out, n);
-		} while (n > 0);
+		} while (n > 0 && s_fido_run);
 
 		vTaskDelay(pdMS_TO_TICKS(2));
 	}
+	s_fido_exited = true;
+	vTaskDelete(NULL);
 }
 
 /* ---- User-presence hook: wired to the UI confirm (F5 expands the
@@ -236,14 +244,17 @@ void screen_run_fido(void)
 
 	s_tx_lock = xSemaphoreCreateMutex();
 	s_rx.head = s_rx.tail = 0;
+	s_fido_run = true;
+	s_fido_exited = false;
 
-	/* run the transport task (keeps serving until the device powers off
-	 * or the session is closed by an external action; v1 is single
-	 * session). The menu caller returns when the HID is absent. */
+	/* run the transport task for the duration of the session; it is stopped
+	 * and torn down on exit so re-entering FIDO starts clean. */
 	BaseType_t ok = xTaskCreate(fido_task, "fido", 4096, NULL,
 	                            tskIDLE_PRIORITY + 2, NULL);
 	if (ok != pdPASS) {
 		ESP_LOGE(TAG, "failed to create fido task");
+		s_fido_run = false;
+		if (s_tx_lock) { vSemaphoreDelete(s_tx_lock); s_tx_lock = NULL; }
 		lcd_text_wrap(2, 80, "FIDO task error", C_ERR, C_BG);
 		ui_wait_ack();
 		return;
@@ -266,6 +277,12 @@ void screen_run_fido(void)
 			break;
 	}
 	touch_inject_set_busy(false);
+	/* Stop the transport task and release its resources before returning to
+	 * the menu, so re-entering FIDO does not stack duplicate tasks/locks. */
+	s_fido_run = false;
+	while (!s_fido_exited)
+		vTaskDelay(pdMS_TO_TICKS(5));
+	if (s_tx_lock) { vSemaphoreDelete(s_tx_lock); s_tx_lock = NULL; }
 	lcd_line(2, 40, "session ended", C_DIM, C_BG);
 	ui_wait_ack();
 }

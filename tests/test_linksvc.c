@@ -101,7 +101,65 @@ static int reply_type(const uint8_t *buf, size_t len)
 	return t;
 }
 
-/* Check an HD_REPLY_OK carries the sig payload: rc(4) sig64(64) recid(1) c(4). */
+/* ---- multi-input BTC PSBT builders (native P2WPKH) ---- */
+static size_t put_vi(uint8_t *o, uint64_t v)
+{
+	if (v < 0xfd) { o[0] = (uint8_t)v; return 1; }
+	if (v < 0x10000) { o[0] = 0xfd; o[1] = v; o[2] = v >> 8; return 3; }
+	o[0] = 0xfe; o[1] = v; o[2] = v >> 8; o[3] = v >> 16; o[4] = v >> 24; return 5;
+}
+static size_t put_u64le(uint8_t *o, uint64_t v)
+{
+	for (int i = 0; i < 8; i++) o[i] = (uint8_t)(v >> (8 * i));
+	return 8;
+}
+static const uint8_t SPK[22] = { 0x00,0x14, 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20 };
+
+/* 2-in 2-out unsigned tx, both inputs native P2WPKH (empty scriptSig) */
+static size_t build_btc_tx2(uint8_t *o)
+{
+	size_t n = 0;
+	o[n++] = 1; o[n++] = 0; o[n++] = 0; o[n++] = 0;   /* version */
+	n += put_vi(o + n, 2);                              /* 2 inputs */
+	for (int i = 0; i < 2; i++) {
+		memset(o + n, 0xaa + i, 32); n += 32;           /* prev txid */
+		o[n++] = 0; o[n++] = 0; o[n++] = 0; o[n++] = 0; /* vout */
+		n += put_vi(o + n, 0);                          /* scriptSig 0 */
+		o[n++] = 0xff; o[n++] = 0xff; o[n++] = 0xff; o[n++] = 0xff; /* seq */
+	}
+	n += put_vi(o + n, 2);                              /* 2 outputs */
+	n += put_u64le(o + n, 40000);
+	n += put_vi(o + n, sizeof SPK); memcpy(o + n, SPK, sizeof SPK); n += sizeof SPK;
+	n += put_u64le(o + n, 60000);
+	n += put_vi(o + n, sizeof SPK); memcpy(o + n, SPK, sizeof SPK); n += sizeof SPK;
+	o[n++] = 0; o[n++] = 0; o[n++] = 0; o[n++] = 0;     /* locktime */
+	return n;
+}
+
+/* wrap the 2-input unsigned tx with 2 witness_utxo input maps */
+static size_t build_btc_psbt2(uint8_t *o, uint64_t amt0, uint64_t amt1)
+{
+	size_t n = 0;
+	memcpy(o + n, "psbt\xff", 5); n += 5;
+	/* global map: key 0x00 -> unsigned tx */
+	n += put_vi(o + n, 1); o[n++] = 0x00;
+	uint8_t utx[256]; size_t utxn = build_btc_tx2(utx);
+	n += put_vi(o + n, utxn); memcpy(o + n, utx, utxn); n += utxn;
+	o[n++] = 0x00;                                      /* global sep */
+	/* two input maps, each witness_utxo (key 0x01) */
+	const uint64_t amts[2] = { amt0, amt1 };
+	for (int i = 0; i < 2; i++) {
+		n += put_vi(o + n, 1); o[n++] = 0x01;
+		n += put_vi(o + n, 8 + 1 + sizeof SPK);
+		n += put_u64le(o + n, amts[i]);
+		n += put_vi(o + n, sizeof SPK); memcpy(o + n, SPK, sizeof SPK); n += sizeof SPK;
+		o[n++] = 0x00;                                  /* input map sep */
+	}
+	return n;
+}
+
+/* Check an HD_REPLY_OK carries the sig payload:
+ * rc(4) | sig_count(4 BE) | [ sig64(64) | recid(1) ] × sig_count. */
 static int check_sig_rep(const uint8_t *rep, size_t rn, uint8_t want_recid,
                          uint32_t want_count, const char *label)
 {
@@ -111,14 +169,17 @@ static int check_sig_rep(const uint8_t *rep, size_t rn, uint8_t want_recid,
 	}
 	if (t != HD_REPLY_OK) { printf("FAIL type=%u %s\n", t, label); return 1; }
 	pl += 4; plen -= 4;                     /* strip rc prefix */
-	if (plen != 64 + 1 + 4) { printf("FAIL sig plen=%zu %s\n", plen, label); return 1; }
-	uint8_t nonzero = 0;
-	for (int i = 0; i < 64; i++) nonzero |= pl[i];
-	if (nonzero == 0) { printf("FAIL empty sig %s\n", label); return 1; }
-	if (pl[64] != want_recid) { printf("FAIL recid=%u want %u %s\n", pl[64], want_recid, label); return 1; }
-	uint32_t cnt = ((uint32_t)pl[65] << 24) | ((uint32_t)pl[66] << 16) |
-	               ((uint32_t)pl[67] << 8) | pl[68];
+	if (plen != 4 + (size_t)want_count * 65) { printf("FAIL sig plen=%zu %s\n", plen, label); return 1; }
+	uint32_t cnt = ((uint32_t)pl[0] << 24) | ((uint32_t)pl[1] << 16) |
+	               ((uint32_t)pl[2] << 8) | pl[3];
 	if (cnt != want_count) { printf("FAIL count=%u want %u %s\n", cnt, want_count, label); return 1; }
+	for (uint32_t i = 0; i < cnt; i++) {
+		const uint8_t *e = pl + 4 + (size_t)i * 65;
+		uint8_t nonzero = 0;
+		for (int j = 0; j < 64; j++) nonzero |= e[j];
+		if (nonzero == 0) { printf("FAIL empty sig[%u] %s\n", i, label); return 1; }
+		if (e[64] != want_recid) { printf("FAIL recid[%u]=%u want %u %s\n", i, e[64], want_recid, label); return 1; }
+	}
 	printf("ok %s (sig plen=%zu count=%u)\n", label, plen, cnt);
 	return 0;
 }
@@ -223,6 +284,19 @@ int main(void)
 		rn = hd_link_serve(ui_confirm_tx, type, seq, p, pn, rep, sizeof rep);
 		if (check_sig_rep(rep, (size_t)rn, 0, 1, "wire-roundtrip")) return 1;
 		printf("ok frame wire roundtrip\n");
+	}
+
+	/* multi-input BTC PSBT -> reply carries one sig per input (sig_count=2) */
+	{
+		uint8_t psbt[1024];
+		size_t pn = build_btc_psbt2(psbt, 60000, 50000);   /* in 110000, out 100000, fee 10000 */
+		uint32_t bpath[3] = { 0x80000000u | 84, 0x80000000u | 0, 0x80000000u | 0 };
+		size_t bplen = build_sign_payload(pl, sizeof pl, "btc", bpath, 3, psbt, pn);
+		if (bplen == 0) { printf("FAIL btc payload\n"); return 1; }
+		s_confirm_answer = 1;
+		rn = hd_link_serve(ui_confirm_tx, HD_CMD_SIGN, 22, pl, bplen, rep, sizeof rep);
+		if (check_sig_rep(rep, (size_t)rn, 0, 2, "btc-2in-sign")) return 1;
+		printf("ok multi-input BTC -> per-input signatures\n");
 	}
 
 	/* wiped device refuses to sign -> state */

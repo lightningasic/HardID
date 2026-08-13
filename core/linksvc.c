@@ -85,15 +85,29 @@ int hd_link_serve(bool (*ui_confirm_tx)(const os_tx_intent *),
 			                    path, path_len, ui_confirm_tx);
 		switch (oc.result) {
 		case OS_SIGN_OK: {
-			uint8_t rp[64 + 1 + 4];
-			memcpy(rp, oc.sig64, 64);
-			rp[64] = oc.recid;
-			rp[65] = (uint8_t)(oc.sig_count >> 24);
-			rp[66] = (uint8_t)(oc.sig_count >> 16);
-			rp[67] = (uint8_t)(oc.sig_count >> 8);
-			rp[68] = (uint8_t)(oc.sig_count & 0xFFu);
-			return hd_link_frame_reply(HD_REPLY_OK, seq, 0, rp,
-			                           sizeof rp, out, out_max);
+			/* Reply: sig_count(4 BE) | [ sig64(64) | recid(1) ] × sig_count.
+			 * Carries EVERY input's compact signature, not just the first,
+			 * so a multi-input BTC PSBT is fully deliverable to the host
+			 * (the host assembles witnesses from these via core/tx_asm.c). */
+			uint8_t rp[4 + OS_PSBT_MAX_INPUTS * (64 + 1)];
+			size_t n = 0;
+			uint32_t cnt = oc.sig_count;
+			rp[n++] = (uint8_t)(cnt >> 24);
+			rp[n++] = (uint8_t)(cnt >> 16);
+			rp[n++] = (uint8_t)(cnt >> 8);
+			rp[n++] = (uint8_t)(cnt & 0xFFu);
+			for (uint32_t i = 0; i < cnt; i++) {
+				/* EVM's single signature lives in sig64/recid; BTC's
+				 * per-input signatures live in sigs[]/recids[] (with
+				 * sigs[0] also mirrored into sig64). */
+				const uint8_t *s = (oc.sig_count == 1) ? oc.sig64
+				                                       : oc.sigs[i];
+				uint8_t r = (oc.sig_count == 1) ? oc.recid : oc.recids[i];
+				memcpy(rp + n, s, 64); n += 64;
+				rp[n++] = r;
+			}
+			return hd_link_frame_reply(HD_REPLY_OK, seq, 0, rp, n,
+			                           out, out_max);
 		}
 		case OS_SIGN_LOCKED:
 		case OS_SIGN_REJECTED:

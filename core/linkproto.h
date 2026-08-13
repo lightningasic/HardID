@@ -65,9 +65,15 @@ extern "C" {
  *              (EVM family). Chains with no firmware parser are refused
  *              by signsvc. Max HD_LINK_MAX_TX bytes.
  *
- * SIGN reply (device -> host) on OK: sig64(64) | recid(1) | sig_count(4 BE).
- * sig_count is 1 for EVM and the number of inputs signed for BTC (sig64 is
- * the first input's signature; the host assembles witnesses). */
+ * SIGN reply (device -> host) on OK:
+ *   sig_count(4 BE) | [ sig64(64) | recid(1) ] × sig_count
+ * sig_count is 1 for EVM (one compact r||s + recovery id); for BTC it is the
+ * number of inputs signed, each carrying its own compact signature. The host
+ * assembles the final signatures/witnesses from these (core/tx_asm.c) — the
+ * device returns compact signatures only, never a serialized tx.
+ *
+ * The reply payload can reach 4 + OS_PSBT_MAX_INPUTS×65 bytes for a
+ * multi-input BTC PSBT; it still fits HD_LINK_MAX_FRAME. */
 #define HD_CMD_SIGN           0x03u
 
 /* SIGN payload size bounds. HD_LINK_MAX_FRAME must hold the largest

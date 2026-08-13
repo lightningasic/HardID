@@ -1,5 +1,51 @@
 # MEMORY.md
 
+## 已完成 (FIDO 上板循环审计 + 修复, commit `ffc04f7`, 2026-08-13)
+首次真机跑 F3 TinyUSB composite 固件，暴露启动回归 + 若干潜伏 bug。31 host
+套件 + fuzz 50k (ASan/UBSan) 全绿，boot LOGO 真机验证正常。
+
+- **启动回归（用户报告：卡 home 文本、进不了开机 LOGO）根因 = touch injector**。
+  `touch_inject_task` 在 `touch_init()` 里以**优先级 2** 创建（高于 boot/main 任务
+  的优先级 1），FIDO 改动把它从 `usb_serial_jtag_read_bytes` 改成读 TinyUSB CDC
+  (`hardid_usb_read_byte`)。CDC 半初始化时读循环不能干净阻塞 → 抢占/饿死启动任务
+  → task-WDT 重启，`ui_task`（画 LOGO 的）根本没机会跑。**修复**：优先级降到 1 +
+  读循环加无条件 `vTaskDelay` 强制让出 CPU。已用屏上分步标记定位（past boot →
+  touch done → ... 卡在 injector 创建处）。
+- **crypto 严重 bug (secp256r1_mbedtls.c)**: `mbedtls_ecdsa_sign_det_ext` 传了
+  `MBEDTLS_MD_NONE`，mbedtls 对 NONE 返回 `BAD_INPUT_DATA`（`mbedtls_md_info_from_type`
+  返回 NULL）→ **设备端每次 FIDO 签名必然失败**。md_alg 只选 RFC6979 的 HMAC 哈希
+  （不重哈希消息），必须 `MBEDTLS_MD_SHA256` 才与 host 纯实现（core/rfc6979.c 用
+  os_hmac_sha256）一致。已改 SHA256。
+- **fido_esp.c 三处**: ① `fido_usb_rx` 不跳过 report-ID 字节（描述符用 ID 1，
+  host 会在 64B 包前加 1B ID 成 65B）→ 按长度跳过 ID 前缀；② `fido_usb_tx_drain`
+  误以为 `tud_hid_report` 是 fifo，IN 端点忙时连续发会丢帧 → 发送前等
+  `tud_hid_ready()`；③ `fido_task` ring buffer 先移动 head 再读数据（撕裂读）
+  → 改先读后移。
+- **健壮性**: main.c `xTaskCreate(ui_task)` 加返回值检查（失败显示红屏而非无声
+  卡死）; usb_esp.c `hardid_usb_read_byte` 加 NULL 信号量保护; 删 LINK_RX_BUF 死代码。
+- **开机画面**: `os_board_display_home()` 改画品牌 LOGO+字标（不再闪
+  "Wallet v0.1 mock SE ready" 状态行）; `screen_run_splash()` 复用该 hook，
+  logo.h 仍单处引用不重复占 flash。
+
+## 待办 (FIDO USB composite 不枚举 — F3 上板未完成, 2026-08-13)
+- **现象**: host 端只看到 JTAG (303a:1001)，看不到 composite (1209:F1D0)。
+  FIDO HID 因此无法用。
+- **已诊断**: `tinyusb_driver_install` 返回 OK (LCD 上 usb_rc=0)；PHY mux
+  寄存器 `RTCCNTL.usb_conf.sw_usb_phy_sel` 读到 **1 (OTG)**，但 `tud_connected()
+  =0`、`tud_mounted()=0`（设备控制器没连上，D+ 上拉未被 host 看到）。host 仍见
+  JTAG，说明内部 PHY 实际还在 USJ 侧 / JTAG 外设仍在驱动 GPIO19/20。
+- **排查过的方向**（均未解决）: ① 控制台 USB_SERIAL_JTAG→NONE 排除 PHY 占用；
+  ② 提前 `usb_serial_jtag_ll_phy_enable_pad(false)` 释放 JTAG pad（无效，可能
+  寄存器写没生效或还需关整个 USJ 外设）; ③ dwc2 `dcd_connect` 会自动连（清
+  DCTL_SDIS + 配 USB_WRAP.otg_conf 上拉位）。
+- **下一_session 建议**: 用屏上标记/USB 分析仪确认 sw_usb_phy_sel 写是否真正生效；
+  尝试在 tinyusb_driver_install 前**完全禁用 USB-Serial-JTAG 外设**（关时钟/复位
+  外设，不止 pad）；核对 dwc2 VBUS 检测（self_powered=false, vbus_monitor_io=-1
+  时是否等待 VBUS）。注意：板无 UART，JTAG 串口在 PHY 切到 OTG 后不可用，调试
+  只能靠 LCD 标记。
+- **相关文件**: usb_esp.c (hardid_usb_init), usb_desc.c (composite 描述符),
+  board_s3.c (os_board_hw_init 调 USB init)。
+
 ## 已完成 (FIDO F3 host 层: CTAPHID→CTAP2 端到端, commit `32ec4fb`, 2026-08-12)
 - **F3 = TinyUSB composite 上板**（设计文档 §8 表）——真机上板部分本机受阻
   （无网络拉 esp_tinyusb 托管组件 + 无 S3 硬件），本里程碑交付 host 可验证的

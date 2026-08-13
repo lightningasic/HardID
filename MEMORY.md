@@ -454,9 +454,25 @@
   06 联调清单 (阶段1/2 S3 已验证 + 4 个真机修复), 07 使用手册 (菜单/brain phrase/
   三页键盘/候选词/真 sighash/功能矩阵)。
 
+## 已完成 (host 侧签名组装 + 多输入签名交付, commit `c90ec5b`+`b5725fa`, 2026-08-14)
+- **`core/tx_asm.c`** (新增, 主机侧组装, 6 用例 `tests/test_txasm.c`):
+  ① `os_evm_sig_assemble` —— r||s||v, EIP-155 `v = 35 + 2*chain_id + recid`
+  最小大端 (POLYGON chain_id=137 → 2 字节 v=309); ② `os_btc_sig_to_der` ——
+  紧凑 r||s → DER + SIGHASH_ALL, BIP62 low-s 归一 (SE 契约不保证 low-s,
+  BTC 端 recid 不用故可安全重归一); ③ `os_btc_witness_p2wpkh` —— 完整
+  P2WPKH witness 栈 [sig, pubkey]。主机已有 xpub (setup 时导出), 自行派生
+  pubkey, 设备只回紧凑签名。
+- **link SIGN 回复修复 (`b5725fa`)**: 原回复只回 `sig64|recid|sig_count`,
+  丢掉 BTC 多输入的第 2..n 个签名。现格式 `sig_count(4 BE) | [sig64(64)|
+  recid(1)] × sig_count`。新增 2 输入 BTC 签名测试 (plen=134 count=2)。
+  32/32 host 套件。
+- 遗留 (M-2 剩余): BTC **多路径**输入 (当前单 path 签所有输入, 请求仍单
+  path)、P2SH-P2WPKH/P2WSH 扩展。
+
 ## 待办
-- M-2 剩余子项: host 侧 v/r/s 组装与 witness 注入 (设备出 r||s+recid),
-  BTC 多路径输入 (当前单 path 签所有输入), P2SH-P2WPKH/P2WSH 扩展。
+- M-2 剩余子项: ~~host 侧 v/r/s 组装与 witness 注入~~ (完成 `c90ec5b`)；
+  ~~多输入签名交付~~ (完成 `b5725fa`)；BTC 多路径输入 (每输入独立 path,
+  请求格式仍单 path)、P2SH-P2WPKH/P2WSH 扩展。
   (~~link_esp 盲签改走 signsvc~~ 已完成 `f40a653`。)
 - 真机走查剩余项: 4 词初始化 → 重启 brain phrase gate → SIGN→ETH demo
   (现签真 EIP-155 sighash) → Recover 候选词手感 → **HOST LINK 结构化 SIGN**

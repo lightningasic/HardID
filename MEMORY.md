@@ -1,5 +1,28 @@
 # MEMORY.md
 
+## 已完成 (FIDO 真机 CTAPHID 全链路打通, commit `dd7615d`, 2026-08-15)
+- **确认按钮修复已真机验证**: 之前提的 `s_confirm_active`(confirm 期间主任务
+  暂停触摸 I2C 轮询)烧录后 makeCredential/getAssertion 的 Yes/No 确认**每次
+  都正常响应**(1-3s 内)。根因确认为两任务并发轮询同步 I2C 的竞态。
+- **COSE key 编码 bug 修复 (commit `dd7615d`, 真机验证)**: fido_core.c
+  `write_cose_pubkey` 曾写 `{1:kty,3:alg,-1:crv,-2:x,-3:y}`,而 RFC 8152
+  §13.1.1 的 COSE EC2 公钥是 `{1:kty=EC2, 3:crv=P-256, -1:x, -2:y}` →
+  WebAuthn 客户端无法从 attestation 恢复公钥(fido2 库报 "Unsupported
+  elliptic curve point type", 且 -1 键是 int 导致解包报错)。已改 4 键标准
+  映射。**真机验证**: attestation COSE keys=[-2,-1,1,3], 完整
+  makeCredential→getAssertion→ES256 验签(SHA-256(authData||clientDataHash))
+  **SIGNATURE VALID**。32/32 host 套件绿。
+- **完整端到端现状 (全部真机验证通过)**: CTAPHID INIT/多帧(PING 16/60/100B)、
+  GetInfo(10 键 CBOR, 99B)、makeCredential(attestation fmt="none" +
+  AAGUID "hardid" + 21B credID + 标准 COSE 公钥)、getAssertion(64B ES256 签名,
+  凭据 tag 校验)、确认按钮、多帧续帧(1cff2a0 重试修复)。**设备端 FIDO 栈
+  全链路已通**。
+- **待办/已知**: ① python-fido2 的 `make_credential` 用 text 键 pkcp(非标准),
+  设备 parse_pkcp 返回 0x11 — 真实浏览器/libfido2 发 int 键不受影响; 决定
+  是否宽容 text 键; ② browser 端真实 WebAuthn 页面联调(后端 + RP 域)未做;
+  ③ 确认屏富渲染(fido_confirm_ui 目前朴素 Yes/No)是 F5; ④ CONFIG_LOG 里
+  ui_confirm_yesno 的 ESP_LOGW 坐标诊断日志可留可删。
+
 ## 已完成 (FIDO 真机 CTAPHID 联调: 多帧 TX 修复 + 格式确认, commit `1cff2a0`, 2026-08-14)
 - **续帧丢失根因 + 修复 (已真机验证)**: `fido_usb_tx_drain` 每帧发送前等
   `tud_hid_ready()` 100ms, 超时就 drop —— 但 `emit_tx` 已一次性推进 tx_sent,

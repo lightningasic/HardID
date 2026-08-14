@@ -1,5 +1,33 @@
 # MEMORY.md
 
+## 已完成 (无板会话: WebAuthn RP 服务搭建 + COSE key 二修, commit `b6f47de`/`5ee4b57`, 2026-08-15)
+- **重要纠错: 此前 `dd7615d` 的 "COSE key 修复" 本身是错的!** 当时以为 RFC 8152
+  EC2 key 是 `{1:kty, 3:crv, -1:x, -2:y}`。实际标准是 **`{1:kty=2, 3:alg=-7,
+  -1:crv=1, -2:x, -3:y}`**(canonical 键序 1,3,-1,-2,-3): **y 在 -3 不是 -2**;
+  **3 是 alg(-7) 不是 crv**。铁证: python-fido2 `CoseKey.parse` 用 `get(3)` 当 alg,
+  `ES256.verify` 用 `self[-1]`=crv / `self[-2]`=x / `self[-3]`=y。旧格式被 fido2
+  解析成 **UnsupportedKey**(浏览器/fido2 联调必挂)。真机验签当时能过是因为自洽
+  (我手工按自己写的 x/y 构造), 与标准解析器没交叉验证。**已修 (`b6f47de`)**:
+  `write_cose_pubkey` 改 5 键标准映射, canonical 键序 1,3,-1,-2,-3。
+  **交叉验证**: C 代码生成的 key bytes → fido2 `cbor.decode` + `CoseKey.parse`
+  → **ES256** ✓; test_fido 36/36 仍绿; 固件编译通过。
+- **WebAuthn RP 测试服务 (新目录 `webauthn-rp/`, `5ee4b57`)**: 本机 HTTPS
+  (mkcert localhost 证书, certs/ gitignored) + python-fido2 `fido2.server`
+  后端 + 前端 WebAuthn 测试页。端点: `GET /`(页面)、`GET/POST /api/register`、
+  `GET/POST /api/login`(challenge 生成 + attestation/assertion 验证)。
+  服务在跑: `python3 webauthn-rp/server.py` (https://localhost:8443)。
+  新 fido2 版本 API 注意: `register_complete(state, response)` **只收 2 参**
+  (options 不需要), 返回 `AuthenticatorData`; `authenticate_complete(state,
+  creds, response)`; 前端 base64url 直接喂, 库自动 websafe_decode。
+- **无板后端全链路验证通过**: 模拟认证器(标准 COSE key + 真实 ES256 签名)
+  走完整 register → login → **后端验签 OK**。证明 RP 后端逻辑正确且设备新
+  COSE 格式与 fido2/浏览器兼容。剩浏览器真实联调(需用户在场按设备按钮)。
+- **待办**: ① 烧录 `b6f47de` 固件(按住 BOOT 重插 + esptool --after no_reset);
+  ② 有头 Chrome 打开 https://localhost:8443(证书用 `--ignore-certificate-errors`
+  或信任 rootCA; mkcert -install 需要 sudo, 本机无交互密码故未装), 点 Register
+  + 按设备 Yes; ③ confirm 阻塞期间无 keepalive, 浏览器可能 10s 超时(已知待办,
+  若出现则加 CTAPHID keepalive 或缩短确认)。
+
 ## 已完成 (FIDO 真机 CTAPHID 全链路打通, commit `dd7615d`, 2026-08-15)
 - **确认按钮修复已真机验证**: 之前提的 `s_confirm_active`(confirm 期间主任务
   暂停触摸 I2C 轮询)烧录后 makeCredential/getAssertion 的 Yes/No 确认**每次

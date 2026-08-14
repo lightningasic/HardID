@@ -101,18 +101,20 @@ static int write_cose_pubkey(cbor_writer_t *w, const uint8_t pub65[65])
 {
 	if (pub65[0] != 0x04)
 		return CBOR_ERR_TYPE;
-	/* COSE EC2 public key (RFC 8152 §13.1.1): {1:kty=EC2, 3:crv=P-256,
-	 * -1:x, -2:y}. Written in canonical (ascending) key order:
-	 * -2, -1, 1, 3. */
-	if (cbor_write_map_head(w, 4))
-		return CBOR_ERR_OVERFLOW;
-	if (cbor_write_int(w, -2) || cbor_write_bytes(w, pub65 + 33, 32))
-		return CBOR_ERR_OVERFLOW;
-	if (cbor_write_int(w, -1) || cbor_write_bytes(w, pub65 + 1, 32))
+	/* COSE EC2 public key (RFC 8152 §13.1.1):
+	 * {1:kty=EC2, 3:alg=ES256, -1:crv=P-256, -2:x, -3:y}.
+	 * Canonical (RFC 8949 §4.2.1) ascending key order: 1, 3, -1, -2, -3. */
+	if (cbor_write_map_head(w, 5))
 		return CBOR_ERR_OVERFLOW;
 	if (cbor_write_uint(w, 1) || cbor_write_uint(w, COSE_KTY_EC2))
 		return CBOR_ERR_OVERFLOW;
-	if (cbor_write_uint(w, 3) || cbor_write_uint(w, COSE_CRV_P256))
+	if (cbor_write_uint(w, 3) || cbor_write_int(w, COSE_ALG_ES256))
+		return CBOR_ERR_OVERFLOW;
+	if (cbor_write_int(w, -1) || cbor_write_uint(w, COSE_CRV_P256))
+		return CBOR_ERR_OVERFLOW;
+	if (cbor_write_int(w, -2) || cbor_write_bytes(w, pub65 + 1, 32))
+		return CBOR_ERR_OVERFLOW;
+	if (cbor_write_int(w, -3) || cbor_write_bytes(w, pub65 + 33, 32))
 		return CBOR_ERR_OVERFLOW;
 	return CBOR_OK;
 }

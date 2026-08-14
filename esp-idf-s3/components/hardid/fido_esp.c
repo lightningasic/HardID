@@ -68,10 +68,17 @@ static SemaphoreHandle_t s_tx_lock;
  * session down safely (no task/semaphore leak on menu re-entry). */
 static volatile bool s_fido_run;
 static volatile bool s_fido_exited;
+/* True while the fido_task is blocked on a user-presence confirm dialog.
+ * The main task stops polling the touch I2C bus while this is set: the
+ * CST816D is read over a synchronous I2C port and concurrent polling from
+ * two tasks makes the confirm dialog's ui_wait_press() miss presses. */
+static volatile bool s_confirm_active;
 
-/* TinyUSB HID report ids: matching the descriptor in usb_desc.c (id 1 =
- * CTAPHID 64-byte report). */
-enum { HID_REPORT_CTAPHID = 1 };
+/* TinyUSB HID report ids: the descriptor in usb_desc.c has NO report id
+ * (report = 64-byte CTAPHID packet exactly, matching the 64-byte endpoint
+ * and CFG_TUD_HID_EP_BUFSIZE). tud_hid_report(0, ...) sends the raw
+ * 64-byte report with no id prefix. */
+enum { HID_REPORT_CTAPHID = 0 };
 
 /* FIFO of HID reports (64B each) received from the host, drained by the
  * FIDO task. CTAPHID is sequential single-channel in v1, so a small
@@ -94,10 +101,9 @@ static void fido_usb_rx(const uint8_t *report, uint16_t len)
 		ESP_LOGW(TAG, "rx ring full, dropping HID packet");
 		return;
 	}
-	/* The composite descriptor assigns report ID 1 to the CTAPHID report,
-	 * so the host prefixes every OUT report with the 1-byte ID (65-byte
-	 * report). Step over it to reach the 64-byte CTAPHID packet. Detect by
-	 * LENGTH, not content: a packet's first CID byte may itself be 0x01. */
+	/* The descriptor assigns NO report id: host sends the raw 64-byte
+	 * CTAPHID packet directly. (A legacy path allowed a 1-byte report-id
+	 * prefix; kept as a length-based guard in case a host still adds one.) */
 	if (len == CTAPHID_PACKET_SIZE + 1) {
 		report++;
 		len--;
@@ -145,12 +151,23 @@ static void fido_usb_tx_drain(uint8_t (*frames)[CTAPHID_PACKET_SIZE], int nframe
 {
 	/* tud_hid_report() claims the single IN endpoint buffer and starts the
 	 * transfer; it is NOT a fifo. Sending back-to-back while busy makes
-	 * usbd_edpt_claim() fail and silently drops the frame, so wait for the
-	 * previous report to complete before submitting the next. */
+	 * usbd_edpt_claim() fail and drops the frame. We therefore wait for the
+	 * previous report to complete before submitting the next. The IN
+	 * completion can occasionally take longer than the 1ms poll interval
+	 * (full-speed SOF scheduling), so on a transient claim failure retry
+	 * rather than dropping the frame: a lost continuation packet wedges the
+	 * host in an infinite wait for the remainder of a multi-frame response. */
 	for (int i = 0; i < nframes; i++) {
-		for (int w = 0; w < 100 && !tud_hid_ready(); w++)
-			vTaskDelay(pdMS_TO_TICKS(1));
-		if (!tud_hid_report(HID_REPORT_CTAPHID, frames[i], CTAPHID_PACKET_SIZE))
+		bool sent = false;
+		for (int attempt = 0; attempt < 10 && !sent; attempt++) {
+			for (int w = 0; w < 100 && !tud_hid_ready(); w++)
+				vTaskDelay(pdMS_TO_TICKS(1));
+			sent = tud_hid_report(HID_REPORT_CTAPHID, frames[i],
+			                      CTAPHID_PACKET_SIZE);
+			if (!sent)
+				vTaskDelay(pdMS_TO_TICKS(5));
+		}
+		if (!sent)
 			ESP_LOGW(TAG, "hid report dropped (ep busy)");
 	}
 }
@@ -204,12 +221,15 @@ static int fido_confirm_ui(const char *rp_name, bool is_register)
 {
 	/* F3: transport-only build keeps a plain Yes/No so RPs can exercise
 	 * the wire end-to-end. Rich RP-domain render is milestone F5. */
+	s_confirm_active = true;
 	lcd_fill(C_BG);
 	lcd_text_wrap(2, 10, rp_name ? rp_name : "(unknown RP)", C_FG, C_BG);
 	lcd_text_wrap(2, 60,
 	              is_register ? "Register new login key?" : "Confirm login?",
 	              C_LBL, C_BG);
-	return ui_confirm_yesno();
+	int rc = ui_confirm_yesno();
+	s_confirm_active = false;
+	return rc;
 }
 
 /* ---- FIDO session entry (menu -> PIN gate -> serve CTAPHID) ---- */
@@ -269,11 +289,14 @@ void screen_run_fido(void)
 	 * dev touch injector never steals HID-bound console bytes. */
 	touch_inject_set_busy(true);
 
-	/* Session loop: stay until BACK tapped. */
+	/* Session loop: stay until BACK tapped (paused while the fido_task is
+	 * showing a confirm dialog so the two tasks never contend for the
+	 * touch I2C bus). */
 	int px = 0, py = 0;
 	for (;;) {
 		vTaskDelay(pdMS_TO_TICKS(30));
-		if (ui_touch_now(&px, &py) && ui_pt_in(px, py, 60, 288, 180, 318))
+		if (!s_confirm_active && ui_touch_now(&px, &py) &&
+		    ui_pt_in(px, py, 60, 288, 180, 318))
 			break;
 	}
 	touch_inject_set_busy(false);

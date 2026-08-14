@@ -86,6 +86,20 @@ void os_board_hw_init(void)
 	 * console with a TinyUSB composite (CTAPHID HID + CDC-ACM). The
 	 * linkproto HOST LINK carrier and console move to the composite CDC;
 	 * touch-inject over the old JTAG console is no longer reachable. */
+	/* USB/USJ FIX: esp_perip_clk_init (startup) disabled the USJ clock
+	 * (perip_clk_en1.usb_device_clk_en bit10) and pad, so every USJ conf0
+	 * read returned 0 and every write was ignored (clock-gated). Yet the
+	 * host keeps seeing 303a:1001 because the USJ physical link (D+ pullup)
+	 * is held by the PHY hardware state machine while enumerated, so USJ
+	 * keeps the shared FSLS PHY and the OTG never gets it (the PHY mux
+	 * register switches to OTG but the hardware ignores it while USJ holds
+	 * the PHY). Fix: re-enable the USJ clock, then take SW control of the
+	 * pull resistors and disable the pad -> D+ pullup drops -> host sees a
+	 * disconnect -> PHY is physically freed for the OTG. */
+	*(volatile uint32_t *)0x600C001C |= 0x0400u;   /* perip_clk_en1.usb_device_clk_en = 1 */
+	__asm__ __volatile__("memw");
+	*(volatile uint32_t *)0x60038018 = 0x0100u;    /* conf0: pad_pull_override=1, dp_pullup=0, usb_pad_enable=0 */
+	__asm__ __volatile__("memw");
 	esp_err_t usb_rc = hardid_usb_init();
 	if (usb_rc != ESP_OK)
 		ESP_LOGE(TAG, "hardid_usb_init rc=%d", usb_rc);

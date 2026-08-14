@@ -72,17 +72,22 @@ static const tusb_desc_device_t s_dev = {
  *
  *  config header | IAD (CDC ctrl+data) | CDC-ACM control iface |
  *  functional descs | notify EP | CDC data iface | bulk EP out/in |
- *  FIDO HID iface | HID descriptor | 31-byte report descriptor |
- *  FIDO IN/OUT EPs
+ *  FIDO HID iface | HID descriptor | FIDO IN/OUT EPs
+ *
+ *  The CTAP-HID report descriptor is NOT embedded here: the USB core
+ *  parses every byte of a config descriptor as generic descriptors and
+ *  would mis-parse report-descriptor bytes (e.g. 0xA1 -> bLength 161).
+ *  It is served on GET_DESCRIPTOR(REPORT) via tud_hid_descriptor_report_cb()
+ *  (fido_esp.c -> hardid_usb_hid_report_desc()).
  */
 enum {
-	CONFIG_LEN = 138,
-	HID_REPORT_DESC_LEN = 31,
+	CONFIG_LEN = 107,
+	HID_REPORT_DESC_LEN = 29,
 };
 
 static const uint8_t s_config[CONFIG_LEN] = {
 	/* Configuration header */
-	0x09, 0x02, 0x8A, 0x00,  /* bLength, type, wTotalLength = 138 (LE) */
+	0x09, 0x02, 0x6B, 0x00,  /* bLength, type, wTotalLength = 107 (LE) */
 	0x03,                    /* bNumInterfaces */
 	0x01,                    /* bConfigurationValue */
 	0x00,                    /* iConfiguration */
@@ -109,15 +114,24 @@ static const uint8_t s_config[CONFIG_LEN] = {
 	0x07, 0x05, 0x82, 0x02, 0x40, 0x00, 0x00,
 	/* FIDO HID interface */
 	0x09, 0x04, 0x02, 0x00, 0x02, 0x03, 0x00, 0x00, 0x00,
-	/* HID descriptor: 1 report descriptor of 31 bytes */
-	0x09, 0x21, 0x01, 0x01, 0x00, 0x01, 0x22, 0x1F, 0x00,
-	/* ---- CTAP-HID report descriptor (31 bytes) ----
-	 * Usage Page (FIDO Alliance 0xF1D0) | Usage (CTAPHID 0x01) |
-	 * Collection (Application) | Report ID (1) | 64-byte IN/OUT data */
-	0x05, 0xD0, 0xF1,                     /* Usage Page (FIDO)          */
+	/* HID descriptor: 1 report descriptor of 29 bytes */
+	0x09, 0x21, 0x01, 0x01, 0x00, 0x01, 0x22, 0x1D, 0x00,
+	/* FIDO interrupt IN / OUT endpoint */
+	0x07, 0x05, 0x84, 0x03, 0x40, 0x00, 0x01,
+	0x07, 0x05, 0x05, 0x03, 0x40, 0x00, 0x01,
+};
+
+/* ---- CTAP-HID report descriptor (29 bytes), served on
+ * GET_DESCRIPTOR(REPORT) via tud_hid_descriptor_report_cb() ----
+ * FIDO CTAPHID uses a 64-byte report with NO report id (the whole
+ * report is one CTAPHID packet; endpoint size matches 64 exactly,
+ * and CFG_TUD_HID_EP_BUFSIZE needs no bump past its 64 default).
+ * Usage Page (FIDO Alliance 0xF1D0) | Usage (CTAPHID 0x01) |
+ * Collection (Application) | 64-byte IN/OUT data */
+static const uint8_t s_hid_report[HID_REPORT_DESC_LEN] = {
+	0x06, 0xD0, 0xF1,                     /* Usage Page (FIDO 0xF1D0, 2-byte) */
 	0x09, 0x01,                           /* Usage (CTAPHID)            */
 	0xA1, 0x01,                           /* Collection (Application)   */
-	0x85, 0x01,                           /*   Report ID (1)            */
 	0x09, 0x20,                           /*   Usage (Data In)          */
 	0x15, 0x00, 0x26, 0xFF, 0x00,         /*   Logical Min 0 Max 255    */
 	0x95, 0x40, 0x75, 0x08,               /*   Count 64, size 8         */
@@ -126,9 +140,6 @@ static const uint8_t s_config[CONFIG_LEN] = {
 	0x95, 0x40, 0x75, 0x08,               /*   Count 64, size 8         */
 	0x91, 0x02,                           /*   Output (Data, Var, Abs)  */
 	0xC0,                                 /* End Collection             */
-	/* FIDO interrupt IN / OUT endpoint */
-	0x07, 0x05, 0x84, 0x03, 0x40, 0x00, 0x01,
-	0x07, 0x05, 0x05, 0x03, 0x40, 0x00, 0x01,
 };
 
 /* ---- String descriptors ----
@@ -156,10 +167,10 @@ const uint8_t *hardid_usb_fs_config_desc(void)
 	return s_config;
 }
 
-/* HID report descriptor lives inside the config blob (offset 93, 31 bytes). */
+/* HID report descriptor is served separately (GET_DESCRIPTOR(REPORT)). */
 const uint8_t *hardid_usb_hid_report_desc(void)
 {
-	return s_config + 93;
+	return s_hid_report;
 }
 
 const char **hardid_usb_strings(int *count)

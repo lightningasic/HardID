@@ -15,13 +15,26 @@ h1 { font-size: 22px; }
 <p>This page exercises the HardID authenticator over WebAuthn (USB CTAP-HID).</p>
 <button onclick="register()">1. Register</button>
 <button onclick="login()">2. Login</button>
+<button onclick="cancelOp()">Cancel</button>
 <div id="status"></div>
 <script>
 function b64u(b) {
   let s = btoa(String.fromCharCode.apply(null, new Uint8Array(b)));
   return s.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
+function b64uDecode(s) {
+  s = s.replace(/-/g, '+').replace(/_/g, '/');
+  while (s.length % 4) s += '=';
+  const bin = atob(s);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
 function log(m) { document.getElementById('status').textContent = m; }
+let aborter = null;
+function cancelOp() {
+  if (aborter) { aborter.abort(); aborter = null; log('Operation cancelled'); }
+}
 async function api(path, body) {
   const r = await fetch(path, {
     method: body ? 'POST' : 'GET',
@@ -34,9 +47,13 @@ async function register() {
   log('Fetching registration options...');
   const opts = await api('/api/register');
   if (opts.error) return log('ERR: ' + opts.error);
+  opts.publicKey.challenge = b64uDecode(opts.publicKey.challenge);
+  opts.publicKey.user.id = b64uDecode(opts.publicKey.user.id);
   log('Waiting for authenticator touch...');
+  aborter = new AbortController();
   try {
-    const cred = await navigator.credentials.create({publicKey: opts.publicKey});
+    const cred = await navigator.credentials.create(
+      {publicKey: opts.publicKey, signal: aborter.signal});
     const body = {
       id: cred.id, rawId: b64u(cred.rawId), type: cred.type,
       response: {
@@ -49,14 +66,20 @@ async function register() {
     log(res.ok ? 'REGISTER OK — user=' + res.user + '\ncredential=' + res.credential_id
                : 'ERR: ' + res.error);
   } catch (e) { log('ERR: ' + e); }
+  finally { aborter = null; }
 }
 async function login() {
   log('Fetching login options...');
   const opts = await api('/api/login');
   if (opts.error) return log('ERR: ' + opts.error);
+  opts.publicKey.challenge = b64uDecode(opts.publicKey.challenge);
+  if (opts.publicKey.allowCredentials)
+    for (const c of opts.publicKey.allowCredentials) c.id = b64uDecode(c.id);
   log('Waiting for authenticator touch...');
+  aborter = new AbortController();
   try {
-    const cred = await navigator.credentials.get({publicKey: opts.publicKey});
+    const cred = await navigator.credentials.get(
+      {publicKey: opts.publicKey, signal: aborter.signal});
     const body = {
       id: cred.id, rawId: b64u(cred.rawId), type: cred.type,
       response: {
@@ -70,6 +93,7 @@ async function login() {
     log(res.ok ? 'LOGIN OK — user=' + res.user + '\ncredential=' + res.credential_id
                : 'ERR: ' + res.error);
   } catch (e) { log('ERR: ' + e); }
+  finally { aborter = null; }
 }
 </script>
 </body>

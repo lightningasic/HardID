@@ -217,6 +217,29 @@ static void fido_task(void *arg)
 /* ---- User-presence hook: wired to the UI confirm (F5 expands the
  *      rendering). Core default (NULL) DENIES, safe default (A3). ---- */
 
+/* CTAPHID_CANCEL (0x11): sent by the browser when the WebAuthn operation
+ * is aborted. The core dispatcher is blocked inside this confirm dialog,
+ * so the cancel packet would otherwise sit in the RX ring forever. We
+ * poll the ring while waiting for touch and treat a pending cancel as a
+ * user "No" (operation denied), which the browser surfaces as a cancelled
+ * create()/get(). */
+#define CTAPHID_CANCEL 0x11
+
+static bool fido_cancel_pending(void)
+{
+	/* packet layout: cid(4) | cmd(1) | ... */
+	unsigned i = s_rx.head;
+	while (i != s_rx.tail) {
+		if (s_rx.data[i][4] == CTAPHID_CANCEL) {
+			/* drop the cancel and any stale packets before it */
+			s_rx.head = i;
+			return true;
+		}
+		i = ring_next(i);
+	}
+	return false;
+}
+
 static int fido_confirm_ui(const char *rp_name, bool is_register)
 {
 	/* F3: transport-only build keeps a plain Yes/No so RPs can exercise
@@ -227,8 +250,49 @@ static int fido_confirm_ui(const char *rp_name, bool is_register)
 	lcd_text_wrap(2, 60,
 	              is_register ? "Register new login key?" : "Confirm login?",
 	              C_LBL, C_BG);
-	int rc = ui_confirm_yesno();
+	lcd_rect_text(15, 200, 115, 250, "No", C_FG, C_BTN);
+	lcd_rect_text(125, 200, 225, 250, "Yes", C_FG, C_OK);
+	int rc = 0;
+	for (;;) {
+		if (fido_cancel_pending())
+			break;                 /* host aborted -> deny */
+		int px, py;
+		if (!ui_touch_now(&px, &py)) {
+			vTaskDelay(pdMS_TO_TICKS(8));
+			continue;
+		}
+		/* stable press (3 consecutive reads), honouring cancel */
+		int settle = 1;
+		while (settle < 3) {
+			if (fido_cancel_pending())
+				goto done;
+			vTaskDelay(pdMS_TO_TICKS(8));
+			if (ui_touch_now(&px, &py))
+				settle++;
+			else
+				settle = 0;
+		}
+		/* wait for release, tracking last coords, honouring cancel */
+		int rx = px, ry = py, lost = 0;
+		for (;;) {
+			if (fido_cancel_pending())
+				goto done;
+			if (ui_touch_now(&rx, &ry))
+				lost = 0;
+			else if (++lost >= 3)
+				break;
+			vTaskDelay(pdMS_TO_TICKS(8));
+		}
+		if (ui_pt_in(px, py, 125, 200, 225, 250) &&
+		    ui_pt_in(rx, ry, 125, 200, 225, 250)) { rc = 1; break; }
+		if (ui_pt_in(px, py, 15, 200, 115, 250) &&
+		    ui_pt_in(rx, ry, 15, 200, 115, 250)) { rc = 0; break; }
+		ESP_LOGW(TAG, "confirm touch ignored: press=%d,%d release=%d,%d",
+		         px, py, rx, ry);
+	}
+done:
 	s_confirm_active = false;
+	ESP_LOGW(TAG, "confirm result rc=%d", rc);
 	return rc;
 }
 

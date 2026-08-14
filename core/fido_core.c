@@ -72,8 +72,9 @@ int fido_getinfo(uint8_t *resp, size_t resp_cap, size_t *resp_len)
 	/* 0x05 maxMsgSize */
 	if (cbor_write_uint(&w, 5) || cbor_write_uint(&w, FIDO_GETINFO_MAX_MSG_SIZE))
 		return CTAP1_ERR_OTHER;
-	/* 0x06 pinUvAuthProtocols: [] */
-	if (cbor_write_uint(&w, 6) || cbor_write_array_head(&w, 0))
+	/* 0x06 pinUvAuthProtocols: [1] */
+	if (cbor_write_uint(&w, 6) || cbor_write_array_head(&w, 1) ||
+	    cbor_write_uint(&w, 1))
 		return CTAP1_ERR_OTHER;
 	/* 0x07 maxCredentialCountInList */
 	if (cbor_write_uint(&w, 7) || cbor_write_uint(&w, FIDO_GETINFO_MAX_CRED_COUNT))

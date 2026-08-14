@@ -71,10 +71,12 @@ int cbor_peek_type(const cbor_reader_t *r, uint8_t *type, uint8_t *info)
 
 static int enter_container(cbor_reader_t *r, size_t count)
 {
-	if (++r->depth > CBOR_MAX_DEPTH)
-		return CBOR_ERR_DEPTH;
-	/* budget counts each member + the container itself; cap prevents
-	 * runaway maps/arrays. count+1 must not underflow the budget. */
+	/* NOTE: do NOT bump r->depth here. cbor_read_* entry points (map/array
+	 * head) have no matching "leave" call, so counting nesting here would
+	 * accumulate across *sequential* containers (e.g. a pubKeyCredParams
+	 * array of N entries) and eventually trip CBOR_MAX_DEPTH. Depth is only
+	 * meaningful for the recursive cbor_skip() path, which pairs its own
+	 * ++/--. Budget guards against wide/hostile CBOR regardless. */
 	if (count > (size_t)r->budget - 1)
 		return CBOR_ERR_OVERFLOW;
 	r->budget -= (uint32_t)count + 1;

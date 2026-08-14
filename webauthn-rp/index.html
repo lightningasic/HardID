@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>HardID WebAuthn Test</title>
+<style>
+body { font-family: sans-serif; max-width: 640px; margin: 40px auto; }
+button { font-size: 16px; padding: 10px 18px; margin: 8px 8px 8px 0; cursor: pointer; }
+#status { white-space: pre-wrap; margin-top: 16px; font-size: 14px; }
+h1 { font-size: 22px; }
+</style>
+</head>
+<body>
+<h1>HardID FIDO2 RP Test</h1>
+<p>This page exercises the HardID authenticator over WebAuthn (USB CTAP-HID).</p>
+<button onclick="register()">1. Register</button>
+<button onclick="login()">2. Login</button>
+<div id="status"></div>
+<script>
+function b64u(b) {
+  let s = btoa(String.fromCharCode.apply(null, new Uint8Array(b)));
+  return s.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function log(m) { document.getElementById('status').textContent = m; }
+async function api(path, body) {
+  const r = await fetch(path, {
+    method: body ? 'POST' : 'GET',
+    headers: body ? {'Content-Type': 'application/json'} : {},
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  return r.json();
+}
+async function register() {
+  log('Fetching registration options...');
+  const opts = await api('/api/register');
+  if (opts.error) return log('ERR: ' + opts.error);
+  log('Waiting for authenticator touch...');
+  try {
+    const cred = await navigator.credentials.create({publicKey: opts.publicKey});
+    const body = {
+      id: cred.id, rawId: b64u(cred.rawId), type: cred.type,
+      response: {
+        clientDataJSON: b64u(cred.response.clientDataJSON),
+        attestationObject: b64u(cred.response.attestationObject),
+      },
+    };
+    log('Verifying attestation on server...');
+    const res = await api('/api/register', body);
+    log(res.ok ? 'REGISTER OK — user=' + res.user + '\ncredential=' + res.credential_id
+               : 'ERR: ' + res.error);
+  } catch (e) { log('ERR: ' + e); }
+}
+async function login() {
+  log('Fetching login options...');
+  const opts = await api('/api/login');
+  if (opts.error) return log('ERR: ' + opts.error);
+  log('Waiting for authenticator touch...');
+  try {
+    const cred = await navigator.credentials.get({publicKey: opts.publicKey});
+    const body = {
+      id: cred.id, rawId: b64u(cred.rawId), type: cred.type,
+      response: {
+        clientDataJSON: b64u(cred.response.clientDataJSON),
+        authenticatorData: b64u(cred.response.authenticatorData),
+        signature: b64u(cred.response.signature),
+      },
+    };
+    log('Verifying assertion on server...');
+    const res = await api('/api/login', body);
+    log(res.ok ? 'LOGIN OK — user=' + res.user + '\ncredential=' + res.credential_id
+               : 'ERR: ' + res.error);
+  } catch (e) { log('ERR: ' + e); }
+}
+</script>
+</body>
+</html>

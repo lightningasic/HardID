@@ -1,5 +1,51 @@
 # MEMORY.md
 
+## 已完成 (FIDO 真机 CTAPHID 联调: 多帧 TX 修复 + 格式确认, commit `1cff2a0`, 2026-08-14)
+- **续帧丢失根因 + 修复 (已真机验证)**: `fido_usb_tx_drain` 每帧发送前等
+  `tud_hid_ready()` 100ms, 超时就 drop —— 但 `emit_tx` 已一次性推进 tx_sent,
+  drop 的续帧永久丢失 → host 卡死等续帧。表现为 **get_info#1 偶发头帧到但
+  续帧丢(TIMEOUT)、get_info#2 成功**(间歇性, 与 CBOR#1/#2 卡住的旧观察一致)。
+  修复: 发送失败重试 10 次(每次再等 100ms + 5ms backoff)。**验证**: 连续 5 次
+  get_info(len=99, status 0x00) 全 OK + 多帧 PING 16/60/100B 全 match +
+  get_info 后 PING 交替正常。**单帧响应(ping/INIT/ERROR)一直正常, 只有多帧
+  响应间歇失败 → 完全吻合此根因。**
+- **usbhid 0x00 剥离机制确认 (client 侧须知)**: Linux usbhid 对无 report-id 的
+  OUT report, 若首字节为 0x00 会剥掉(当 report id)。因此客户端写 HID 必须
+  **prepend 0x00 report-id**(fido2 `linux.py` 就是这么做的, 写 65B)。手动测试
+  脚本若直写 64B 会被剥首字节 → 设备收到错位包 → CTAPHID_ERROR INVALID_SEQ。
+  CTAPHID CID 首字节为 0x00 时(如 `0000000e`)此问题必现; INIT(CID ffffffff)
+  不受影响 → 解释了"INIT 好、后续错位"的旧现象。
+- **makeCredential 请求格式确认 (设备端兼容待办)**: CTAP2 命令字节是 0x01
+  (MAKE_CREDENTIAL)/0x02 (GET_ASSERTION), **不是** 0x10 (那是 CTAPHID_CBOR)。
+  手动测试正确结构: `CTAPHID_CBOR(0x10) || CTAP2_cmd(0x01) || CBOR`。
+  **python-fido2 的 `make_credential(key_params=[{'type':'public-key','alg':-7}])`
+  把 pkcp 项的键编码成 TEXT 键("alg"/"type")**, 而 CTAP2 §6.1.3 要求整数键
+  (1=type, 3=alg) → 设备端 `parse_pkcp` 的 `cbor_read_uint` 读 text 键失败 →
+  **CTAP error 0x11 CBOR_UNEXPECTED_TYPE**。已用标准整数键手动构造验证: 请求
+  被正确解析, 设备进入用户确认(挂起等按钮)。**待办**: 决定设备端是否宽容
+  text 键 pkcp(真实浏览器/libfido2 都发 int 键; python-fido2 是唯一特例)——
+  建议宽容跳过无法解析的 pkcp 项。
+- **真机确认按钮不响应 (未解决, 已提修复未验证)**: makeCredential 到确认屏
+  (fido_confirm_ui → ui_confirm_yesno) 后**按 Yes 无反应**。根因怀疑 fido_task
+  (ui_wait_press, 每 8ms) 与主任务 (BACK 轮询, 每 30ms) **并发轮询同一同步
+  I2C 触摸总线** → 触摸读取竞态丢失。**已提交修复 `1cff2a0`**: 加
+  `s_confirm_active` 标志, confirm 期间主任务暂停触摸轮询; 同时
+  ui_confirm_yesno 加了 `ESP_LOGW("keypad","confirm touch: ...")` 坐标诊断。
+  **编译通过但未烧录/未真机验证**(用户离开, 需板交互)。下次验证: 烧录 →
+  makeCredential → 按 Yes → 看 LCD/日志坐标是否匹配 Yes 区域 (125,200,225,250)。
+  若坐标正常仍不响应, 排查触摸注入残留 s_inj_active 或 CST816D 多任务时序。
+- **HID 描述符去 report-id (随 `1cff2a0` 落地, 已真机工作)**: usb_desc.c 把
+  CTAP-HID report descriptor 从 config 内嵌 31B (带 report id 1) 改为独立
+  29B **无 report id** (经 `tud_hid_descriptor_report_cb` 单独下发);
+  fido_esp.c `HID_REPORT_CTAPHID=0`、`fido_usb_rx` 保留长度守卫兼容旧 host。
+  配合 fido2 库 prepend 0x00 的 65B 写 → usbhid 剥 0x00 → 设备收正确 64B。
+- **board_s3.c 保留 USB/USJ PHY 修复, 删调试残留**: 保留「重开 USJ 时钟 +
+  conf0 pad 上拉覆盖/DP 下拉」使共享 FSLS PHY 释放给 OTG 的寄存器写(设备现
+  正常枚举 1209:f1d0); 删除 TEMP DEBUG 的 g_usb_dbg_*/g_otg_dbg 快照与
+  display.c 的 LCD 寄存器显示块。
+- **验证环境**: 板 Waveshare S3-Touch-LCD-2, /dev/hidraw2, fido2 Python 库
+  (CtapHidDevice / Ctap2)。烧录: 按住 BOOT 重插 → esptool --after no_reset。
+
 ## 已完成 (FIDO 上板循环审计 + 修复, commit `ffc04f7`, 2026-08-13)
 首次真机跑 F3 TinyUSB composite 固件，暴露启动回归 + 若干潜伏 bug。31 host
 套件 + fuzz 50k (ASan/UBSan) 全绿，boot LOGO 真机验证正常。

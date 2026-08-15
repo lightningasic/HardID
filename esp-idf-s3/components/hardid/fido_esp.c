@@ -228,9 +228,11 @@ static void fido_task(void *arg)
 static bool fido_cancel_pending(void)
 {
 	/* packet layout: cid(4) | cmd(1) | ... */
+	/* The host always sets the CTAPHID bit7 on the wire (CANCEL=0x91);
+	 * the ring stores the raw bytes, so match either representation. */
 	unsigned i = s_rx.head;
 	while (i != s_rx.tail) {
-		if (s_rx.data[i][4] == CTAPHID_CANCEL) {
+		if ((s_rx.data[i][4] & 0x7f) == CTAPHID_CANCEL) {
 			/* drop the cancel and any stale packets before it */
 			s_rx.head = i;
 			return true;

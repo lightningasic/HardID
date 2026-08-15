@@ -78,6 +78,42 @@ static int req_text(cbor_reader_t *r, char *out, size_t out_cap)
 }
 
 /* Parse rp map {1:id, 2:name}. */
+/* Accept either the CTAP2 integer map key or the text key Chrome uses
+ * when it serializes the nested rp/user/pkcp maps via AsCBOR()
+ * ("id"/"name"/"displayName"/"type"/"alg"). python-fido2 and the spec
+ * send integer keys; tolerating both keeps the same request parsing
+ * from every platform. Unknown text keys map to 0 so the caller skips
+ * the value (CTAP2 §6.1 tolerance rule). */
+static int read_map_key(cbor_reader_t *r, uint64_t *key)
+{
+	uint8_t type, info;
+	int rc = cbor_peek_type(r, &type, &info);
+	if (rc != CBOR_OK)
+		return rc;
+	if (type == CBOR_TYPE_UINT)
+		return cbor_read_uint(r, key);
+	if (type == CBOR_TYPE_TEXT) {
+		const uint8_t *s;
+		size_t n;
+		if ((rc = cbor_read_text_head(r, &s, &n)) != CBOR_OK)
+			return rc;
+		if (n == 2 && !memcmp(s, "id", 2))
+			*key = 1;
+		else if (n == 4 && !memcmp(s, "name", 4))
+			*key = 2;
+		else if (n == 11 && !memcmp(s, "displayName", 11))
+			*key = 3;
+		else if (n == 4 && !memcmp(s, "type", 4))
+			*key = 0x10;   /* pseudo-key: never collides with K_CRED_ID etc */
+		else if (n == 3 && !memcmp(s, "alg", 3))
+			*key = 3;
+		else
+			*key = 0;
+		return CBOR_OK;
+	}
+	return CBOR_ERR_TYPE;
+}
+
 static int parse_rp(cbor_reader_t *r, char *rp_id, size_t rp_id_cap,
                     char *rp_name, size_t rp_name_cap)
 {
@@ -89,7 +125,7 @@ static int parse_rp(cbor_reader_t *r, char *rp_id, size_t rp_id_cap,
 	rp_name[0] = '\0';
 	for (size_t i = 0; i < members; i++) {
 		uint64_t key;
-		if ((rc = cbor_read_uint(r, &key)) != CBOR_OK)
+		if ((rc = read_map_key(r, &key)) != CBOR_OK)
 			return rc;
 		if (key == K_RP_ID) {
 			if ((rc = req_text(r, rp_id, rp_id_cap)) != CBOR_OK)
@@ -124,7 +160,7 @@ static int parse_pkcp(cbor_reader_t *r, bool *has_es256)
 		bool seen_alg = false;
 		for (size_t j = 0; j < members; j++) {
 			uint64_t key;
-			if ((rc = cbor_read_uint(r, &key)) != CBOR_OK)
+			if ((rc = read_map_key(r, &key)) != CBOR_OK)
 				return rc;
 			if (key == K_PKCP_ALG) {
 				if ((rc = cbor_read_int(r, &alg)) != CBOR_OK)
@@ -155,7 +191,7 @@ static int parse_options(cbor_reader_t *r, bool *up)
 		*up = true;   /* default: presence required */
 	for (size_t i = 0; i < members; i++) {
 		uint64_t key;
-		if ((rc = cbor_read_uint(r, &key)) != CBOR_OK)
+		if ((rc = read_map_key(r, &key)) != CBOR_OK)
 			return rc;
 		bool v = false;
 		if ((rc = cbor_read_bool(r, &v)) != CBOR_OK)
@@ -179,7 +215,7 @@ static int parse_user(cbor_reader_t *r, char *name, size_t name_cap)
 	name[0] = '\0';
 	for (size_t i = 0; i < members; i++) {
 		uint64_t key;
-		if ((rc = cbor_read_uint(r, &key)) != CBOR_OK)
+		if ((rc = read_map_key(r, &key)) != CBOR_OK)
 			return rc;
 		if (key == K_USER_NAME && name_cap > 1) {
 			if ((rc = req_text(r, name, name_cap)) != CBOR_OK)
@@ -310,7 +346,7 @@ static int handle_get_assertion(const uint8_t *req, size_t req_len,
 					return rc;
 				for (size_t j = 0; j < mm; j++) {
 					uint64_t k;
-					if ((rc = cbor_read_uint(&rd, &k)) != CBOR_OK)
+					if ((rc = read_map_key(&rd, &k)) != CBOR_OK)
 						return rc;
 					if (k == K_CRED_ID) {
 						size_t clen = sizeof gar.allowlist_credid;

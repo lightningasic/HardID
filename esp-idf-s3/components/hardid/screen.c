@@ -1205,3 +1205,74 @@ void screen_fido_manage(void)
 		}
 	}
 }
+
+/* PIN setup/change. Set a PIN when none is set, or (after verifying the
+ * current PIN) set a new one. The PIN protects the wallet only — FIDO has
+ * no PIN. */
+void screen_run_pin(void)
+{
+	const se_driver_t *se = se_active();
+	if (!se)
+		return;
+	bool pin_set = false;
+	if (se->is_pin_set)
+		se->is_pin_set(&pin_set);
+
+	for (;;) {
+		lcd_fill(C_BG);
+		lcd_line(2, 2, "PIN", C_LBL, C_BG);
+		lcd_text_wrap(2, 40, pin_set
+		              ? "PIN is set. It protects wallet signing."
+		              : "No PIN set. It will protect wallet signing.",
+		              C_DIM, C_BG);
+		lcd_rect_text(15, 288, 70, 318, "< BACK", C_FG, C_BTN);
+		lcd_rect_text(80, 288, 160, 318, pin_set ? "CHANGE" : "SET",
+		              C_FG, C_OK);
+
+		int px, py;
+		if (!ui_wait_press(&px, &py))
+			continue;
+		int rx = px, ry = py;
+		ui_wait_release(&rx, &ry);
+		if (!(ui_pt_in(rx, ry, px - 20, py - 20, px + 20, py + 20) ||
+		      (rx == px && ry == py)))
+			continue;
+
+		if (ui_pt_in(px, py, 15, 288, 70, 318) &&
+		    ui_pt_in(rx, ry, 15, 288, 70, 318))
+			return;   /* BACK */
+
+		if (ui_pt_in(px, py, 80, 288, 160, 318) &&
+		    ui_pt_in(rx, ry, 80, 288, 160, 318)) {
+			if (pin_set) {
+				/* verify the current PIN before allowing a change */
+				char old[OS_PIN_MAX_LEN + 1];
+				int n = ui_enter_pin(old, sizeof(old));
+				if (n < 0)
+					continue;   /* cancelled */
+				uint32_t wait;
+				bool duress;
+				int vr = se->verify_pin((const uint8_t *)old,
+				                        (size_t)n, &wait, &duress);
+				os_secure_bzero(old, sizeof(old));
+				if (vr != SE_OK) {
+					lcd_fill(C_BG);
+					lcd_text_wrap(2, 40, "Wrong PIN.", C_ERR, C_BG);
+					ui_wait_ack();
+					continue;
+				}
+			}
+			char pin[OS_PIN_MAX_LEN + 1];
+			int len = ui_set_pin(pin, sizeof(pin));
+			if (len < 0)
+				continue;   /* cancelled */
+			se->set_pin((const uint8_t *)pin, (size_t)len);
+			os_secure_bzero(pin, sizeof(pin));
+			pin_set = true;
+			lcd_fill(C_BG);
+			lcd_text_wrap(2, 40, "PIN updated.", C_OK, C_BG);
+			ui_wait_ack();
+			continue;
+		}
+	}
+}

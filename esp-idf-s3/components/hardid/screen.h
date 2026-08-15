@@ -58,6 +58,11 @@ void screen_run_fido(void);
 /* About: show hardware and firmware version, tap to return. */
 void screen_run_about(void);
 
+/* PIN setup/change: set a PIN if none is set, or (after verifying the
+ * current PIN) set a new one. PIN protects the wallet only — FIDO has no
+ * PIN. Returns on back. */
+void screen_run_pin(void);
+
 /* Boot splash: draw the HardID logo bitmap with the wordmark below it. */
 void screen_run_splash(void);
 

@@ -623,12 +623,12 @@ int kp_capture_phrase(const char *title, char *out, int max)
 						return (outlen > 0) ? 0 : -1;
 					}
 				} else if (kind >= 0) {
-					/* append a letter; BIP39 words are lowercase so fold the
-					 * keypad's uppercase cell into lower case for matching.
-					 * Once the word is auto-filled (pending), extra letters
-					 * are ignored — the word is already resolved; OK commits
-					 * it and BACK clears it to keep typing. */
-					if (pending_wi < 0 && ncur < WORD_BUF_MAX) {
+					/* Append letters up to 4 (a BIP39 word's unique prefix),
+					 * folding the keypad's uppercase cell to lowercase. After
+					 * the word auto-fills, further letters keep appending to
+					 * the prefix (so the user can finish the 4 letters); the
+					 * resolved word stays pending until OK commits it. */
+					if (ncur < 4) {
 						char c = (char)kind;
 						if (c >= 'A' && c <= 'Z')
 							c = (char)(c - 'A' + 'a');

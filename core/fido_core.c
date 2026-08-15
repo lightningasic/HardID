@@ -197,6 +197,35 @@ int fido_make_credential(const fido_make_cred_req_t *req,
 }
 
 /* ---- getAssertion ---- */
+
+/* Encode an ES256 (P-256) signature from raw r||s (64 bytes) into an
+ * ASN.1 DER Ecdsa-Sig-Value. WebAuthn §6.5.5: for COSEAlgorithmIdentifier
+ * -7 (ES256) the signature MUST be DER-encoded. */
+static void der_encode_ecdsa(const uint8_t sig64[64], uint8_t *out,
+                             size_t *out_len)
+{
+	const uint8_t *r = sig64, *s = sig64 + 32;
+	size_t rlen = 32, slen = 32;
+	uint8_t rbuf[33], sbuf[33];
+
+	while (rlen > 1 && *r == 0) { r++; rlen--; }
+	while (slen > 1 && *s == 0) { s++; slen--; }
+	if (*r & 0x80) { rbuf[0] = 0; memcpy(rbuf + 1, r, rlen); r = rbuf; rlen++; }
+	if (*s & 0x80) { sbuf[0] = 0; memcpy(sbuf + 1, s, slen); s = sbuf; slen++; }
+
+	size_t body = 2 + rlen + 2 + slen;
+	out[0] = 0x30;
+	out[1] = (uint8_t)body;
+	out[2] = 0x02;
+	out[3] = (uint8_t)rlen;
+	memcpy(out + 4, r, rlen);
+	size_t off = 4 + rlen;
+	out[off] = 0x02;
+	out[off + 1] = (uint8_t)slen;
+	memcpy(out + off + 2, s, slen);
+	*out_len = off + 2 + slen;
+}
+
 int fido_get_assertion(const fido_get_assert_req_t *req,
                        uint8_t *resp, size_t resp_cap, size_t *resp_len)
 {
@@ -243,16 +272,25 @@ int fido_get_assertion(const fido_get_assert_req_t *req,
 	if (rc != SE_OK)
 		return CTAP2_ERR_PROCESSING;
 
-	/* response: {1:credential{1:id,2:type}, 2:authData, 3:signature} */
+	/* WebAuthn §6.5.5: ES256 assertion signature MUST be DER-encoded. */
+	uint8_t sig_der[72];
+	size_t sig_der_len = 0;
+	der_encode_ecdsa(sig64, sig_der, &sig_der_len);
+	os_secure_bzero(sig64, sizeof sig64);
+
+	/* response: {1:credential{"id":...,"type":...}, 2:authData, 3:signature}.
+	 * The nested credential map MUST use text keys "id"/"type" per CTAP2
+	 * spec; Chrome's CreateFromCBORValue only looks those up (integers
+	 * caused kCtap2ErrInvalidCBOR). */
 	cbor_writer_t w;
 	cbor_writer_init(&w, resp, resp_cap);
 	if (cbor_write_map_head(&w, 3) ||
 	    cbor_write_uint(&w, 1) || cbor_write_map_head(&w, 2) ||
-	    cbor_write_uint(&w, 1) ||
+	    cbor_write_text(&w, "id") ||
 	    cbor_write_bytes(&w, req->allowlist_credid, req->allowlist_credid_len) ||
-	    cbor_write_uint(&w, 2) || cbor_write_text(&w, "public-key") ||
+	    cbor_write_text(&w, "type") || cbor_write_text(&w, "public-key") ||
 	    cbor_write_uint(&w, 2) || cbor_write_bytes(&w, authdata, sizeof authdata) ||
-	    cbor_write_uint(&w, 3) || cbor_write_bytes(&w, sig64, 64))
+	    cbor_write_uint(&w, 3) || cbor_write_bytes(&w, sig_der, sig_der_len))
 		return CTAP1_ERR_OTHER;
 	*resp_len = w.len;
 	return CTAP2_OK;

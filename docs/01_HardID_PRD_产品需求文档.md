@@ -1,12 +1,14 @@
 # HardID 硬件钱包 — 产品需求文档 (PRD)
 
-> **版本**: v1.1
-> **日期**: 2026-08-10
+> **版本**: v1.2
+> **日期**: 2026-08-15
 > **产品**: HardID Hardware Wallet
 > **定位**: 标准签名模块 —— 开放签名接口给第三方调用，只做签名，不能进行任何其他操作
 > **上游**: 自 2014 年 BitExchange Wallet（TREZOR fork）演进而来
 >
 > **v1.1 架构更新（2026-08-10）**：产品定位从"独立硬件钱包"收敛为**标准签名模块**：对外只暴露签名这一个可调用操作；后续版本支持 FIDO 协议（FIDO2/WebAuthn，CTAP2）。
+>
+> **v1.2 更新（2026-08-15）**：① **FIDO2/WebAuthn 已实现并真机打通**（Chrome localhost + GitHub 注册/登录全流程），且 FIDO 产品化为**可删除预装 APP**（出厂不装、APP MARKET 激活/删除、FIDO 免 PIN、钱包 PIN 与 FIDO 独立）；② **PIN 产品化为可选 + 空闲自动锁定**（可设 30s/1m/5m/10m/永不）；③ **恢复出厂需两次输入 RESET**；④ **主菜单多语言**（英文/中文/日文/韩文）；⑤ **种子单词安全告警**（最严厉，显示/录入助记词前强制展示）。
 
 ---
 
@@ -167,10 +169,10 @@ HardID 从 BitExchange Wallet 进化而来，坚持三条原始原则：**完全
 2. **Clear Sign 强制人审**
    - 每个签名请求在设备屏幕解析并逐字段确认（§3.2），用户触屏确认后才输出签名
    - 例外：用户预设的限额策略内自动签名（§3.2.5）；策略本身只能在设备上修改，不开放接口
-3. **传输形态**
+   3. **传输形态**
    - USB 最小数据面（当前 linkproto 帧协议，即 HOST LINK 的工程化）
    - QR 气隙模式（摄像头扫入、屏幕 QR 输出签名）
-   - 后续：FIDO2/WebAuthn（CTAP2）——设备同时是标准 FIDO 认证器，认证断言复用同一签名内核（见 §5）
+   - FIDO2/WebAuthn（CTAP2）——设备同时是标准 FIDO 认证器（已实现，见 §5 与 `09_FIDO设计文档.md`），认证断言复用同一签名内核（P-256/ES256）
 4. **协议治理**
    - 协议规范、帧格式、错误码全部开源；版本单调递增，旧版行为可预期
    - 提供参考实现/SDK，第三方集成无需逆向
@@ -277,5 +279,40 @@ HardID 从 BitExchange Wallet 进化而来，坚持三条原始原则：**完全
 
 ---
 
-*关联文档：`安全核心审核报告.md`、`代码/RNG_HARDENING_MEMO.md`、`../MEMORY.md`*
+## 9. 实现进展快照（2026-08-15，FIDO 打通 + 产品化收尾）
+
+本日提交 `47374d0`..`8a446a5`，FIDO2/WebAuthn 浏览器全流程真机打通，并将 FIDO、PIN、菜单交互产品化收尾。以下为已落地的需求项与偏差说明：
+
+**FIDO2/WebAuthn 全流程打通（§3.4.3 已实现）**
+- **Chrome localhost + GitHub 注册/登录真机通过**：makeCredential 返回 attestation fmt="none"（authData 153B、rpIdHash=sha256("github.com") 验证匹配、UP+AT、aaguid "hardid"+zeros、credId 21B、COSE EC2/ES256/P-256）；getAssertion 返回 DER 编码 ES256 签名；excludeCredentials 二次注册返回 0x19。
+- **关键兼容修复**：allowList/exclude 容忍超大外键（80B/96B 旧 U2F 键，全扫描取首个 21B 凭证）；getAssertion credential map 文本键 "id"/"type"；ES256 签名 ASN.1 DER（WebAuthn §6.5.5）；CANCEL 匹配 0x91。
+
+**FIDO 产品化：可删除预装 APP（新增）**
+- 出厂默认**不安装**（开机进钱包菜单）；APP MARKET 分 **Installed / Available** 两页，FIDO 未装时归 Available 页，激活后归 Installed 页。
+- 激活需钱包已初始化（FIDO 私钥派生自钱包 base seed，见 `mock_fido_priv = HMAC(seed, "fido-p256"‖epoch‖idx)`）；删除 FIDO = 递增 epoch 使旧凭证全部失效（authenticatorReset 语义）。
+- **FIDO 免 PIN**：断言授权 = 设备物理 Yes 确认；PIN 只保护钱包（产品决策）。
+- FIDO 私钥不经 brain phrase（改脑口令 → 钱包地址变、FIDO 凭证不变）。
+
+**PIN 产品化：可选 + 空闲自动锁定（§3.3.1 更新）**
+- PIN **可选**：首次开机/初始化/恢复/恢复出厂后询问是否设置，可跳过（钱包可无 PIN 运行）。
+- 进钱包需 PIN 解锁（FIDO 免 PIN）；解锁后空闲自动锁定，超时档位 30s/1m/5m/10m/永不（默认 5m），可在 PIN 菜单设置（`<`/`OK`/`>` 统一导航）。
+- 修改 PIN 需先验证旧 PIN；`set_pin` 即锁定（设置/修改后须重新验证）。
+
+**UX 交互（真机走查驱动）**
+- 恢复出厂需**两次输入 RESET** 确认 + PIN 所有权验证（有 PIN 时）。
+- 主菜单**多语言**：英文/中文/日文/韩文，LANGUAGE 菜单切换，嵌入式 16×16 GNU Unifont 子集（70 字形）渲染 CJK。
+- **种子单词安全告警**（最严厉）：显示/录入助记词前强制展示"种子只在钱包产生/输入，网页/邮件/APP 索要均为诈骗"，需点"我理解"确认。
+- RECOVER 录入：前缀唯一即自动填满（1-4 字母）；填满后继续输字母上屏至 4 字母；滑动键盘放大镜字母放大至 32×64。
+- 主菜单排序定稿：INITIALIZE / RECOVER（已初始化时隐藏）→ SIGN / HOST LINK / FIDO / APP MARKET / PIN / ABOUT / LANGUAGE / FACTORY RESET。
+
+**安全决策记录**
+- 恢复出厂 = 回到出厂态：wipe seed + 清 FIDO 安装标志 + epoch 归零（旧凭证失效）+ 自动锁定重置默认。
+- 未初始化时 FIDO 不工作（`os_fido_is_active()` 要求 installed && initd）。
+
+**遗留红线（真实资金前必修，见 MEMORY.md）**
+- KEEPALIVE 安全版重设计（confirm 期间周期 UP_NEEDED，需避免与响应竞争 USB IN）；开机 INIT 延迟；BACK 回菜单是否停 FIDO 的产品决策；P4 移植同步。
+
+---
+
+*关联文档：`安全核心审核报告.md`、`SECURITY_AUDIT.md`、`09_FIDO设计文档.md`、`../MEMORY.md`*
 *文档结束*

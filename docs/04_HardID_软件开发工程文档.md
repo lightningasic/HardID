@@ -316,5 +316,29 @@ sha256sum hardid-v1.0.0.bin
 
 ---
 
-*关联文档：`01_PRD`、`02_ERD`、`03_时序图`、`安全核心审核报告.md`、`代码/RNG_HARDENING_MEMO.md`、*`../MEMORY.md`*
+## 10. 实现进展（2026-08-15，FIDO 打通 + 产品化收尾）
+
+**新增软件模块（S3 测试板）**
+
+- **`fido_app.c/h`（FIDO 可删除预装 APP 持久化）**：FIDO 安装标志存独立 NVS namespace `"fido_app"`，与 mock-SE 的 `"hardid_mock"` 隔离。`os_fido_installed()`（纯标志，默认 false=出厂不装）/ `os_fido_is_active()`（installed && 钱包已初始化，FIDO 私钥派生自钱包 base seed，无 seed 即无 PK 不服务）/ `os_fido_set_active()` / `os_fido_wipe_credentials()`（递增 epoch）。
+- **`lang.c/h`（UI 多语言）**：语言设置持久化 NVS `"lang"`（默认 EN），菜单 10 项四语字符串表 + 语言自名。`os_lang_get/set/str/name`。
+- **`font_cjk.c/h`（嵌入式 CJK 字体子集）**：16×16 GNU Unifont 子集（70 字形，覆盖菜单所需的 CJK/假名/谚文），`font_cjk_glyph(cp)` 返回 16 行 uint16_t（bit15=最左像素）。
+- **display 扩展**：`lcd_cjk16()`（16×16 字形渲染）、`utf8_decode()`、`lcd_utf8_str()` / `lcd_utf8_width()`（UTF-8 字符串混排 ASCII 8×16 与 CJK 16×16，统一 2× 高）。
+- **SE 接口扩展（`se_driver.h` + `se_mock.c`）**：`lock()` / `is_unlocked()` / `get_lock_timeout()` / `set_lock_timeout()`（自动锁定超时持久化 `"lock_timeout"`，默认 300s）；`set_pin` 清 unlocked（设置/修改 PIN 即锁定需重新验证）。
+
+**UX / 交互**
+
+- 恢复出厂两次输入 RESET + PIN 所有权验证（有 PIN 时）；wipe 后询问是否设 PIN（可选）。
+- 进钱包需 PIN 解锁（`wallet_unlock_gate`，PIN 门在 brain phrase 之前）；FIDO serving 免 PIN。空闲自动锁定用 `ui_wait_press_to`（**FreeRTOS tick 计时**，修正 `pdMS_TO_TICKS(8)` 在 100Hz tick 向下取整为 0 导致估时快 8 倍的 bug）。
+- 主菜单多语言 + LANGUAGE 切换屏（`<`/`OK`/`>`）；PIN 菜单统一 `<`/`OK`/`>` 导航（Set/Change PIN、Auto-lock 档位）。
+- 种子单词安全告警：显示/录入助记词前强制展示（`screen_seed_warning`）。
+- RECOVER：`os_bip39_word_try_commit` 改唯一前缀即自动填满；填满后继续输字母上屏至 4 字母；滑动键盘放大镜 scale 3→4。
+
+**测试**
+
+- host 全回归绿（test_se / test_fido / test_bip39 等）；`test_bip39` t12-t15 验证唯一前缀自动填满语义。
+
+---
+
+*关联文档：`01_PRD`、`02_ERD`、`03_时序图`、`安全核心审核报告.md`、`../MEMORY.md`*
 *文档结束*

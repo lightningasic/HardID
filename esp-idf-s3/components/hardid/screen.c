@@ -339,6 +339,34 @@ void screen_run_factory_reset(void)
 	lcd_text_wrap(2, 60, "Device wiped. Re-initialize to set a seed.", C_OK, C_BG);
 }
 
+/* The most severe security warning in the product. Shown before the seed
+ * phrase is ever displayed (initialize) or entered (recover): the seed
+ * words ARE the wallet. Anyone else asking for them — websites, emails, or
+ * apps — is scamming the owner. */
+static void screen_seed_warning(void)
+{
+	lcd_fill(C_BG);
+	lcd_line(2, 2, "WARNING", C_ERR, C_BG);
+	lcd_text_wrap(2, 22,
+	              "Your seed words are your money. They are only generated "
+	              "on and entered into this wallet.",
+	              C_WARN, C_BG);
+	lcd_text_wrap(2, 60,
+	              "Anyone asking you to reveal them - websites, emails, or "
+	              "apps - is scamming you. Never share them.",
+	              C_WARN, C_BG);
+	lcd_rect_text(60, 288, 180, 318, "I UNDERSTAND", C_FG, C_ERR);
+	for (;;) {
+		int px, py;
+		ui_wait_press(&px, &py);
+		int rx = px, ry = py;
+		ui_wait_release(&rx, &ry);
+		if (ui_pt_in(px, py, 60, 288, 180, 318) &&
+		    ui_pt_in(rx, ry, 60, 288, 180, 318))
+			return;
+	}
+}
+
 /* Display the recovery phrase one word per screen, big and centered, with
  * a Back (left) key to revisit the previous word (aborts on the first
  * word) and a Next key to advance. Returns 0 when the user has confirmed
@@ -625,6 +653,7 @@ void screen_run_initialize(void)
 	/* 1. Walk the user through the phrase one word at a time. Each screen
 	 * shows a single word large enough to read; the user records it and
 	 * taps Next to reveal the next one. */
+	screen_seed_warning();
 	if (screen_show_words(mnemonic) != 0) {
 		os_secure_bzero(seed32, sizeof(seed32));
 		os_secure_bzero(mnemonic, sizeof(mnemonic));
@@ -732,6 +761,7 @@ void screen_run_recover(void)
 	 * auto-resolves it to the full lowercase word. The returned phrase is
 	 * already lowercase BIP39 words separated by spaces. */
 	char mnemonic[OS_BIP39_MNEMONIC_MAX];
+	screen_seed_warning();
 	if (kp_capture_phrase("RECOVER PHRASE", mnemonic, (int)sizeof(mnemonic)) != 0) {
 		lcd_text_wrap(2, 100, "cancelled", C_FG, C_BG);
 		return;

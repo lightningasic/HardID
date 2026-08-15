@@ -33,6 +33,8 @@ static const char *const s_labels[LKEY_COUNT][LANG_COUNT] = {
 	/* LKEY_SET_PIN */     { "SET PIN",      "设置PIN",    "PINを設定",  "PIN 설정" },
 	/* LKEY_CHANGE_PIN */  { "CHANGE PIN",   "修改PIN",    "PINを変更",  "PIN 변경" },
 	/* LKEY_AUTO_LOCK */   { "AUTO-LOCK",    "自动锁定",   "自動ロック", "자동 잠금" },
+	/* LKEY_ENTER_PIN */   { "ENTER PIN",    "输入PIN",    "PINを入力",  "PIN 입력" },
+	/* LKEY_CONFIRM_PIN */ { "CONFIRM PIN",  "确认PIN",    "PINを確認",  "PIN 확인" },
 };
 
 static const char *const s_lang_names[LANG_COUNT] = {

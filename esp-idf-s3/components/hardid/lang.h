@@ -47,6 +47,8 @@ typedef enum {
 	LKEY_SET_PIN,
 	LKEY_CHANGE_PIN,
 	LKEY_AUTO_LOCK,
+	LKEY_ENTER_PIN,
+	LKEY_CONFIRM_PIN,
 	LKEY_COUNT,
 } lang_key_t;
 

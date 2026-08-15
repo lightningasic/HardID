@@ -18,6 +18,7 @@
 
 #include "display.h"
 #include "font7.h"
+#include "lang.h"
 #include "bip39.h"
 #include "devcfg.h"
 #include "pin.h"
@@ -167,16 +168,16 @@ static void kp_draw_header(const char *title, const char *echo, int echo_len,
                            int mask)
 {
 	lcd_fill(C_BG);
-	if (title) lcd_line(2, 2, title, C_LBL, C_BG);
+	if (title) lcd_utf8_str(2, 2, title, C_LBL, C_BG, 1);
 	if (echo) {
 		char line[40];
 		int n = (echo_len > 20) ? 20 : echo_len;
 		for (int i = 0; i < n; i++) line[i] = mask ? '*' : echo[i];
 		line[n] = '\0';
 		if (mask)
-			lcd_line(2, 16, line, C_FG, C_BG);
+			lcd_line(2, 22, line, C_FG, C_BG);
 		else
-			lcd_line_big(2, 14, line, C_FG, C_BG);
+			lcd_line_big(2, 20, line, C_FG, C_BG);
 	}
 }
 
@@ -716,12 +717,12 @@ int ui_set_pin(char *out, int out_max)
 {
 	char p1[OS_PIN_MAX_LEN + 1], p2[OS_PIN_MAX_LEN + 1];
 	lcd_fill(C_BG);
-	if (kp_capture("SET PIN  (numeric)", p1, OS_PIN_MAX_LEN + 1, 1, 1) != 0) {
+	if (kp_capture(os_lang_str(LKEY_SET_PIN), p1, OS_PIN_MAX_LEN + 1, 1, 1) != 0) {
 		os_secure_bzero(p1, sizeof(p1));
 		return -1;
 	}
 	lcd_fill(C_BG);
-	if (kp_capture("CONFIRM PIN", p2, OS_PIN_MAX_LEN + 1, 1, 1) != 0) {
+	if (kp_capture(os_lang_str(LKEY_CONFIRM_PIN), p2, OS_PIN_MAX_LEN + 1, 1, 1) != 0) {
 		os_secure_bzero(p1, sizeof(p1));
 		os_secure_bzero(p2, sizeof(p2));
 		return -1;
@@ -745,7 +746,7 @@ int ui_set_pin(char *out, int out_max)
 int ui_enter_pin(char *out, int out_max)
 {
 	char p[OS_PIN_MAX_LEN + 1];
-	if (kp_capture("ENTER PIN", p, OS_PIN_MAX_LEN + 1, 1, 1) != 0)
+	if (kp_capture(os_lang_str(LKEY_ENTER_PIN), p, OS_PIN_MAX_LEN + 1, 1, 1) != 0)
 		return -1;
 	if (out && out_max > (int)strlen(p)) {
 		strcpy(out, p);

@@ -63,6 +63,10 @@ void screen_run_about(void);
  * PIN. Returns on back. */
 void screen_run_pin(void);
 
+/* Language selection (English / 中文 / 日本語 / 한국어). Persists the
+ * choice and re-renders the menu on return. Returns on select/back. */
+void screen_run_language(void);
+
 /* Boot splash: draw the HardID logo bitmap with the wordmark below it. */
 void screen_run_splash(void);
 

@@ -32,6 +32,7 @@
 #include "app_catalog.h"
 #include "fido_app.h"
 #include "signsvc.h"
+#include "lang.h"
 #include "screen.h"
 #include "font7.h"
 
@@ -1369,6 +1370,57 @@ void screen_run_pin(void)
 				if (se->set_lock_timeout)
 					se->set_lock_timeout(lock_sec);
 			}
+		}
+	}
+}
+/* Language selection (English / 中文 / 日本語 / 한국어). Lists the four
+ * languages by their own names, < > moves, OK persists the choice and
+ * returns; the menu re-renders in the new language. */
+void screen_run_language(void)
+{
+	int sel = (int)os_lang_get();
+
+	for (;;) {
+		lcd_fill(C_BG);
+		lcd_line(2, 2, "LANGUAGE", C_LBL, C_BG);
+		for (int i = 0; i < LANG_COUNT; i++) {
+			int y = 70 + i * 24;
+			if (i == sel) {
+				lcd_rect(0, y - 4, 240, y + 18, C_BTN);
+				lcd_utf8_str(4, y, os_lang_name((lang_id_t)i),
+				             C_FG, C_BTN, 1);
+			} else {
+				lcd_utf8_str(4, y, os_lang_name((lang_id_t)i),
+				             C_FG, C_BG, 1);
+			}
+		}
+		lcd_rect_text(15, 288, 70, 318, "<", C_FG, C_BTN);
+		lcd_rect_text(80, 288, 160, 318, "OK", C_FG, C_BTN);
+		lcd_rect_text(170, 288, 225, 318, ">", C_FG, C_BTN);
+
+		int px, py;
+		if (!ui_wait_press(&px, &py))
+			continue;
+		int rx = px, ry = py;
+		ui_wait_release(&rx, &ry);
+		if (!(ui_pt_in(rx, ry, px - 20, py - 20, px + 20, py + 20) ||
+		      (rx == px && ry == py)))
+			continue;
+
+		if (ui_pt_in(px, py, 15, 288, 70, 318) &&
+		    ui_pt_in(rx, ry, 15, 288, 70, 318)) {
+			if (sel > 0)
+				sel--;
+			else
+				return;   /* BACK on the first entry */
+		} else if (ui_pt_in(px, py, 170, 288, 225, 318) &&
+		           ui_pt_in(rx, ry, 170, 288, 225, 318)) {
+			if (sel + 1 < LANG_COUNT)
+				sel++;
+		} else if (ui_pt_in(px, py, 80, 288, 160, 318) &&
+		           ui_pt_in(rx, ry, 80, 288, 160, 318)) {
+			os_lang_set((lang_id_t)sel);
+			return;
 		}
 	}
 }

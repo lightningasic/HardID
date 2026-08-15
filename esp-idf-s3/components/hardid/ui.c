@@ -22,13 +22,15 @@
 #include "screen.h"
 #include "secure_zero.h"
 #include "fido_app.h"
+#include "lang.h"
 #include "ui.h"
 
-#define MENU_COUNT 9
+#define MENU_COUNT 10
 
-static const char *const s_items[MENU_COUNT] = {
-	"INITIALIZE", "RECOVER", "SIGN", "HOST LINK", "FIDO",
-	"APP MARKET", "PIN", "ABOUT", "FACTORY RESET",
+/* Menu entries in display order; labels are localized via os_lang_str(). */
+static const lang_key_t s_menu_keys[MENU_COUNT] = {
+	LKEY_INITIALIZE, LKEY_RECOVER, LKEY_SIGN, LKEY_HOST_LINK, LKEY_FIDO,
+	LKEY_APP_MARKET, LKEY_PIN, LKEY_ABOUT, LKEY_LANGUAGE, LKEY_FACTORY_RESET,
 };
 
 static int s_sel = 0;
@@ -75,16 +77,16 @@ static int menu_build_visible(int *vis, int max)
 /* Draw `s` centered horizontally with 8x16 glyphs at 2x scale (16x32px
  * per char), on `bg`. Used for the single visible menu item inside its
  * selection box. */
+/* Draw a menu item centered horizontally with 8x16 (ASCII) / 16x16 (CJK)
+ * glyphs at 2x scale (32px tall), on `bg`. Used for the single visible
+ * menu item inside its selection box. */
 static void menu_draw_item(const char *s, int y, uint16_t fg, uint16_t bg)
 {
-	int len = (int)strlen(s);
 	int scale = 2;
-	int adv = F8_W * scale + 2;
-	int tw = len * adv - 2;
+	int tw = lcd_utf8_width(s, scale);
 	int x = (240 - tw) / 2;
 	if (x < 0) x = 0;
-	for (int i = 0; i < len; i++)
-		lcd_gl8x16(x + i * adv, y, s[i], fg, bg, scale);
+	lcd_utf8_str(x, y, s, fg, bg, scale);
 }
 
 static int isqrt(int v)
@@ -144,7 +146,7 @@ static void menu_draw(const int *vis, int vn)
 	/* the item sits in a filled selection box so it is obvious what a
 	 * tap/OK will activate (and that tapping outside does nothing) */
 	draw_round_rect(ITEM_X0, ITEM_Y0, ITEM_X1, ITEM_Y1, 10, C_BTN);
-	menu_draw_item(s_items[vis[s_sel]], 140, C_FG, C_BTN);
+	menu_draw_item(os_lang_str(s_menu_keys[vis[s_sel]]), 140, C_FG, C_BTN);
 
 	draw_arrow(ARROW_X0, ARROW_Y0, ARROW_X1, ARROW_Y1, -1);
 	/* center OK key confirms the selection */
@@ -170,7 +172,8 @@ static void menu_run_sel(int item)
 	case 5: screen_run_apps(true);      break;
 	case 6: screen_run_pin();           break;
 	case 7: screen_run_about();         break;
-	case 8: screen_run_factory_reset(); break;
+	case 8: screen_run_language();      break;
+	case 9: screen_run_factory_reset(); break;
 	}
 }
 

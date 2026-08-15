@@ -52,6 +52,8 @@ idf_component_register(
         "secp256r1_mbedtls.c"
         "font7.c"
         "font8x16.c"
+        "font_cjk.c"
+        "lang.c"
         "display.c"
         "touch.c"
         "inter.c"

@@ -37,6 +37,7 @@
 #include "display.h"
 #include "font7.h"
 #include "font8x16.h"
+#include "font_cjk.h"
 #include "logo.h"
 
 /* board pins */
@@ -256,6 +257,95 @@ void lcd_gl8x16(int x, int y, char ch, uint16_t fg, uint16_t bg, int scale)
 		}
 	}
 	lcd_drain();
+}
+
+/* Rasterize one 16x16 CJK glyph (16 uint16_t rows, bit 15 = leftmost) as
+ * a scale x scale block per font pixel, one display row at a time. */
+void lcd_cjk16(int x, int y, const uint16_t *glyph16, uint16_t fg,
+               uint16_t bg, int scale)
+{
+	if (scale < 1 || !glyph16)
+		return;
+	uint16_t row[16 * 4];   /* max single row width (scale up to 4) */
+	int gw = 16 * scale;
+	int x0 = (x < 0) ? 0 : x;
+	int x1 = x + gw;
+	if (x1 > LCD_H_RES) x1 = LCD_H_RES;
+	if (x0 >= x1) return;
+	for (int r = 0; r < 16; r++) {
+		uint16_t bits = glyph16[r];
+		for (int rr = 0; rr < scale; rr++) {
+			int n = 0;
+			for (int c = 0; c < 16; c++) {
+				uint16_t pix = (bits & (1u << (15 - c))) ? fg : bg;
+				for (int cc = 0; cc < scale; cc++) row[n++] = pix;
+			}
+			int yy = y + r * scale + rr;
+			if (yy < 0 || yy >= LCD_V_RES) continue;
+			esp_lcd_panel_draw_bitmap(s_panel, x0, yy, x1, yy + 1,
+			                          &row[x0 - x]);
+		}
+	}
+	lcd_drain();
+}
+
+/* Decode one UTF-8 sequence; returns its length (1..4) and sets *cp, or 0
+ * on an invalid byte. */
+static int utf8_decode(const char *s, uint32_t *cp)
+{
+	unsigned char c = (unsigned char)s[0];
+	if (c < 0x80) { *cp = c; return 1; }
+	if ((c & 0xE0) == 0xC0) {
+		*cp = ((c & 0x1Fu) << 6) | (s[1] & 0x3Fu);
+		return 2;
+	}
+	if ((c & 0xF0) == 0xE0) {
+		*cp = ((c & 0x0Fu) << 12) | ((s[1] & 0x3Fu) << 6) | (s[2] & 0x3Fu);
+		return 3;
+	}
+	if ((c & 0xF8) == 0xF0) {
+		*cp = ((c & 0x07u) << 18) | ((s[1] & 0x3Fu) << 12) |
+		      ((s[2] & 0x3Fu) << 6) | (s[3] & 0x3Fu);
+		return 4;
+	}
+	return 0;
+}
+
+int lcd_utf8_str(int x, int y, const char *s, uint16_t fg, uint16_t bg,
+                 int scale)
+{
+	int cx = x;
+	while (s && *s) {
+		uint32_t cp;
+		int n = utf8_decode(s, &cp);
+		if (n <= 0) { s++; continue; }
+		s += n;
+		if (cp < 0x80) {
+			lcd_gl8x16(cx, y, (char)cp, fg, bg, scale);
+			cx += F8_W * scale + 2;
+		} else {
+			const uint16_t *g = font_cjk_glyph(cp);
+			if (g) {
+				lcd_cjk16(cx, y, g, fg, bg, scale);
+			}
+			/* advance a CJK cell either way (blank for missing glyphs) */
+			cx += 16 * scale + 2;
+		}
+	}
+	return cx - x;
+}
+
+int lcd_utf8_width(const char *s, int scale)
+{
+	int w = 0;
+	while (s && *s) {
+		uint32_t cp;
+		int n = utf8_decode(s, &cp);
+		if (n <= 0) { s++; continue; }
+		s += n;
+		w += (cp < 0x80) ? (F8_W * scale + 2) : (16 * scale + 2);
+	}
+	return w;
 }
 
 void lcd_rect(int x0, int y0, int x1, int y1, uint16_t color)

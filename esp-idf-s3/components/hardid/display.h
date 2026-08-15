@@ -52,6 +52,19 @@ void lcd_line_scaled(int x, int y, const char *s, uint16_t fg, uint16_t bg,
  * floating swipe preview, which upscales the 5x7 font with visible steps. */
 void lcd_gl8x16(int x, int y, char ch, uint16_t fg, uint16_t bg, int scale);
 
+/* Draw one 16x16 CJK glyph (16 uint16_t rows, bit 15 = leftmost) at
+ * integer `scale`. Clips to the panel. */
+void lcd_cjk16(int x, int y, const uint16_t *glyph16, uint16_t fg,
+               uint16_t bg, int scale);
+
+/* Draw a UTF-8 string: ASCII via the 8x16 font, non-ASCII via the embedded
+ * CJK subset font, at integer `scale`. Returns the pixel width drawn. */
+int lcd_utf8_str(int x, int y, const char *s, uint16_t fg, uint16_t bg,
+                 int scale);
+
+/* Pixel width the UTF-8 string would occupy at `scale` (without drawing). */
+int lcd_utf8_width(const char *s, int scale);
+
 /* Draw text with simple word-wrap within the panel width, starting at
  * (x,y). Returns the y just below the last drawn line. */
 int lcd_text_wrap(int x, int y, const char *s, uint16_t fg, uint16_t bg);

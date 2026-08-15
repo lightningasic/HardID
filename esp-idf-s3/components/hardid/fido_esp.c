@@ -333,7 +333,7 @@ void screen_run_fido(void)
 
 	/* run the transport task for the duration of the session; it is stopped
 	 * and torn down on exit so re-entering FIDO starts clean. */
-	BaseType_t ok = xTaskCreate(fido_task, "fido", 4096, NULL,
+	BaseType_t ok = xTaskCreate(fido_task, "fido", 16384, NULL,
 	                            tskIDLE_PRIORITY + 2, NULL);
 	if (ok != pdPASS) {
 		ESP_LOGE(TAG, "failed to create fido task");

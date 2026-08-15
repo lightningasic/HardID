@@ -87,7 +87,7 @@ class Handler(BaseHTTPRequestHandler):
                 STORE[USER["name"]] = auth_data.credential_data
                 return self._send(
                     {"ok": True, "user": USER["name"],
-                     "credential_id": auth_data.credential_data.credential_id.decode()}
+                     "credential_id": auth_data.credential_data.credential_id.hex()}
                 )
             except Exception as e:
                 return self._send({"error": f"register failed: {e}"}, 400)
@@ -101,7 +101,7 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 return self._send(
                     {"ok": True, "user": USER["name"],
-                     "credential_id": cred_data.credential_id.decode()}
+                     "credential_id": cred_data.credential_id.hex()}
                 )
             except Exception as e:
                 return self._send({"error": f"login failed: {e}"}, 400)

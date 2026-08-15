@@ -257,7 +257,7 @@ void screen_run_sign_for_app(const os_app *app)
 
 void screen_run_factory_reset(void)
 {
-	/* Strict two-step confirmation. First type the word RESET on the
+	/* Strict two-step confirmation. First type the word RESET twice on the
 	 * on-screen keypad — the same physical effort a malicious bystander
 	 * could not casually complete. Then prove ownership by entering the
 	 * device PIN — or, if no PIN was ever set, SET one: a device must never
@@ -274,6 +274,18 @@ void screen_run_factory_reset(void)
 	if (!ok) {
 		lcd_fill(C_BG);
 		lcd_text_wrap(2, 10, "Not confirmed. Wipe aborted.", C_ERR, C_BG);
+		return;
+	}
+	/* second confirmation: type RESET again */
+	if (kp_capture("TYPE RESET AGAIN", word, (int)sizeof(word), 0, 0) != 0) {
+		lcd_text_wrap(2, 100, "cancelled", C_FG, C_BG);
+		return;
+	}
+	ok = (strcmp(word, "RESET") == 0);
+	os_secure_bzero(word, sizeof(word));
+	if (!ok) {
+		lcd_fill(C_BG);
+		lcd_text_wrap(2, 10, "Not confirmed twice. Wipe aborted.", C_ERR, C_BG);
 		return;
 	}
 

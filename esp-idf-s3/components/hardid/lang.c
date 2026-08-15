@@ -27,7 +27,7 @@ static const char *const s_labels[LKEY_COUNT][LANG_COUNT] = {
 };
 
 static const char *const s_lang_names[LANG_COUNT] = {
-	"English", "中文", "日本語", "한국어",
+	"ENGLISH", "中文", "日本語", "한국어",
 };
 
 lang_id_t os_lang_get(void)

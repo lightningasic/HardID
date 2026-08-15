@@ -175,9 +175,8 @@ static void menu_run_sel(int item)
 }
 
 /* First-boot PIN gate. If the SE carries no PIN yet (fresh device or after
- * a wipe), force the user to set one before any menu action is reachable.
- * The PIN protects the device from the first power-on, independent of the
- * seed, and persists across factory resets. */
+ * a wipe), offer one (optional) before the menu is reached. The PIN protects
+ * the wallet (FIDO has no PIN) and persists across factory resets. */
 static void boot_pin_gate(void)
 {
 	const se_driver_t *se = se_active();
@@ -194,11 +193,15 @@ static void boot_pin_gate(void)
 	bool pin_set = false;
 	if (se->is_pin_set && se->is_pin_set(&pin_set) == SE_OK && pin_set)
 		return;
-	char pin[OS_PIN_MAX_LEN + 1];
-	int len = ui_set_pin(pin, (int)sizeof(pin));
-	if (len >= 0) {
-		se->set_pin((const uint8_t *)pin, (size_t)len);
-		os_secure_bzero(pin, sizeof(pin));
+	/* No PIN: offer one (optional). The wallet can run PIN-less; the user
+	 * may set/change it any time from the PIN menu. */
+	if (ui_confirm("Set a PIN to protect the wallet?")) {
+		char pin[OS_PIN_MAX_LEN + 1];
+		int len = ui_set_pin(pin, (int)sizeof(pin));
+		if (len >= 0) {
+			se->set_pin((const uint8_t *)pin, (size_t)len);
+			os_secure_bzero(pin, sizeof(pin));
+		}
 	}
 }
 

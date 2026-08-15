@@ -260,8 +260,8 @@ void screen_run_factory_reset(void)
 	/* Strict two-step confirmation. First type the word RESET twice on the
 	 * on-screen keypad — the same physical effort a malicious bystander
 	 * could not casually complete. Then prove ownership by entering the
-	 * device PIN — or, if no PIN was ever set, SET one: a device must never
-	 * be wiped while it is PIN-less. Only then is the SE wiped. */
+	 * device PIN (only when a PIN is set; a PIN-less device has nothing to
+	 * verify). Only then is the SE wiped. */
 	lcd_fill(C_BG);
 	lcd_text_wrap(2, 10, "Type RESET to confirm wipe.", C_WARN, C_BG);
 	char word[16];
@@ -296,40 +296,45 @@ void screen_run_factory_reset(void)
 	/* DEV-ONLY: no-PIN builds skip the ownership PIN gate (the typed
 	 * "RESET" word above is still required). */
 	if (!os_dev_no_pin_enabled() && initd) {
-		/* a PIN exists: entering the correct one proves ownership */
-		lcd_fill(C_BG);
-		char pin[OS_PIN_MAX_LEN + 1];
-		int pin_len = ui_enter_pin(pin, sizeof(pin));
-		if (pin_len < 0) {
-			lcd_text_wrap(2, 100, "cancelled", C_FG, C_BG);
-			return;
-		}
-		uint32_t wait;
-		bool duress;
-		int vr = se->verify_pin((const uint8_t *)pin, (size_t)pin_len,
-		                        &wait, &duress);
-		os_secure_bzero(pin, sizeof(pin));
-		if (vr != SE_OK) {
+		/* verify the PIN only when one is set — a PIN-less device has
+		 * nothing to prove ownership with */
+		bool pin_set = false;
+		if (se->is_pin_set)
+			se->is_pin_set(&pin_set);
+		if (pin_set) {
 			lcd_fill(C_BG);
-			lcd_text_wrap(2, 10, "Wrong PIN. Wipe aborted.", C_ERR, C_BG);
-			return;
+			char pin[OS_PIN_MAX_LEN + 1];
+			int pin_len = ui_enter_pin(pin, sizeof(pin));
+			if (pin_len < 0) {
+				lcd_text_wrap(2, 100, "cancelled", C_FG, C_BG);
+				return;
+			}
+			uint32_t wait;
+			bool duress;
+			int vr = se->verify_pin((const uint8_t *)pin, (size_t)pin_len,
+			                        &wait, &duress);
+			os_secure_bzero(pin, sizeof(pin));
+			if (vr != SE_OK) {
+				lcd_fill(C_BG);
+				lcd_text_wrap(2, 10, "Wrong PIN. Wipe aborted.", C_ERR, C_BG);
+				return;
+			}
 		}
-	} else if (!os_dev_no_pin_enabled()) {
-		/* no PIN ever set: force one before allowing a wipe so the
-		 * device cannot be wiped while unprotected */
-		lcd_fill(C_BG);
-		char pin[OS_PIN_MAX_LEN + 1];
-		int pin_len = ui_set_pin(pin, sizeof(pin));
-		if (pin_len < 0) {
-			lcd_text_wrap(2, 80, "PIN setup failed", C_ERR, C_BG);
-			return;
-		}
-		se->set_pin((const uint8_t *)pin, (size_t)pin_len);
-		os_secure_bzero(pin, sizeof(pin));
 	}
 
 	se->wipe();
 	os_fido_set_active(false);   /* factory state: FIDO bundled, not installed */
+	/* The wipe cleared the PIN; offer a fresh one before returning to the
+	 * menu (optional — the PIN menu can set/change it later). */
+	if (!os_dev_no_pin_enabled()) {
+		if (ui_confirm("Set a PIN to protect the wallet?")) {
+			char pin[OS_PIN_MAX_LEN + 1];
+			int len = ui_set_pin(pin, sizeof(pin));
+			if (len >= 0)
+				se->set_pin((const uint8_t *)pin, (size_t)len);
+			os_secure_bzero(pin, sizeof(pin));
+		}
+	}
 	os_board_display_home();
 	lcd_text_wrap(2, 60, "Device wiped. Re-initialize to set a seed.", C_OK, C_BG);
 }

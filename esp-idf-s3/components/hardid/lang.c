@@ -24,6 +24,15 @@ static const char *const s_labels[LKEY_COUNT][LANG_COUNT] = {
 	/* LKEY_ABOUT */       { "ABOUT",        "关于",       "情報",       "정보" },
 	/* LKEY_FACTORY_RESET*/ { "FACTORY RESET", "恢复出厂设置", "工場出荷時リセット", "공장 초기화" },
 	/* LKEY_LANGUAGE */    { "LANGUAGE",     "语言",       "言語",       "언어" },
+	/* LKEY_INSTALLED_APP*/{ "INSTALLED APP", "已安装",    "インストール済み", "설치됨" },
+	/* LKEY_AVAILABLE_APP*/{ "AVAILABLE APP", "可安装",    "インストール可能", "설치 가능" },
+	/* LKEY_INSTALL_APP */ { "INSTALL APP",  "安装应用",   "アプリをインストール", "앱 설치" },
+	/* LKEY_BACK */        { "BACK",         "返回",       "戻る",       "뒤로" },
+	/* LKEY_PIN_SET */     { "PIN SET",      "已设置",     "PIN設定済み", "PIN 설정됨" },
+	/* LKEY_NO_PIN */      { "NO PIN SET",   "未设置",     "PIN未設定",  "PIN 설정 안 됨" },
+	/* LKEY_SET_PIN */     { "SET PIN",      "设置PIN",    "PINを設定",  "PIN 설정" },
+	/* LKEY_CHANGE_PIN */  { "CHANGE PIN",   "修改PIN",    "PINを変更",  "PIN 변경" },
+	/* LKEY_AUTO_LOCK */   { "AUTO-LOCK",    "自动锁定",   "自動ロック", "자동 잠금" },
 };
 
 static const char *const s_lang_names[LANG_COUNT] = {

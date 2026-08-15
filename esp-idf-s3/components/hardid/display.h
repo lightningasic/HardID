@@ -76,6 +76,11 @@ void lcd_rect(int x0, int y0, int x1, int y1, uint16_t color);
 void lcd_rect_text(int x0, int y0, int x1, int y1, const char *s,
                    uint16_t fg, uint16_t bg);
 
+/* Same as lcd_rect_text but renders UTF-8 (ASCII + CJK) at 1x scale, for
+ * localized button labels. */
+void lcd_rect_text_utf8(int x0, int y0, int x1, int y1, const char *s,
+                        uint16_t fg, uint16_t bg);
+
 /* Draw a w x h RGB565 bitmap (row-major) with (x,y) as its top-left corner.
  * Clips to the panel. Used by the boot logo. */
 void lcd_bitmap(int x, int y, int w, int h, const uint16_t *rgb565);

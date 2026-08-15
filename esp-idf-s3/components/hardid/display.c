@@ -377,6 +377,19 @@ void lcd_rect_text(int x0, int y0, int x1, int y1, const char *s,
 	lcd_line(cx, cy, s, fg, bg);
 }
 
+void lcd_rect_text_utf8(int x0, int y0, int x1, int y1, const char *s,
+                        uint16_t fg, uint16_t bg)
+{
+	lcd_rect(x0, y0, x1, y1, bg);
+	if (!s) return;
+	int tw = lcd_utf8_width(s, 1);
+	int cx = x0 + ((x1 - x0) - tw) / 2;
+	if (cx < 0) cx = 0;
+	int cy = y0 + ((y1 - y0) - F8_H) / 2;
+	if (cy < 0) cy = 0;
+	lcd_utf8_str(cx, cy, s, fg, bg, 1);
+}
+
 void lcd_bitmap(int x, int y, int w, int h, const uint16_t *rgb565)
 {
 	if (!rgb565 || w <= 0 || h <= 0)

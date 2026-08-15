@@ -884,7 +884,7 @@ static void screen_app_action(const os_app *app)
 		lcd_rect_text(15, 240, 225, 278, "SIGN", C_FG, C_BTN);
 		if (!app->is_core)
 			lcd_rect_text(15, 288, 100, 318, "DELETE", C_FG, C_ERR);
-		lcd_rect_text(140, 288, 225, 318, "BACK", C_FG, C_BTN);
+		lcd_rect_text_utf8(140, 288, 225, 318, os_lang_str(LKEY_BACK), C_FG, C_BTN);
 
 		int px, py;
 		ui_wait_press(&px, &py);
@@ -945,8 +945,8 @@ static void screen_app_install(void)
 			gsel = total - 1;
 
 		lcd_fill(C_BG);
-		lcd_line(2, 2, "INSTALL APP", C_LBL, C_BG);
-		lcd_line(2, 32, "Available App", C_LBL, C_BG);
+		lcd_utf8_str(2, 2, os_lang_str(LKEY_INSTALL_APP), C_LBL, C_BG, 1);
+		lcd_utf8_str(2, 32, os_lang_str(LKEY_AVAILABLE_APP), C_LBL, C_BG, 1);
 		if (total == 0) {
 			lcd_text_wrap(2, 48, "All apps installed.", C_DIM, C_BG);
 		} else {
@@ -1048,7 +1048,7 @@ void screen_run_apps(bool manage)
 	 * `manage` = false (app picker reached from SIGN): list signable coin
 	 * apps only — FIDO is not a signing app and must not appear here. */
 	lcd_fill(C_BG);
-	lcd_line(2, 2, "APP MARKET", C_LBL, C_BG);
+	lcd_utf8_str(2, 2, os_lang_str(LKEY_APP_MARKET), C_LBL, C_BG, 1);
 	lcd_line(2, 16, "OK: manage  [+]: install", C_DIM, C_BG);
 
 	const size_t per = 7;              /* rows on a 240x320 screen */
@@ -1071,12 +1071,12 @@ void screen_run_apps(bool manage)
 		size_t pages = (total + per - 1) / per;
 
 		lcd_fill(C_BG);
-		lcd_line(2, 2, "APP MARKET", C_LBL, C_BG);
+		lcd_utf8_str(2, 2, os_lang_str(LKEY_APP_MARKET), C_LBL, C_BG, 1);
 		char head[48];
 		snprintf(head, sizeof head, "page %zu/%zu", page + 1,
 		         pages > 0 ? pages : 1);
 		lcd_line(2, 16, head, C_DIM, C_BG);
-		lcd_line(2, 32, "Installed App", C_LBL, C_BG);
+		lcd_utf8_str(2, 32, os_lang_str(LKEY_INSTALLED_APP), C_LBL, C_BG, 1);
 
 		size_t rows = 0;
 		int y = 48;
@@ -1198,7 +1198,7 @@ void screen_fido_manage(void)
 		              ? "DELETE boots into wallet next power-on and wipes its credentials."
 		              : "ACTIVATE boots into FIDO serving next power-on.",
 		              C_DIM, C_BG);
-	lcd_rect_text(15, 288, 70, 318, "< BACK", C_FG, C_BTN);
+	lcd_rect_text_utf8(15, 288, 70, 318, os_lang_str(LKEY_BACK), C_FG, C_BTN);
 	lcd_rect_text(80, 288, 160, 318, installed ? "DELETE" : "ACTIVATE",
 	              C_FG, installed ? C_ERR : (initd ? C_OK : C_DIM));
 
@@ -1288,25 +1288,28 @@ void screen_run_pin(void)
 				lock_label = k_lock_labels[i];
 
 		lcd_fill(C_BG);
-		lcd_line(2, 2, "PIN", C_LBL, C_BG);
-		lcd_line(2, 20, pin_set ? "PIN set" : "No PIN set", C_DIM, C_BG);
+		lcd_utf8_str(2, 2, os_lang_str(LKEY_PIN), C_LBL, C_BG, 1);
+		lcd_utf8_str(2, 20, os_lang_str(pin_set ? LKEY_PIN_SET : LKEY_NO_PIN),
+		             C_DIM, C_BG, 1);
 
-		char line[48];
+		char line[64];
 		/* item 0: set/change PIN */
-		snprintf(line, sizeof line, "%s PIN", pin_set ? "Change" : "Set");
+		snprintf(line, sizeof line, "%s",
+		         os_lang_str(pin_set ? LKEY_CHANGE_PIN : LKEY_SET_PIN));
 		if (sel == 0) {
 			lcd_rect(0, 66, 240, 86, C_BTN);
-			lcd_line(2, 70, line, C_FG, C_BTN);
+			lcd_utf8_str(2, 70, line, C_FG, C_BTN, 1);
 		} else {
-			lcd_line(2, 70, line, C_FG, C_BG);
+			lcd_utf8_str(2, 70, line, C_FG, C_BG, 1);
 		}
 		/* item 1: auto-lock timeout */
-		snprintf(line, sizeof line, "Auto-lock: %s", lock_label);
+		snprintf(line, sizeof line, "%s: %s", os_lang_str(LKEY_AUTO_LOCK),
+		         lock_label);
 		if (sel == 1) {
 			lcd_rect(0, 86, 240, 106, C_BTN);
-			lcd_line(2, 90, line, C_FG, C_BTN);
+			lcd_utf8_str(2, 90, line, C_FG, C_BTN, 1);
 		} else {
-			lcd_line(2, 90, line, C_FG, C_BG);
+			lcd_utf8_str(2, 90, line, C_FG, C_BG, 1);
 		}
 
 		lcd_rect_text(15, 288, 70, 318, "<", C_FG, C_BTN);
@@ -1382,7 +1385,7 @@ void screen_run_language(void)
 
 	for (;;) {
 		lcd_fill(C_BG);
-		lcd_line(2, 2, "LANGUAGE", C_LBL, C_BG);
+		lcd_utf8_str(2, 2, os_lang_str(LKEY_LANGUAGE), C_LBL, C_BG, 1);
 		for (int i = 0; i < LANG_COUNT; i++) {
 			int y = 70 + i * 24;
 			if (i == sel) {

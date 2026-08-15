@@ -287,13 +287,17 @@ static int handle_make_credential(const uint8_t *req, size_t req_len,
 					if ((rc = read_map_key(&rd, &kk)) != CBOR_OK)
 						return rc;
 					if (kk == 1) {   /* "id" -> credID bytes */
-						uint8_t cid[FIDO_CREDID_LEN];
-						size_t clen = sizeof cid;
-						if ((rc = cbor_read_bytes(&rd, cid, &clen)) != CBOR_OK)
-							return rc;
-						if (clen == FIDO_CREDID_LEN) {
+						/* Tolerate foreign/oversized ids (GitHub's
+						 * excludeCredentials carries 80/96-byte legacy
+						 * U2F keys); only a FIDO_CREDID_LEN id can
+						 * match ours, shorter ones are ignored so the
+						 * request proceeds to confirm (was 0x11). */
+						uint8_t cidbuf[256];
+						size_t clen = sizeof cidbuf;
+						if (cbor_read_bytes(&rd, cidbuf, &clen) == CBOR_OK &&
+						    clen == FIDO_CREDID_LEN) {
 							memcpy(mcr.exclude_credid[mcr.exclude_count],
-							       cid, FIDO_CREDID_LEN);
+							       cidbuf, FIDO_CREDID_LEN);
 							mcr.exclude_count++;
 						}
 					} else {
@@ -371,33 +375,38 @@ static int handle_get_assertion(const uint8_t *req, size_t req_len,
 			have_cdh = true;
 			break;
 		case K_GA_ALLOW_LIST: {
-			/* v1: take the first entry {1:id,2:type}. */
+			/* Scan every entry; only a credential id of exactly
+			 * FIDO_CREDID_LEN can be ours. Foreign/oversized ids (e.g.
+			 * GitHub's legacy U2F appid allowlist of 80/96-byte keys)
+			 * are read and ignored, so the request resolves to
+			 * NO_CREDENTIALS instead of a CBOR parse error (was 0x11). */
 			size_t n;
 			if ((rc = cbor_read_array_head(&rd, &n)) != CBOR_OK)
 				return rc;
-			if (n > 0) {
+			for (size_t j = 0; j < n; j++) {
 				size_t mm;
 				if ((rc = cbor_read_map_head(&rd, &mm)) != CBOR_OK)
 					return rc;
-				for (size_t j = 0; j < mm; j++) {
+				uint8_t idbuf[256];
+				size_t idlen = 0;
+				for (size_t jj = 0; jj < mm; jj++) {
 					uint64_t k;
 					if ((rc = read_map_key(&rd, &k)) != CBOR_OK)
 						return rc;
 					if (k == K_CRED_ID) {
-						size_t clen = sizeof gar.allowlist_credid;
-						uint8_t idbuf[sizeof gar.allowlist_credid];
-						if ((rc = cbor_read_bytes(&rd, idbuf, &clen)) != CBOR_OK)
-							return rc;
-						memcpy(gar.allowlist_credid, idbuf, clen);
-						gar.allowlist_credid_len = clen;
+						size_t clen = sizeof idbuf;
+						if (cbor_read_bytes(&rd, idbuf, &clen) == CBOR_OK)
+							idlen = clen;
 					} else if ((rc = cbor_skip(&rd)) != CBOR_OK) {
 						return rc;
 					}
 				}
-				/* skip remaining allowlist entries */
-				for (size_t j = 1; j < n; j++)
-					if ((rc = cbor_skip(&rd)) != CBOR_OK)
-						return rc;
+				/* keep the first id of exactly FIDO_CREDID_LEN; always
+				 * consume the whole array so later CBOR stays aligned */
+				if (idlen == FIDO_CREDID_LEN && gar.allowlist_credid_len == 0) {
+					memcpy(gar.allowlist_credid, idbuf, FIDO_CREDID_LEN);
+					gar.allowlist_credid_len = FIDO_CREDID_LEN;
+				}
 			}
 			break;
 		}

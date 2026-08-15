@@ -67,9 +67,11 @@ void screen_run_splash(void);
 void screen_boot_passphrase_gate(void);
 
 /* App market (V2.0): list installed apps (core + runtime), show their
- * state/version, and let the user select one to sign with. Returns on
- * tap/back. */
-void screen_run_apps(void);
+ * state/version, and let the user select one to sign with. `manage` adds
+ * the removable preinstalled FIDO app row (delete/activate) — used by the
+ * main-menu APP MARKET; SIGN's picker passes false so FIDO (not a signing
+ * app) never appears there. Returns on tap/back. */
+void screen_run_apps(bool manage);
 
 /* FIDO app manager: delete (wipe credentials, boot into wallet next power
  * cycle) or re-activate (boot into FIDO serving again) the removable

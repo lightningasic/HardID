@@ -79,7 +79,7 @@ void screen_run_sign(void)
 		lcd_text_wrap(2, 10, "No app available.", C_WARN, C_BG);
 		return;
 	}
-	screen_run_apps();
+	screen_run_apps(false);   /* signable coin apps only, no FIDO row */
 }
 
 /* Render a parsed intent and ask the user to confirm. This is the UI
@@ -947,13 +947,18 @@ static void screen_app_install(void)
 	}
 }
 
-void screen_run_apps(void)
+void screen_run_apps(bool manage)
 {
 	/* V2.0 App market: list installed apps (core BTC/ETH + runtime
 	 * installed). The UI is intentionally minimal — name, coin, version,
 	 * state — and tapping an app runs the sign delegation flow for it.
 	 * Third-party install/uninstall is driven from the host side
-	 * (link_esp / host-tools); this screen is the on-device view. */
+	 * (link_esp / host-tools); this screen is the on-device view.
+	 *
+	 * `manage` = true (main-menu APP MARKET): also show the removable
+	 * preinstalled FIDO app row and let the user delete/activate it.
+	 * `manage` = false (app picker reached from SIGN): list signable coin
+	 * apps only — FIDO is not a signing app and must not appear here. */
 	lcd_fill(C_BG);
 	lcd_line(2, 2, "APP MARKET", C_LBL, C_BG);
 	lcd_line(2, 16, "OK: manage  [+]: install", C_DIM, C_BG);
@@ -965,9 +970,9 @@ void screen_run_apps(void)
 		/* re-read the live count each pass so apps installed via the
 		 * catalog (or deleted) appear/disappear immediately. */
 		const size_t n = os_app_count();
-		/* selectable rows = FIDO app row + installed apps +
+		/* selectable rows = [FIDO row when managing] + installed apps +
 		 * one "[+ INSTALL APP]" row */
-		const size_t total = n + 2;
+		const size_t total = n + 1 + (manage ? 1 : 0);
 		if (gsel >= total)
 			gsel = total - 1;
 		size_t page = gsel / per;
@@ -986,14 +991,16 @@ void screen_run_apps(void)
 		for (size_t i = page * per; i < total && i < (page + 1) * per; i++) {
 			char line[48];
 			uint16_t fg = C_FG;
-			if (i == 0) {
+			/* app rows shift by one when the FIDO row is shown */
+			size_t appi = manage ? (i - 1) : i;
+			if (manage && i == 0) {
 				/* removable preinstalled app: FIDO */
 				bool fa = os_fido_is_active();
 				snprintf(line, sizeof line, "FIDO %s",
 				         fa ? "[ACTIVE]" : "[DELETED]");
 				fg = fa ? C_OK : C_ERR;
-			} else if (i <= n) {
-				const os_app *a = os_app_at(i - 1);
+			} else if (appi < n) {
+				const os_app *a = os_app_at(appi);
 				if (!a) break;
 				/* [C]=preinstalled core, [+]=optional installed */
 				snprintf(line, sizeof line, "%s %s%s v%" PRIu32,
@@ -1041,10 +1048,11 @@ void screen_run_apps(void)
 			} else if (ui_pt_in(px, py, 170, 288, 225, 318)) {
 				if (gsel + 1 < total) gsel++;
 			} else if (ui_pt_in(px, py, 80, 288, 160, 318)) {
-				if (gsel == 0) {
+				size_t appi = manage ? (gsel - 1) : gsel;
+				if (manage && gsel == 0) {
 					screen_fido_manage();
-				} else if (gsel <= n) {
-					const os_app *a = os_app_at(gsel - 1);
+				} else if (appi < n) {
+					const os_app *a = os_app_at(appi);
 					if (a) screen_app_action(a);
 				} else {
 					screen_app_install();
@@ -1058,10 +1066,11 @@ void screen_run_apps(void)
 		size_t idx = page * per + row;
 		if (row < rows && idx < total) {
 			gsel = idx;
-			if (idx == 0) {
+			size_t appi = manage ? (idx - 1) : idx;
+			if (manage && idx == 0) {
 				screen_fido_manage();
-			} else if (idx <= n) {
-				const os_app *a = os_app_at(idx - 1);
+			} else if (appi < n) {
+				const os_app *a = os_app_at(appi);
 				if (a) screen_app_action(a);
 			} else {
 				screen_app_install();

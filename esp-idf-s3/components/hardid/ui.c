@@ -169,7 +169,7 @@ static void menu_run_sel(int item)
 	case 4: screen_run_fido();          break;
 	case 5: screen_run_factory_reset(); break;
 	case 6: screen_run_about();         break;
-	case 7: screen_run_apps();          break;
+	case 7: screen_run_apps(true);          break;
 	}
 }
 

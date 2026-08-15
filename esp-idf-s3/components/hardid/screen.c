@@ -317,6 +317,7 @@ void screen_run_factory_reset(void)
 	}
 
 	se->wipe();
+	os_fido_set_active(false);   /* factory state: FIDO bundled, not installed */
 	os_board_display_home();
 	lcd_text_wrap(2, 60, "Device wiped. Re-initialize to set a seed.", C_OK, C_BG);
 }
@@ -994,11 +995,11 @@ void screen_run_apps(bool manage)
 			/* app rows shift by one when the FIDO row is shown */
 			size_t appi = manage ? (i - 1) : i;
 			if (manage && i == 0) {
-				/* removable preinstalled app: FIDO */
-				bool fa = os_fido_is_active();
+				/* removable preinstalled app: FIDO (bundled, opts in) */
+				bool fi = os_fido_installed();
 				snprintf(line, sizeof line, "FIDO %s",
-				         fa ? "[ACTIVE]" : "[DELETED]");
-				fg = fa ? C_OK : C_ERR;
+				         fi ? "[INSTALLED]" : "[DELETED]");
+				fg = fi ? C_OK : C_ERR;
 			} else if (appi < n) {
 				const os_app *a = os_app_at(appi);
 				if (!a) break;
@@ -1085,20 +1086,32 @@ void screen_run_apps(bool manage)
  * lives on the device (firmware), so re-activation needs no host. */
 void screen_fido_manage(void)
 {
-	bool active = os_fido_is_active();
+	const se_driver_t *se = se_active();
+	bool initd = false;
+	if (se && se->is_initialized)
+		se->is_initialized(&initd);
+
+	bool installed = os_fido_installed();
 	lcd_fill(C_BG);
 	lcd_line(2, 2, "FIDO APP", C_LBL, C_BG);
 	char st[40];
-	snprintf(st, sizeof st, "State: %s", active ? "ACTIVE" : "DELETED");
-	lcd_line(2, 26, st, active ? C_OK : C_ERR, C_BG);
-	lcd_text_wrap(2, 50,
-	              active
-	              ? "DELETE boots into wallet next power-on and wipes its credentials."
-	              : "ACTIVATE boots into FIDO serving next power-on.",
-	              C_DIM, C_BG);
+	snprintf(st, sizeof st, "State: %s",
+	         installed ? "INSTALLED" : "DELETED");
+	lcd_line(2, 26, st, installed ? C_OK : C_ERR, C_BG);
+	if (!installed && !initd)
+		lcd_text_wrap(2, 50,
+		              "Initialize the wallet first: FIDO keys come from "
+		              "your seed, so FIDO needs it to work.",
+		              C_WARN, C_BG);
+	else
+		lcd_text_wrap(2, 50,
+		              installed
+		              ? "DELETE boots into wallet next power-on and wipes its credentials."
+		              : "ACTIVATE boots into FIDO serving next power-on.",
+		              C_DIM, C_BG);
 	lcd_rect_text(15, 288, 70, 318, "< BACK", C_FG, C_BTN);
-	lcd_rect_text(80, 288, 160, 318, active ? "DELETE" : "ACTIVATE",
-	              C_FG, active ? C_ERR : C_OK);
+	lcd_rect_text(80, 288, 160, 318, installed ? "DELETE" : "ACTIVATE",
+	              C_FG, installed ? C_ERR : (initd ? C_OK : C_DIM));
 
 	for (;;) {
 		int px, py;
@@ -1111,7 +1124,7 @@ void screen_fido_manage(void)
 			return;   /* BACK */
 		if (ui_pt_in(px, py, 80, 288, 160, 318) &&
 		    ui_pt_in(rx, ry, 80, 288, 160, 318)) {
-			if (active) {
+			if (installed) {
 				if (ui_confirm("Delete FIDO app? Credentials are wiped.")) {
 					os_fido_wipe_credentials();
 					os_fido_set_active(false);
@@ -1122,6 +1135,14 @@ void screen_fido_manage(void)
 					ui_wait_ack();
 				}
 			} else {
+				if (!initd) {
+					lcd_fill(C_BG);
+					lcd_text_wrap(2, 40,
+					              "Initialize the wallet first.",
+					              C_ERR, C_BG);
+					ui_wait_ack();
+					continue;
+				}
 				if (ui_confirm("Activate FIDO app?")) {
 					os_fido_set_active(true);
 					lcd_fill(C_BG);

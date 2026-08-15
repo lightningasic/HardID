@@ -371,6 +371,23 @@ static int mock_fido_cred_sign(const uint8_t credid[FIDO_CREDID_LEN],
 	return SE_OK;
 }
 
+static int mock_fido_cred_exists(const uint8_t credid[FIDO_CREDID_LEN],
+                                 const uint8_t rp_hash32[32])
+{
+	if (!mock_seed_stored)
+		return SE_ERR_STATE;
+	uint32_t epoch = credid[0];
+	uint32_t idx = ((uint32_t)credid[1] << 24) | ((uint32_t)credid[2] << 16) |
+	               ((uint32_t)credid[3] << 8) | credid[4];
+	if (epoch != mock_fido_epoch)
+		return SE_ERR_AUTH;  /* reset invalidated this credID */
+	uint8_t tag[16];
+	mock_fido_tag(rp_hash32, epoch, idx, tag);
+	int ok = os_consttime_eq(tag, credid + 5, 16);
+	os_secure_bzero(tag, sizeof tag);
+	return ok ? SE_OK : SE_ERR_AUTH;
+}
+
 static int mock_fido_signcount_read(uint32_t *count)
 {
 	*count = mock_fido_signcount;
@@ -415,6 +432,7 @@ static const se_driver_t mock_driver = {
 	.dev_unlock = mock_dev_unlock,
 	.fido_cred_make = mock_fido_cred_make,
 	.fido_cred_sign = mock_fido_cred_sign,
+	.fido_cred_exists = mock_fido_cred_exists,
 	.fido_signcount_read = mock_fido_signcount_read,
 };
 

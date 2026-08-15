@@ -160,6 +160,13 @@ typedef struct se_driver {
 	                      const uint8_t digest32[32],
 	                      uint8_t sig64[64]);
 
+	/* excludeCredentials check (CTAP2 makeCredential): does credid encode
+	 * a credential this SE currently holds for rp_hash32? SE_OK if yes,
+	 * SE_ERR_AUTH otherwise (unknown / tampered / wrong RP / stale epoch).
+	 * Must not cross any secret over the SE boundary. */
+	int (*fido_cred_exists)(const uint8_t credid[FIDO_CREDID_LEN],
+	                        const uint8_t rp_hash32[32]);
+
 	/* Read the SE-internal FIDO sign counter (global, per-assertion +1,
 	 * stored in SE NVM). This is the signCount field of authenticatorData;
 	 * it is separate from the firmware anti-rollback monotonic counter. */

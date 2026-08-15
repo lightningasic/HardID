@@ -159,6 +159,15 @@ int fido_make_credential(const fido_make_cred_req_t *req,
 	if (!fido_se_available())
 		return CTAP2_ERR_UNSUPPORTED_ALGORITHM;  /* design A5 */
 
+	/* excludeCredentials (CTAP2 §5.1.2): if the RP lists a credential we
+	 * already hold for this RP, report CREDENTIAL_EXCLUDED so the browser
+	 * can prompt the user instead of silently registering a duplicate
+	 * (GitHub second-add flow). Checked before the user-presence dialog. */
+	for (size_t i = 0; i < req->exclude_count; i++)
+		if (se()->fido_cred_exists(req->exclude_credid[i],
+		                           req->rp_id_hash) == SE_OK)
+			return CTAP2_ERR_CREDENTIAL_EXCLUDED;
+
 	/* User presence confirm (design A2/A3). Default handler denies. */
 	if (confirm_handler && !confirm_handler(req->rp_name, true))
 		return CTAP2_ERR_OPERATION_DENIED;

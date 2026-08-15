@@ -268,7 +268,42 @@ static int handle_make_credential(const uint8_t *req, size_t req_len,
 				return rc;
 			have_pkcp = true;
 			break;
-		case K_EXCLUDE_LIST:
+		case K_EXCLUDE_LIST: {
+			/* excludeCredentials: array of PublicKeyCredentialDescriptor
+			 * {type:"public-key", id:bytes}. Parsed so re-registering a
+			 * credential we already hold reports CREDENTIAL_EXCLUDED
+			 * (GitHub second-add flow requires this). */
+			size_t n;
+			if ((rc = cbor_read_array_head(&rd, &n)) != CBOR_OK)
+				return rc;
+			if (n > FIDO_MAX_EXCLUDE)
+				return CTAP2_ERR_LIMIT_EXCEEDED;
+			for (size_t j = 0; j < n; j++) {
+				size_t memb;
+				if ((rc = cbor_read_map_head(&rd, &memb)) != CBOR_OK)
+					return rc;
+				for (size_t k = 0; k < memb; k++) {
+					uint64_t kk;
+					if ((rc = read_map_key(&rd, &kk)) != CBOR_OK)
+						return rc;
+					if (kk == 1) {   /* "id" -> credID bytes */
+						uint8_t cid[FIDO_CREDID_LEN];
+						size_t clen = sizeof cid;
+						if ((rc = cbor_read_bytes(&rd, cid, &clen)) != CBOR_OK)
+							return rc;
+						if (clen == FIDO_CREDID_LEN) {
+							memcpy(mcr.exclude_credid[mcr.exclude_count],
+							       cid, FIDO_CREDID_LEN);
+							mcr.exclude_count++;
+						}
+					} else {
+						if ((rc = cbor_skip(&rd)) != CBOR_OK)
+							return rc;
+					}
+				}
+			}
+			break;
+		}
 		case K_EXTENSIONS:
 			/* v1: parse (validate) but treat as no-op. */
 			if ((rc = cbor_skip(&rd)) != CBOR_OK)

@@ -26,14 +26,16 @@ extern "C" {
 #endif
 
 /* ---- parsed makeCredential request ---- */
+#define FIDO_MAX_EXCLUDE 4   /* max excludeCredentials parsed per request */
+
 typedef struct fido_make_cred_req {
 	uint8_t  client_data_hash[32];
 	uint8_t  rp_id_hash[32];
 	const char *rp_name;      /* display only, may be NULL */
 	const char *user_name;    /* display only, may be NULL */
 	bool     up_required;     /* options.up (default true) */
-	uint8_t  exclude_credid[FIDO_CREDID_LEN]; /* optional */
-	size_t   exclude_credid_len;
+	uint8_t  exclude_credid[FIDO_MAX_EXCLUDE][FIDO_CREDID_LEN];
+	size_t   exclude_count;   /* number of excludeCredentials parsed */
 } fido_make_cred_req_t;
 
 /* ---- parsed getAssertion request ---- */

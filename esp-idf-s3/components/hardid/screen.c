@@ -686,19 +686,20 @@ void screen_run_initialize(void)
 	os_bip39_mnemonic_to_seed(mnemonic, NULL, seed64);
 
 	lcd_fill(C_BG);
-	/* PIN is optional in DEV-ONLY no-PIN builds: nothing to set. */
+	/* PIN is optional (and skipped entirely in DEV-ONLY no-PIN builds):
+	 * offer one only when none is set yet — an existing PIN is kept. */
 	if (!os_dev_no_pin_enabled()) {
-		char pin[OS_PIN_MAX_LEN + 1];
-		int pin_len = ui_set_pin(pin, sizeof(pin));
-		if (pin_len < 0) {
-			os_secure_bzero(seed32, sizeof(seed32));
-			os_secure_bzero(seed64, sizeof(seed64));
-			os_secure_bzero(mnemonic, sizeof(mnemonic));
-			lcd_text_wrap(2, 80, "PIN setup failed", C_ERR, C_BG);
-			return;
+		bool pin_set = false;
+		if (se->is_pin_set)
+			se->is_pin_set(&pin_set);
+		if (!pin_set && ui_confirm("Set a PIN to protect the wallet?")) {
+			char pin[OS_PIN_MAX_LEN + 1];
+			int pin_len = ui_set_pin(pin, sizeof(pin));
+			if (pin_len >= 0) {
+				se->set_pin((const uint8_t *)pin, (size_t)pin_len);
+			}
+			os_secure_bzero(pin, sizeof(pin));
 		}
-		se->set_pin((const uint8_t *)pin, (size_t)pin_len);
-		os_secure_bzero(pin, sizeof(pin));
 	}
 
 	int rc = se->store_seed(seed64);
@@ -760,17 +761,20 @@ void screen_run_recover(void)
 	}
 
 	lcd_fill(C_BG);
-	/* PIN is optional in DEV-ONLY no-PIN builds: nothing to set. */
+	/* PIN is optional (and skipped entirely in DEV-ONLY no-PIN builds):
+	 * offer one only when none is set yet — an existing PIN is kept. */
 	if (!os_dev_no_pin_enabled()) {
-		char pin[OS_PIN_MAX_LEN + 1];
-		int pin_len = ui_set_pin(pin, sizeof(pin));
-		if (pin_len < 0) {
-			os_secure_bzero(mnemonic, sizeof(mnemonic));
-			lcd_text_wrap(2, 80, "PIN setup failed", C_ERR, C_BG);
-			return;
+		bool pin_set = false;
+		if (se->is_pin_set)
+			se->is_pin_set(&pin_set);
+		if (!pin_set && ui_confirm("Set a PIN to protect the wallet?")) {
+			char pin[OS_PIN_MAX_LEN + 1];
+			int pin_len = ui_set_pin(pin, sizeof(pin));
+			if (pin_len >= 0) {
+				se->set_pin((const uint8_t *)pin, (size_t)pin_len);
+			}
+			os_secure_bzero(pin, sizeof(pin));
 		}
-		se->set_pin((const uint8_t *)pin, (size_t)pin_len);
-		os_secure_bzero(pin, sizeof(pin));
 	}
 
 	/* No passphrase prompt at provisioning. In the TREZOR model the stored
@@ -1244,6 +1248,8 @@ void screen_run_pin(void)
 	if (se->get_lock_timeout)
 		se->get_lock_timeout(&lock_sec);
 
+	int sel = 0;   /* 0 = set/change PIN, 1 = auto-lock timeout */
+
 	for (;;) {
 		const char *lock_label = "5min";
 		for (int i = 0; i < LOCK_TIMEOUTS_N; i++)
@@ -1252,17 +1258,29 @@ void screen_run_pin(void)
 
 		lcd_fill(C_BG);
 		lcd_line(2, 2, "PIN", C_LBL, C_BG);
-		char st[48];
-		snprintf(st, sizeof st, "Auto-lock: %s", lock_label);
-		lcd_line(2, 26, st, C_DIM, C_BG);
-		lcd_text_wrap(2, 44, pin_set
-		              ? "PIN set. Protects wallet signing."
-		              : "No PIN set. Will protect wallet signing.",
-		              C_DIM, C_BG);
-		lcd_rect_text(15, 288, 70, 318, "< BACK", C_FG, C_BTN);
-		lcd_rect_text(80, 288, 160, 318, pin_set ? "CHANGE" : "SET",
-		              C_FG, C_OK);
-		lcd_rect_text(170, 288, 225, 318, "AUTO", C_FG, C_BTN);
+		lcd_line(2, 20, pin_set ? "PIN set" : "No PIN set", C_DIM, C_BG);
+
+		char line[48];
+		/* item 0: set/change PIN */
+		snprintf(line, sizeof line, "%s PIN", pin_set ? "Change" : "Set");
+		if (sel == 0) {
+			lcd_rect(0, 66, 240, 86, C_BTN);
+			lcd_line(2, 70, line, C_FG, C_BTN);
+		} else {
+			lcd_line(2, 70, line, C_FG, C_BG);
+		}
+		/* item 1: auto-lock timeout */
+		snprintf(line, sizeof line, "Auto-lock: %s", lock_label);
+		if (sel == 1) {
+			lcd_rect(0, 86, 240, 106, C_BTN);
+			lcd_line(2, 90, line, C_FG, C_BTN);
+		} else {
+			lcd_line(2, 90, line, C_FG, C_BG);
+		}
+
+		lcd_rect_text(15, 288, 70, 318, "<", C_FG, C_BTN);
+		lcd_rect_text(80, 288, 160, 318, "OK", C_FG, C_BTN);
+		lcd_rect_text(170, 288, 225, 318, ">", C_FG, C_BTN);
 
 		int px, py;
 		if (!ui_wait_press(&px, &py))
@@ -1274,49 +1292,53 @@ void screen_run_pin(void)
 			continue;
 
 		if (ui_pt_in(px, py, 15, 288, 70, 318) &&
-		    ui_pt_in(rx, ry, 15, 288, 70, 318))
-			return;   /* BACK */
-
-		if (ui_pt_in(px, py, 170, 288, 225, 318) &&
-		    ui_pt_in(rx, ry, 170, 288, 225, 318)) {
-			/* cycle the idle auto-lock timeout */
-			lock_sec = next_lock_timeout(lock_sec);
-			if (se->set_lock_timeout)
-				se->set_lock_timeout(lock_sec);
-			continue;
-		}
-
-		if (ui_pt_in(px, py, 80, 288, 160, 318) &&
-		    ui_pt_in(rx, ry, 80, 288, 160, 318)) {
-			if (pin_set) {
-				/* verify the current PIN before allowing a change */
-				char old[OS_PIN_MAX_LEN + 1];
-				int n = ui_enter_pin(old, sizeof(old));
-				if (n < 0)
-					continue;   /* cancelled */
-				uint32_t wait;
-				bool duress;
-				int vr = se->verify_pin((const uint8_t *)old,
-				                        (size_t)n, &wait, &duress);
-				os_secure_bzero(old, sizeof(old));
-				if (vr != SE_OK) {
-					lcd_fill(C_BG);
-					lcd_text_wrap(2, 40, "Wrong PIN.", C_ERR, C_BG);
-					ui_wait_ack();
-					continue;
+		    ui_pt_in(rx, ry, 15, 288, 70, 318)) {
+			if (sel > 0)
+				sel--;
+			else
+				return;   /* BACK on the first item */
+		} else if (ui_pt_in(px, py, 170, 288, 225, 318) &&
+		           ui_pt_in(rx, ry, 170, 288, 225, 318)) {
+			if (sel + 1 < 2)
+				sel++;
+		} else if (ui_pt_in(px, py, 80, 288, 160, 318) &&
+		           ui_pt_in(rx, ry, 80, 288, 160, 318)) {
+			if (sel == 0) {
+				/* set/change PIN */
+				if (pin_set) {
+					/* verify the current PIN before a change */
+					char old[OS_PIN_MAX_LEN + 1];
+					int n = ui_enter_pin(old, sizeof(old));
+					if (n < 0)
+						continue;   /* cancelled */
+					uint32_t wait;
+					bool duress;
+					int vr = se->verify_pin((const uint8_t *)old,
+					                        (size_t)n, &wait, &duress);
+					os_secure_bzero(old, sizeof(old));
+					if (vr != SE_OK) {
+						lcd_fill(C_BG);
+						lcd_text_wrap(2, 40, "Wrong PIN.", C_ERR, C_BG);
+						ui_wait_ack();
+						continue;
+					}
 				}
+				char pin[OS_PIN_MAX_LEN + 1];
+				int len = ui_set_pin(pin, sizeof(pin));
+				if (len < 0)
+					continue;   /* cancelled */
+				se->set_pin((const uint8_t *)pin, (size_t)len);
+				os_secure_bzero(pin, sizeof(pin));
+				pin_set = true;
+				lcd_fill(C_BG);
+				lcd_text_wrap(2, 40, "PIN updated.", C_OK, C_BG);
+				ui_wait_ack();
+			} else {
+				/* cycle the idle auto-lock timeout */
+				lock_sec = next_lock_timeout(lock_sec);
+				if (se->set_lock_timeout)
+					se->set_lock_timeout(lock_sec);
 			}
-			char pin[OS_PIN_MAX_LEN + 1];
-			int len = ui_set_pin(pin, sizeof(pin));
-			if (len < 0)
-				continue;   /* cancelled */
-			se->set_pin((const uint8_t *)pin, (size_t)len);
-			os_secure_bzero(pin, sizeof(pin));
-			pin_set = true;
-			lcd_fill(C_BG);
-			lcd_text_wrap(2, 40, "PIN updated.", C_OK, C_BG);
-			ui_wait_ack();
-			continue;
 		}
 	}
 }

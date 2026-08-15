@@ -890,7 +890,8 @@ static void screen_app_install(void)
 {
 	size_t gsel = 0;
 	for (;;) {
-		/* build the not-yet-installed subset */
+		/* build the not-yet-installed subset: catalog apps not installed
+		 * + the removable preinstalled FIDO app when it is not installed */
 		const os_app *avail[OS_APP_MAX_INSTALLED];
 		size_t na = 0;
 		for (size_t i = 0; i < os_app_catalog_count(); i++) {
@@ -898,30 +899,39 @@ static void screen_app_install(void)
 			if (c && !os_app_by_id(c->app_id))
 				avail[na++] = c;
 		}
-		if (gsel >= na && na > 0)
-			gsel = na - 1;
+		const bool fido_avail = !os_fido_installed();
+		const size_t total = na + (fido_avail ? 1 : 0);
+		if (gsel >= total && total > 0)
+			gsel = total - 1;
 
 		lcd_fill(C_BG);
 		lcd_line(2, 2, "INSTALL APP", C_LBL, C_BG);
-		if (na == 0) {
-			lcd_text_wrap(2, 30, "All catalog apps installed.", C_DIM, C_BG);
+		lcd_line(2, 32, "Available App", C_LBL, C_BG);
+		if (total == 0) {
+			lcd_text_wrap(2, 48, "All apps installed.", C_DIM, C_BG);
 		} else {
-			int y = 34;
-			for (size_t i = 0; i < na; i++) {
+			int y = 48;
+			for (size_t i = 0; i < total; i++) {
 				char line[48];
-				snprintf(line, sizeof line, "%s (coin %" PRIu32 ")",
-				         avail[i]->name, avail[i]->coin_type);
+				uint16_t fg = C_FG;
+				if (fido_avail && i == 0) {
+					snprintf(line, sizeof line, "FIDO (preinstalled)");
+					fg = C_OK;
+				} else {
+					const os_app *c = avail[i - (fido_avail ? 1 : 0)];
+					snprintf(line, sizeof line, "%s (coin %" PRIu32 ")",
+					         c->name, c->coin_type);
+				}
 				if (i == gsel) {
 					lcd_rect(0, y - 1, 240, y + 15, C_BTN);
 					lcd_line(2, y, line, C_FG, C_BTN);
 				} else {
-					lcd_line(2, y, line, C_FG, C_BG);
+					lcd_line(2, y, line, fg, C_BG);
 				}
 				y += 16;
 			}
 		}
 
-		lcd_rect_text(15, 288, 70, 318, "<", C_FG, C_BTN);
 		lcd_rect_text(15, 288, 70, 318, "<", C_FG, C_BTN);
 		lcd_rect_text(80, 288, 160, 318, "OK", C_FG, C_BTN);
 		lcd_rect_text(170, 288, 225, 318, ">", C_FG, C_BTN);
@@ -939,23 +949,48 @@ static void screen_app_install(void)
 			if (gsel > 0) gsel--;
 			else return;
 		} else if (ui_pt_in(px, py, 170, 288, 225, 318)) {
-			/* > : cursor down through the catalog */
-			if (gsel + 1 < na) gsel++;
+			/* > : cursor down through the available apps */
+			if (gsel + 1 < total) gsel++;
 		} else if (ui_pt_in(px, py, 80, 288, 160, 318)) {
-			if (na > 0) {
-				const os_app *pick = avail[gsel];
-				if (os_app_catalog_install(pick->app_id) == 0) {
-					/* feedback + debounce: show what was installed, then
-					 * wait for a FULL release and a cooldown so one press
-					 * can never cascade into installing several apps. */
+			if (total == 0)
+				continue;
+			if (fido_avail && gsel == 0) {
+				/* activating FIDO requires an initialized wallet: FIDO
+				 * keys derive from the wallet seed (no seed = no PK) */
+				const se_driver_t *se = se_active();
+				bool initd = false;
+				if (se && se->is_initialized)
+					se->is_initialized(&initd);
+				if (!initd) {
 					lcd_fill(C_BG);
-					lcd_line(2, 2, "INSTALLED", C_OK, C_BG);
-					lcd_text_wrap(2, 30, pick->name, C_FG, C_BG);
-					ui_wait_release(&rx, &ry);
-					vTaskDelay(pdMS_TO_TICKS(350));
+					lcd_text_wrap(2, 40,
+					              "Initialize the wallet first.",
+					              C_ERR, C_BG);
+					ui_wait_ack();
+					continue;
 				}
-				/* stay; the installed app drops out of the list */
+				if (ui_confirm("Install FIDO app?")) {
+					os_fido_set_active(true);
+					lcd_fill(C_BG);
+					lcd_text_wrap(2, 40,
+					              "FIDO installed. Restart to boot into FIDO.",
+					              C_OK, C_BG);
+					ui_wait_ack();
+				}
+				return;
 			}
+			const os_app *pick = avail[gsel - (fido_avail ? 1 : 0)];
+			if (os_app_catalog_install(pick->app_id) == 0) {
+				/* feedback + debounce: show what was installed, then
+				 * wait for a FULL release and a cooldown so one press
+				 * can never cascade into installing several apps. */
+				lcd_fill(C_BG);
+				lcd_line(2, 2, "INSTALLED", C_OK, C_BG);
+				lcd_text_wrap(2, 30, pick->name, C_FG, C_BG);
+				ui_wait_release(&rx, &ry);
+				vTaskDelay(pdMS_TO_TICKS(350));
+			}
+			/* stay; the installed app drops out of the list */
 		}
 	}
 }
@@ -983,9 +1018,12 @@ void screen_run_apps(bool manage)
 		/* re-read the live count each pass so apps installed via the
 		 * catalog (or deleted) appear/disappear immediately. */
 		const size_t n = os_app_count();
-		/* selectable rows = [FIDO row when managing] + installed apps +
+		/* FIDO shows in the INSTALLED list only when actually installed;
+		 * once deleted it moves to the INSTALL APP (not-installed) page. */
+		const bool fido_installed = manage && os_fido_installed();
+		/* selectable rows = [FIDO row when installed] + installed apps +
 		 * one "[+ INSTALL APP]" row */
-		const size_t total = n + 1 + (manage ? 1 : 0);
+		const size_t total = n + 1 + (fido_installed ? 1 : 0);
 		if (gsel >= total)
 			gsel = total - 1;
 		size_t page = gsel / per;
@@ -998,20 +1036,19 @@ void screen_run_apps(bool manage)
 		snprintf(head, sizeof head, "page %zu/%zu", page + 1,
 		         pages > 0 ? pages : 1);
 		lcd_line(2, 16, head, C_DIM, C_BG);
+		lcd_line(2, 32, "Installed App", C_LBL, C_BG);
 
 		size_t rows = 0;
-		int y = 34;
+		int y = 48;
 		for (size_t i = page * per; i < total && i < (page + 1) * per; i++) {
 			char line[48];
 			uint16_t fg = C_FG;
 			/* app rows shift by one when the FIDO row is shown */
-			size_t appi = manage ? (i - 1) : i;
-			if (manage && i == 0) {
-				/* removable preinstalled app: FIDO (bundled, opts in) */
-				bool fi = os_fido_installed();
-				snprintf(line, sizeof line, "FIDO %s",
-				         fi ? "[INSTALLED]" : "[DELETED]");
-				fg = fi ? C_OK : C_ERR;
+			size_t appi = fido_installed ? (i - 1) : i;
+			if (fido_installed && i == 0) {
+				/* removable preinstalled app: FIDO (installed) */
+				snprintf(line, sizeof line, "FIDO [INSTALLED]");
+				fg = C_OK;
 			} else if (appi < n) {
 				const os_app *a = os_app_at(appi);
 				if (!a) break;
@@ -1061,8 +1098,8 @@ void screen_run_apps(bool manage)
 			} else if (ui_pt_in(px, py, 170, 288, 225, 318)) {
 				if (gsel + 1 < total) gsel++;
 			} else if (ui_pt_in(px, py, 80, 288, 160, 318)) {
-				size_t appi = manage ? (gsel - 1) : gsel;
-				if (manage && gsel == 0) {
+				size_t appi = fido_installed ? (gsel - 1) : gsel;
+				if (fido_installed && gsel == 0) {
 					screen_fido_manage();
 				} else if (appi < n) {
 					const os_app *a = os_app_at(appi);
@@ -1075,12 +1112,12 @@ void screen_run_apps(bool manage)
 		}
 
 		/* tap on a row → move cursor there and open it directly */
-		size_t row = (size_t)((py - 34) / 16);
+		size_t row = (size_t)((py - 48) / 16);
 		size_t idx = page * per + row;
 		if (row < rows && idx < total) {
 			gsel = idx;
-			size_t appi = manage ? (idx - 1) : idx;
-			if (manage && idx == 0) {
+			size_t appi = fido_installed ? (idx - 1) : idx;
+			if (fido_installed && idx == 0) {
 				screen_fido_manage();
 			} else if (appi < n) {
 				const os_app *a = os_app_at(appi);

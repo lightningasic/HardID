@@ -12,6 +12,7 @@
 #define HARDID_INTER_H
 
 #include <stdbool.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -22,6 +23,11 @@ bool ui_pt_in(int x, int y, int x0, int y0, int x1, int y1);
 
 /* Wait for a debounced touch press; returns its position. Blocking. */
 bool ui_wait_press(int *px, int *py);
+
+/* Wait for a debounced touch press with an idle timeout. Returns true on
+ * press; returns false after timeout_ms milliseconds with no press.
+ * timeout_ms == 0 blocks forever (identical to ui_wait_press). */
+bool ui_wait_press_to(int *px, int *py, uint32_t timeout_ms);
 
 /* Wait for the finger to lift. Blocking; returns release position. */
 void ui_wait_release(int *rx, int *ry);

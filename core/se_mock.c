@@ -27,6 +27,7 @@ static uint32_t mock_rng_seq;
 static uint8_t  mock_pin[8];
 static size_t   mock_pin_len;
 static bool     mock_unlocked;   /* session unlocked by a successful PIN verify */
+static uint32_t mock_lock_timeout = 300;  /* auto-lock idle timeout, seconds (0=never) */
 
 /* ---- mock FIDO2 state (design doc 09 §4) ----
  * The FIDO master key, epoch and cred_idx counters live only in the SE.
@@ -63,6 +64,7 @@ static void mock_nvs_save(void)
 	nvs_set_u32(h, "fido_epoch", mock_fido_epoch);
 	nvs_set_u32(h, "fido_idx", mock_fido_cred_idx);
 	nvs_set_u32(h, "fido_sigcnt", mock_fido_signcount);
+	nvs_set_u32(h, "lock_timeout", mock_lock_timeout);
 	nvs_commit(h);
 	nvs_close(h);
 }
@@ -93,6 +95,8 @@ static void mock_nvs_load(void)
 		mock_fido_cred_idx = 0;
 	if (nvs_get_u32(h, "fido_sigcnt", &mock_fido_signcount) != ESP_OK)
 		mock_fido_signcount = 0;
+	if (nvs_get_u32(h, "lock_timeout", &mock_lock_timeout) != ESP_OK)
+		mock_lock_timeout = 300;
 	nvs_close(h);
 }
 
@@ -197,6 +201,32 @@ static int mock_set_pin(const uint8_t *pin, size_t len)
 		return SE_ERR_PARAM;
 	memcpy(mock_pin, pin, len);
 	mock_pin_len = len;
+	mock_unlocked = false;   /* a (re)set PIN must be verified again */
+	mock_nvs_save();
+	return SE_OK;
+}
+
+static int mock_lock(void)
+{
+	mock_unlocked = false;
+	return SE_OK;
+}
+
+static int mock_is_unlocked(bool *unlocked)
+{
+	*unlocked = mock_unlocked;
+	return SE_OK;
+}
+
+static int mock_get_lock_timeout(uint32_t *seconds)
+{
+	*seconds = mock_lock_timeout;
+	return SE_OK;
+}
+
+static int mock_set_lock_timeout(uint32_t seconds)
+{
+	mock_lock_timeout = seconds;
 	mock_nvs_save();
 	return SE_OK;
 }
@@ -215,6 +245,7 @@ static int mock_wipe(void)
 	mock_fido_epoch = 0;
 	mock_fido_cred_idx = 0;
 	mock_fido_signcount = 0;
+	mock_lock_timeout = 300;   /* factory default auto-lock */
 	mock_nvs_erase();
 	return SE_OK;
 }
@@ -442,6 +473,10 @@ static const se_driver_t mock_driver = {
 	.monotonic_increment = mock_mono_inc,
 	.attest = mock_attest,
 	.dev_unlock = mock_dev_unlock,
+	.lock = mock_lock,
+	.is_unlocked = mock_is_unlocked,
+	.get_lock_timeout = mock_get_lock_timeout,
+	.set_lock_timeout = mock_set_lock_timeout,
 	.fido_cred_make = mock_fido_cred_make,
 	.fido_cred_sign = mock_fido_cred_sign,
 	.fido_cred_exists = mock_fido_cred_exists,

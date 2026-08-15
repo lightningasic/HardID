@@ -30,6 +30,26 @@ bool ui_wait_press(int *px, int *py)
 	}
 }
 
+bool ui_wait_press_to(int *px, int *py, uint32_t timeout_ms)
+{
+	int x, y;
+	int settle = 0;
+	uint32_t elapsed = 0;
+	for (;;) {
+		if (touch_get(&x, &y)) {
+			if (++settle >= 3) { *px = x; *py = y; return true; }
+		} else {
+			settle = 0;
+		}
+		if (timeout_ms > 0) {
+			elapsed += 8;
+			if (elapsed >= timeout_ms)
+				return false;
+		}
+		vTaskDelay(pdMS_TO_TICKS(8));
+	}
+}
+
 void ui_wait_release(int *rx, int *ry)
 {
 	int x, y;

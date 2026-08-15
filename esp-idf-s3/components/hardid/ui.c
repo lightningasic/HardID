@@ -205,20 +205,84 @@ static void boot_pin_gate(void)
 	}
 }
 
+/* True when the SE carries a PIN (else the wallet runs unlocked). */
+static bool wallet_has_pin(void)
+{
+	const se_driver_t *se = se_active();
+	bool set = false;
+	if (se && se->is_pin_set)
+		se->is_pin_set(&set);
+	return set;
+}
+
+/* Ask for the wallet PIN; returns true once verified (unlocks the SE). */
+static bool wallet_unlock_gate(void)
+{
+	const se_driver_t *se = se_active();
+	lcd_fill(C_BG);
+	lcd_line(2, 2, "Wallet locked", C_LBL, C_BG);
+	char pin[OS_PIN_MAX_LEN + 1];
+	int n = ui_enter_pin(pin, sizeof(pin));
+	if (n < 0)
+		return false;   /* cancelled → stay locked */
+	uint32_t wait;
+	bool duress;
+	int vr = se->verify_pin((const uint8_t *)pin, (size_t)n, &wait, &duress);
+	os_secure_bzero(pin, sizeof(pin));
+	if (vr != SE_OK) {
+		lcd_fill(C_BG);
+		lcd_text_wrap(2, 40, "Wrong PIN.", C_ERR, C_BG);
+		ui_wait_ack();
+		return false;
+	}
+	return true;
+}
+
 void ui_run(void)
 {
 	screen_run_splash();
 	boot_pin_gate();
 	screen_boot_passphrase_gate();
+
+	/* Auto-lock idle timeout in ms (0 = never). A PIN-less wallet never
+	 * locks. */
+	uint32_t lock_ms = 0;
+	{
+		const se_driver_t *se = se_active();
+		uint32_t sec = 0;
+		if (se && se->get_lock_timeout)
+			se->get_lock_timeout(&sec);
+		lock_ms = sec * 1000u;
+	}
+
 	for (;;) {
+		/* Dynamic unlock check: a PIN that was just (re)set locks the SE
+		 * again (set_pin clears unlocked), so we re-query each loop instead
+		 * of caching a flag — setting a PIN must require re-entry. */
+		bool unlocked = true;
+		if (wallet_has_pin()) {
+			const se_driver_t *se = se_active();
+			if (se && se->is_unlocked)
+				se->is_unlocked(&unlocked);
+		}
+		if (!unlocked) {
+			wallet_unlock_gate();
+			continue;
+		}
+
 		int vis[MENU_COUNT];
 		int vn = menu_build_visible(vis, MENU_COUNT);
 		if (s_sel >= vn)
 			s_sel = 0;
 		menu_draw(vis, vn);
 		int px, py;
-		if (!ui_wait_press(&px, &py))
+		if (!ui_wait_press_to(&px, &py, lock_ms)) {
+			/* idle timeout: auto-lock the wallet (FIDO stays PIN-less) */
+			const se_driver_t *se = se_active();
+			if (se && se->lock)
+				se->lock();
 			continue;
+		}
 		int rx = px, ry = py;
 		ui_wait_release(&rx, &ry);
 		if (!(ui_pt_in(rx, ry, px - 20, py - 20, px + 20, py + 20) ||

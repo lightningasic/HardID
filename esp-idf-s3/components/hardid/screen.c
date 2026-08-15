@@ -1211,9 +1211,27 @@ void screen_fido_manage(void)
 	}
 }
 
-/* PIN setup/change. Set a PIN when none is set, or (after verifying the
- * current PIN) set a new one. The PIN protects the wallet only — FIDO has
- * no PIN. */
+/* PIN setup/change + auto-lock timeout. Set a PIN when none is set, or
+ * (after verifying the current PIN) set a new one; the AUTO key cycles the
+ * idle auto-lock timeout. The PIN protects the wallet only — FIDO has no
+ * PIN. */
+#define LOCK_TIMEOUTS_N 5
+static const uint32_t k_lock_timeouts[LOCK_TIMEOUTS_N] = {
+	30, 60, 300, 600, 0,   /* 0 = never auto-lock */
+};
+static const char *const k_lock_labels[LOCK_TIMEOUTS_N] = {
+	"30s", "1min", "5min", "10min", "Never",
+};
+
+/* Next auto-lock value (wrap-around); snaps unknown values to 5min. */
+static uint32_t next_lock_timeout(uint32_t cur)
+{
+	for (int i = 0; i < LOCK_TIMEOUTS_N; i++)
+		if (k_lock_timeouts[i] == cur)
+			return k_lock_timeouts[(i + 1) % LOCK_TIMEOUTS_N];
+	return 300;
+}
+
 void screen_run_pin(void)
 {
 	const se_driver_t *se = se_active();
@@ -1222,17 +1240,29 @@ void screen_run_pin(void)
 	bool pin_set = false;
 	if (se->is_pin_set)
 		se->is_pin_set(&pin_set);
+	uint32_t lock_sec = 300;
+	if (se->get_lock_timeout)
+		se->get_lock_timeout(&lock_sec);
 
 	for (;;) {
+		const char *lock_label = "5min";
+		for (int i = 0; i < LOCK_TIMEOUTS_N; i++)
+			if (k_lock_timeouts[i] == lock_sec)
+				lock_label = k_lock_labels[i];
+
 		lcd_fill(C_BG);
 		lcd_line(2, 2, "PIN", C_LBL, C_BG);
-		lcd_text_wrap(2, 40, pin_set
-		              ? "PIN is set. It protects wallet signing."
-		              : "No PIN set. It will protect wallet signing.",
+		char st[48];
+		snprintf(st, sizeof st, "Auto-lock: %s", lock_label);
+		lcd_line(2, 26, st, C_DIM, C_BG);
+		lcd_text_wrap(2, 44, pin_set
+		              ? "PIN set. Protects wallet signing."
+		              : "No PIN set. Will protect wallet signing.",
 		              C_DIM, C_BG);
 		lcd_rect_text(15, 288, 70, 318, "< BACK", C_FG, C_BTN);
 		lcd_rect_text(80, 288, 160, 318, pin_set ? "CHANGE" : "SET",
 		              C_FG, C_OK);
+		lcd_rect_text(170, 288, 225, 318, "AUTO", C_FG, C_BTN);
 
 		int px, py;
 		if (!ui_wait_press(&px, &py))
@@ -1246,6 +1276,15 @@ void screen_run_pin(void)
 		if (ui_pt_in(px, py, 15, 288, 70, 318) &&
 		    ui_pt_in(rx, ry, 15, 288, 70, 318))
 			return;   /* BACK */
+
+		if (ui_pt_in(px, py, 170, 288, 225, 318) &&
+		    ui_pt_in(rx, ry, 170, 288, 225, 318)) {
+			/* cycle the idle auto-lock timeout */
+			lock_sec = next_lock_timeout(lock_sec);
+			if (se->set_lock_timeout)
+				se->set_lock_timeout(lock_sec);
+			continue;
+		}
 
 		if (ui_pt_in(px, py, 80, 288, 160, 318) &&
 		    ui_pt_in(rx, ry, 80, 288, 160, 318)) {

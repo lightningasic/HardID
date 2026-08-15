@@ -127,6 +127,21 @@ typedef struct se_driver {
 	 * skip PINs when the backend actually supports re-gating. */
 	int (*dev_unlock)(void);
 
+	/* Lock the signing session: clears the unlocked state set by a
+	 * successful verify_pin. The UI calls this on the auto-lock idle
+	 * timeout. */
+	int (*lock)(void);
+
+	/* Query whether the signing session is currently unlocked (a
+	 * successful verify_pin since the last lock/set_pin/wipe). */
+	int (*is_unlocked)(bool *unlocked);
+
+	/* Auto-lock idle timeout in seconds (0 = never auto-lock). Persisted
+	 * by the SE; the UI reads it to drive the idle timer and the PIN menu
+	 * edits it. */
+	int (*get_lock_timeout)(uint32_t *seconds);
+	int (*set_lock_timeout)(uint32_t seconds);
+
 	/* Genuine-check: sign a host challenge with the factory key so the
 	 * host can verify against the vendor certificate chain. */
 	int (*attest)(const uint8_t *challenge32, uint8_t *response, size_t *resp_len);

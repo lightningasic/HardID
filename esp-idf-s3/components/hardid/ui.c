@@ -27,8 +27,8 @@
 #define MENU_COUNT 9
 
 static const char *const s_items[MENU_COUNT] = {
-	"SIGN", "HOST LINK", "FIDO", "APP MARKET", "PIN",
-	"INITIALIZE", "RECOVER", "ABOUT", "FACTORY RESET",
+	"INITIALIZE", "RECOVER", "SIGN", "HOST LINK", "FIDO",
+	"APP MARKET", "PIN", "ABOUT", "FACTORY RESET",
 };
 
 static int s_sel = 0;
@@ -46,9 +46,9 @@ static int menu_build_visible(int *vis, int max)
 		se->is_initialized(&initd);
 	int n = 0;
 	for (int i = 0; i < MENU_COUNT && n < max; i++) {
-		if (initd && (i == 5 || i == 6))   /* INITIALIZE / RECOVER */
+		if (initd && (i == 0 || i == 1))   /* INITIALIZE / RECOVER */
 			continue;
-		if (i == 2 && !os_fido_is_active()) /* FIDO app deleted */
+		if (i == 4 && !os_fido_is_active()) /* FIDO app deleted */
 			continue;
 		vis[n++] = i;
 	}
@@ -162,13 +162,13 @@ static void menu_draw(const int *vis, int vn)
 static void menu_run_sel(int item)
 {
 	switch (item) {
-	case 0: screen_run_sign();          break;
-	case 1: screen_run_link_host();     break;
-	case 2: screen_run_fido();          break;
-	case 3: screen_run_apps(true);      break;
-	case 4: screen_run_pin();           break;
-	case 5: screen_run_initialize();    break;
-	case 6: screen_run_recover();       break;
+	case 0: screen_run_initialize();    break;
+	case 1: screen_run_recover();       break;
+	case 2: screen_run_sign();          break;
+	case 3: screen_run_link_host();     break;
+	case 4: screen_run_fido();          break;
+	case 5: screen_run_apps(true);      break;
+	case 6: screen_run_pin();           break;
 	case 7: screen_run_about();         break;
 	case 8: screen_run_factory_reset(); break;
 	}

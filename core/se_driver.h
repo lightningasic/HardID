@@ -171,6 +171,13 @@ typedef struct se_driver {
 	 * stored in SE NVM). This is the signCount field of authenticatorData;
 	 * it is separate from the firmware anti-rollback monotonic counter. */
 	int (*fido_signcount_read)(uint32_t *count);
+
+	/* Advance the FIDO epoch so every previously registered credential id
+	 * fails the SE-side epoch/MAC check (authenticatorReset semantics).
+	 * Wallet seed/PIN are deliberately untouched. Called by the FIDO app
+	 * manager when the FIDO app is deleted, so its registered credentials
+	 * (e.g. browser passkeys) stop working. Returns 0 on success. */
+	int (*fido_wipe)(void);
 } se_driver_t;
 
 /* Backend selection: exactly one is compiled in per build. */

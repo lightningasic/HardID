@@ -34,6 +34,31 @@ static int confirm_no(const char *rp, bool is_reg)
 	return 0;
 }
 
+/* Decode a DER ECDSA-Sig-Value into raw r||s (64 bytes). Returns 0 on
+ * success. ES256 assertion signatures are DER-encoded per WebAuthn §6.5.5
+ * (the SE produces raw r||s, fido_core DER-encodes it on the wire). */
+static int der_decode_sig(const uint8_t *der, size_t len, uint8_t rs[64])
+{
+	if (len < 8 || der[0] != 0x30 || der[1] != len - 2)
+		return -1;
+	size_t i = 2;
+	for (int k = 0; k < 2; k++) {
+		if (i + 1 >= len || der[i] != 0x02)
+			return -1;
+		size_t l = der[i + 1];
+		i += 2;
+		if (i + l > len || l < 1 || l > 33)
+			return -1;
+		/* strip a single leading zero, right-align into the 32B field */
+		uint8_t *dst = rs + 32 * k;
+		memset(dst, 0, 32);
+		size_t off = (l == 33) ? 1 : 0;
+		memcpy(dst + (32 - (l - off)), der + i + off, l - off);
+		i += l;
+	}
+	return i == len ? 0 : -1;
+}
+
 /* Build a GetInfo request and run it through ctap2_handle. */
 static int run_getinfo(uint8_t *resp, size_t cap, size_t *len)
 {
@@ -200,9 +225,10 @@ int main(void)
 	CHECK(st == CTAP2_OK, "t3 getassert ok");
 	/* response map of 3 {credential, authData, signature} */
 	CHECK(resp[0] == 0xa3, "t3 assertion map head");
-	/* key 0x03 -> signature byte string of 64 */
-	uint8_t *sig = memmem(resp, len, (void*)"\x03\x58\x40", 3);
-	CHECK(sig != NULL, "t3 signature present (64 bytes)");
+	/* key 0x03 -> DER-encoded ES256 signature (variable length, WebAuthn
+	 * §6.5.5; SE hands back raw r||s which fido_core DER-encodes). */
+	uint8_t *sig = memmem(resp, len, (void*)"\x03\x58", 2);
+	CHECK(sig != NULL, "t3 signature present (DER)");
 	printf("PASS t3b assertion produced signature\n");
 
 	/* ---- t3c cryptographic verification: ES256 sig over
@@ -227,7 +253,8 @@ int main(void)
 				cbor_skip(&rd);
 			}
 		}
-		CHECK(ad && sg && ad_len == 37 && sg_len == 64, "t3c authdata+sig parsed");
+		CHECK(ad && sg && ad_len == 37 && sg_len >= 68 && sg_len <= 72,
+		      "t3c authdata+sig parsed");
 		/* re-verify: SHA-256(authData || clientDataHash) */
 		uint8_t prehash[37 + 32];
 		memcpy(prehash, ad, 37);
@@ -235,11 +262,14 @@ int main(void)
 		memcpy(prehash + 37, cdh, 32);
 		uint8_t digest[32];
 		os_sha256(prehash, sizeof prehash, digest);
-		int valid = os_secp256r1_verify(pub65, 65, digest, sg);
+		uint8_t raw64[64];
+		CHECK(der_decode_sig(sg, sg_len, raw64) == 0,
+		      "t3c DER signature decodes");
+		int valid = os_secp256r1_verify(pub65, 65, digest, raw64);
 		CHECK(valid == 1, "t3c ES256 signature verifies with SE pubkey");
 		/* tamper: flipping a sig byte must fail */
 		uint8_t badsig[64];
-		memcpy(badsig, sg, 64);
+		memcpy(badsig, raw64, 64);
 		badsig[0] ^= 1;
 		valid = os_secp256r1_verify(pub65, 65, digest, badsig);
 		CHECK(valid == 0, "t3c tampered signature rejected");
@@ -247,7 +277,7 @@ int main(void)
 		uint8_t baddigest[32];
 		memcpy(baddigest, digest, 32);
 		baddigest[31] ^= 1;
-		valid = os_secp256r1_verify(pub65, 65, baddigest, sg);
+		valid = os_secp256r1_verify(pub65, 65, baddigest, raw64);
 		CHECK(valid == 0, "t3c wrong message rejected");
 	}
 

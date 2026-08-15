@@ -344,9 +344,12 @@ static int mock_fido_cred_sign(const uint8_t credid[FIDO_CREDID_LEN],
 {
 	if (!mock_seed_stored)
 		return SE_ERR_STATE;
-	/* SECURITY INVARIANT: no FIDO signing without a verified session. */
-	if (!mock_unlocked)
-		return SE_ERR_AUTH;
+	/* User presence = the on-device confirm (fido_core A2/A3) plus, for
+	 * this product, the physical Yes tap on the FIDO confirm screen — the
+	 * FIDO app has NO PIN (PIN protects the wallet only). Unlike wallet
+	 * signing (sign_digest, which requires a verified session) FIDO
+	 * assertions are authorized by the hardware confirm alone. A real SE
+	 * backend must enforce this in hardware. */
 	/* credID layout (design §4.1): epoch(1B) || cred_idx(4B BE) || tag(16B) */
 	uint32_t epoch = credid[0];
 	uint32_t idx = ((uint32_t)credid[1] << 24) | ((uint32_t)credid[2] << 16) |
@@ -394,13 +397,22 @@ static int mock_fido_signcount_read(uint32_t *count)
 	return SE_OK;
 }
 
-/* DEV/emulator hook: advance the FIDO epoch (authenticatorReset semantics,
- * §4.4). Only FIDO credentials are invalidated — the wallet seed/PIN are
- * deliberately untouched. Real SE backends implement this in NVM. */
-void se_mock_fido_reset(void)
+/* Advance the FIDO epoch (authenticatorReset semantics, §4.4). Only FIDO
+ * credentials are invalidated — the wallet seed/PIN are deliberately
+ * untouched. Exposed through the se_driver_t.fido_wipe slot so the FIDO
+ * app manager can wipe credentials when the FIDO app is deleted. Real SE
+ * backends implement this in NVM. */
+static int mock_fido_wipe(void)
 {
 	mock_fido_epoch++;
 	mock_nvs_save();
+	return SE_OK;
+}
+
+/* Test hook kept for host-side tests (tests/test_fido.c). */
+void se_mock_fido_reset(void)
+{
+	mock_fido_wipe();
 }
 
 /* DEV-ONLY: release the session lock with no PIN. Only wired for the mock
@@ -434,6 +446,7 @@ static const se_driver_t mock_driver = {
 	.fido_cred_sign = mock_fido_cred_sign,
 	.fido_cred_exists = mock_fido_cred_exists,
 	.fido_signcount_read = mock_fido_signcount_read,
+	.fido_wipe = mock_fido_wipe,
 };
 
 /* test helpers */

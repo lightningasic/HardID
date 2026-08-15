@@ -22,6 +22,7 @@
 #include "touch.h"
 #include "ui.h"
 #include "screen.h"
+#include "fido_app.h"
 
 static const char *TAG = "hardid.main";
 
@@ -30,12 +31,13 @@ static const char *TAG = "hardid.main";
 
 static void ui_task(void *arg)
 {
-	/* Boot straight into FIDO serving so the device is detected by a
-	 * browser the moment it is plugged in (standard FIDO UX, like a
-	 * YubiKey). The FIDO screen has a BACK button that returns here to
-	 * the wallet menu (INITIALIZE / SIGN / RECOVER / HOST LINK / FIDO /
-	 * FACTORY RESET / ABOUT). */
-	screen_run_fido();
+	/* Boot into FIDO serving when the FIDO app is active (default, so the
+	 * device is detected by a browser the moment it is plugged in, like a
+	 * YubiKey). If the user deleted the FIDO app, boot straight into the
+	 * wallet menu instead. The FIDO screen has a BACK button that returns
+	 * here to the wallet menu. */
+	if (os_fido_is_active())
+		screen_run_fido();
 	ui_run();   /* never returns */
 }
 

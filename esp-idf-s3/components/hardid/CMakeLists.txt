@@ -61,6 +61,7 @@ idf_component_register(
         "usb_desc.c"
         "usb_esp.c"
         "fido_esp.c"
+        "fido_app.c"
         "ui.c"
         "board_s3.c"
         "entropy_s3.c"

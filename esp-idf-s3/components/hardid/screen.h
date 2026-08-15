@@ -71,6 +71,11 @@ void screen_boot_passphrase_gate(void);
  * tap/back. */
 void screen_run_apps(void);
 
+/* FIDO app manager: delete (wipe credentials, boot into wallet next power
+ * cycle) or re-activate (boot into FIDO serving again) the removable
+ * preinstalled FIDO app. Returns on back. */
+void screen_fido_manage(void);
+
 #ifdef __cplusplus
 }
 #endif

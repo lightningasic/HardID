@@ -30,6 +30,7 @@
 #include "keypad.h"
 #include "app.h"
 #include "app_catalog.h"
+#include "fido_app.h"
 #include "signsvc.h"
 #include "screen.h"
 #include "font7.h"
@@ -964,8 +965,9 @@ void screen_run_apps(void)
 		/* re-read the live count each pass so apps installed via the
 		 * catalog (or deleted) appear/disappear immediately. */
 		const size_t n = os_app_count();
-		/* selectable rows = installed apps + one "[+ INSTALL APP]" row */
-		const size_t total = n + 1;
+		/* selectable rows = FIDO app row + installed apps +
+		 * one "[+ INSTALL APP]" row */
+		const size_t total = n + 2;
 		if (gsel >= total)
 			gsel = total - 1;
 		size_t page = gsel / per;
@@ -984,8 +986,14 @@ void screen_run_apps(void)
 		for (size_t i = page * per; i < total && i < (page + 1) * per; i++) {
 			char line[48];
 			uint16_t fg = C_FG;
-			if (i < n) {
-				const os_app *a = os_app_at(i);
+			if (i == 0) {
+				/* removable preinstalled app: FIDO */
+				bool fa = os_fido_is_active();
+				snprintf(line, sizeof line, "FIDO %s",
+				         fa ? "[ACTIVE]" : "[DELETED]");
+				fg = fa ? C_OK : C_ERR;
+			} else if (i <= n) {
+				const os_app *a = os_app_at(i - 1);
 				if (!a) break;
 				/* [C]=preinstalled core, [+]=optional installed */
 				snprintf(line, sizeof line, "%s %s%s v%" PRIu32,
@@ -1033,8 +1041,10 @@ void screen_run_apps(void)
 			} else if (ui_pt_in(px, py, 170, 288, 225, 318)) {
 				if (gsel + 1 < total) gsel++;
 			} else if (ui_pt_in(px, py, 80, 288, 160, 318)) {
-				if (gsel < n) {
-					const os_app *a = os_app_at(gsel);
+				if (gsel == 0) {
+					screen_fido_manage();
+				} else if (gsel <= n) {
+					const os_app *a = os_app_at(gsel - 1);
 					if (a) screen_app_action(a);
 				} else {
 					screen_app_install();
@@ -1048,12 +1058,71 @@ void screen_run_apps(void)
 		size_t idx = page * per + row;
 		if (row < rows && idx < total) {
 			gsel = idx;
-			if (idx < n) {
-				const os_app *a = os_app_at(idx);
+			if (idx == 0) {
+				screen_fido_manage();
+			} else if (idx <= n) {
+				const os_app *a = os_app_at(idx - 1);
 				if (a) screen_app_action(a);
 			} else {
 				screen_app_install();
 			}
+		}
+	}
+}
+
+/* FIDO app manager: show the removable preinstalled FIDO app's state and
+ * let the user delete (wipes its credentials, boots into wallet next power
+ * cycle) or re-activate it (boots into FIDO serving again). The "installer"
+ * lives on the device (firmware), so re-activation needs no host. */
+void screen_fido_manage(void)
+{
+	bool active = os_fido_is_active();
+	lcd_fill(C_BG);
+	lcd_line(2, 2, "FIDO APP", C_LBL, C_BG);
+	char st[40];
+	snprintf(st, sizeof st, "State: %s", active ? "ACTIVE" : "DELETED");
+	lcd_line(2, 26, st, active ? C_OK : C_ERR, C_BG);
+	lcd_text_wrap(2, 50,
+	              active
+	              ? "DELETE boots into wallet next power-on and wipes its credentials."
+	              : "ACTIVATE boots into FIDO serving next power-on.",
+	              C_DIM, C_BG);
+	lcd_rect_text(15, 288, 70, 318, "< BACK", C_FG, C_BTN);
+	lcd_rect_text(80, 288, 160, 318, active ? "DELETE" : "ACTIVATE",
+	              C_FG, active ? C_ERR : C_OK);
+
+	for (;;) {
+		int px, py;
+		if (!ui_wait_press(&px, &py))
+			continue;
+		int rx = px, ry = py;
+		ui_wait_release(&rx, &ry);
+		if (ui_pt_in(px, py, 15, 288, 70, 318) &&
+		    ui_pt_in(rx, ry, 15, 288, 70, 318))
+			return;   /* BACK */
+		if (ui_pt_in(px, py, 80, 288, 160, 318) &&
+		    ui_pt_in(rx, ry, 80, 288, 160, 318)) {
+			if (active) {
+				if (ui_confirm("Delete FIDO app? Credentials are wiped.")) {
+					os_fido_wipe_credentials();
+					os_fido_set_active(false);
+					lcd_fill(C_BG);
+					lcd_text_wrap(2, 40,
+					              "FIDO deleted. Restart to boot into wallet.",
+					              C_OK, C_BG);
+					ui_wait_ack();
+				}
+			} else {
+				if (ui_confirm("Activate FIDO app?")) {
+					os_fido_set_active(true);
+					lcd_fill(C_BG);
+					lcd_text_wrap(2, 40,
+					              "FIDO activated. Restart to boot into FIDO.",
+					              C_OK, C_BG);
+					ui_wait_ack();
+				}
+			}
+			return;
 		}
 	}
 }

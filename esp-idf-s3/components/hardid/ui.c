@@ -21,6 +21,7 @@
 #include "se_driver.h"
 #include "screen.h"
 #include "secure_zero.h"
+#include "fido_app.h"
 #include "ui.h"
 
 #define MENU_COUNT 8
@@ -46,6 +47,8 @@ static int menu_build_visible(int *vis, int max)
 	int n = 0;
 	for (int i = 0; i < MENU_COUNT && n < max; i++) {
 		if (initd && (i == 0 || i == 2))   /* INITIALIZE / RECOVER */
+			continue;
+		if (i == 4 && !os_fido_is_active()) /* FIDO app deleted */
 			continue;
 		vis[n++] = i;
 	}

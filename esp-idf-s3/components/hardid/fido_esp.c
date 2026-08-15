@@ -316,26 +316,9 @@ done:
 
 void screen_run_fido(void)
 {
-	const se_driver_t *se = se_active();
-
-	/* A6: device PIN gate before serving any FIDO I/O (same as link). */
-	if (os_dev_no_pin_enabled()) {
-		if (se->dev_unlock)
-			se->dev_unlock();
-	} else {
-		char pin[OS_PIN_MAX_LEN + 1];
-		int n = ui_enter_pin(pin, sizeof(pin));
-		if (n < 0) { lcd_text_wrap(2, 80, "cancelled", C_ERR, C_BG); return; }
-		uint32_t wait; bool duress;
-		int vr = se->verify_pin((const uint8_t *)pin, (size_t)n, &wait, &duress);
-		os_secure_bzero(pin, sizeof(pin));
-		if (vr != SE_OK) {
-			lcd_fill(C_BG);
-			lcd_text_wrap(2, 10, "wrong PIN", C_ERR, C_BG);
-			ui_wait_ack();
-			return;
-		}
-	}
+	/* No PIN gate: PIN protects the wallet only (product decision). FIDO
+	 * is a removable preinstalled app and its assertions are authorized by
+	 * the per-request on-screen confirm (Yes), not the wallet PIN. */
 
 	/* Wire the framer to the CTAP2 dispatcher exactly as host-verified. */
 	ctaphid_init(&s_ctaphid);

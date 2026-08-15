@@ -63,33 +63,20 @@ int os_bip39_word_resolve_prefix(const char *prefix, size_t n)
  *    user can continue to "addict"; "zoo" (no "zoo*") commits immediately. */
 int os_bip39_word_try_commit(const char *prefix, size_t n)
 {
-	int exact = -1;
+	/* Auto-fill as soon as the typed prefix (1..4 letters) identifies a
+	 * single word — the first 4 letters of a BIP39 word are unique, but a
+	 * shorter prefix may already be unambiguous, so resolve it early. */
 	if (n < 1 || n > 4)
 		return -1;
-	if (n == 4) {
-		int match = -1;
-		for (int i = 0; i < 2048; i++) {
-			if (strncmp(os_bip39_wordlist[i], prefix, 4) == 0) {
-				if (match >= 0) return -1; /* not unique */
-				match = i;
-			}
-		}
-		return match;
-	}
+	int match = -1;
 	for (int i = 0; i < 2048; i++) {
-		const char *w = os_bip39_wordlist[i];
-		size_t wl = strlen(w);
-		if (strncmp(w, prefix, n) != 0)
+		if (strncmp(os_bip39_wordlist[i], prefix, n) != 0)
 			continue;
-		if (wl == n) {
-			if (exact >= 0)
-				return -1;   /* two words equal the prefix */
-			exact = i;
-		} else {
-			return -1;         /* still extendable: not complete yet */
-		}
+		if (match >= 0)
+			return -1;   /* ambiguous: more than one word shares it */
+		match = i;
 	}
-	return exact;
+	return match;   /* unique word index, or -1 if none */
 }
 
 const char *os_bip39_word_at(int index)

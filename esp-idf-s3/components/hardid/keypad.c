@@ -271,7 +271,7 @@ static void kp_paint_cell(const kp_cell *c, int highlight)
 static void kp_big_char(int x0, int y0, int x1, int y1, int ch)
 {
 	if (ch >= 'A' && ch <= 'Z') {
-		int scale = 3;
+		int scale = 4;   /* 8x16 -> 32x64: the largest that fits the box */
 		int tw = F8_W * scale, th = F8_H * scale;
 		int cx = x0 + ((x1 - x0) - tw) / 2;
 		int cy = y0 + ((y1 - y0) - th) / 2;

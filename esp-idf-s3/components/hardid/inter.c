@@ -34,18 +34,22 @@ bool ui_wait_press_to(int *px, int *py, uint32_t timeout_ms)
 {
 	int x, y;
 	int settle = 0;
-	uint32_t elapsed = 0;
+	/* Time by the FreeRTOS tick, not by assuming each loop is 8ms:
+	 * pdMS_TO_TICKS(8) rounds down to 0 at a 100Hz tick, which would make
+	 * the "elapsed += 8" estimate run far faster than wall-clock. */
+	TickType_t start = xTaskGetTickCount();
+	TickType_t ticks = pdMS_TO_TICKS(timeout_ms);
+	if (timeout_ms > 0 && ticks == 0)
+		ticks = 1;
 	for (;;) {
 		if (touch_get(&x, &y)) {
 			if (++settle >= 3) { *px = x; *py = y; return true; }
 		} else {
 			settle = 0;
 		}
-		if (timeout_ms > 0) {
-			elapsed += 8;
-			if (elapsed >= timeout_ms)
-				return false;
-		}
+		if (timeout_ms > 0 &&
+		    (TickType_t)(xTaskGetTickCount() - start) >= ticks)
+			return false;
 		vTaskDelay(pdMS_TO_TICKS(8));
 	}
 }

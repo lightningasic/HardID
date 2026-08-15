@@ -225,38 +225,6 @@ static void fido_task(void *arg)
  * create()/get(). */
 #define CTAPHID_CANCEL 0x11
 
-/* CTAPHID_KEEPALIVE (0x3B): while the confirm dialog blocks the transport
- * task, the standard requires the authenticator to periodically send a
- * KEEPALIVE with status UP_NEEDED (0x02) so the host knows the operation
- * is still in progress and does not time out a long user-presence wait. */
-#define CTAPHID_KEEPALIVE    0x3B
-#define KA_STATUS_UP_NEEDED  0x02
-
-static void fido_send_keepalive(void)
-{
-	uint8_t ka[1][CTAPHID_PACKET_SIZE];
-	memset(ka, 0, sizeof ka);
-	uint32_t cid = s_ctaphid.cid;
-	ka[0][0] = (uint8_t)(cid >> 24);
-	ka[0][1] = (uint8_t)(cid >> 16);
-	ka[0][2] = (uint8_t)(cid >> 8);
-	ka[0][3] = (uint8_t)cid;
-	ka[0][4] = CTAPHID_KEEPALIVE;
-	ka[0][5] = KA_STATUS_UP_NEEDED;
-	/* confirm runs on the fido_task (which already holds s_tx_lock), so no
-	 * further locking here; no other sender is active during the dialog. */
-	fido_usb_tx_drain(ka, 1);
-}
-
-/* Called every poll loop iteration (~8 ms); every 16th tick (~128 ms) emit
- * a KEEPALIVE. Serialised by the fact that confirms run one at a time. */
-static uint32_t s_ka_tick;
-static void fido_ka_tick(void)
-{
-	if ((++s_ka_tick & 0xF) == 0)
-		fido_send_keepalive();
-}
-
 static bool fido_cancel_pending(void)
 {
 	/* packet layout: cid(4) | cmd(1) | ... */
@@ -285,9 +253,7 @@ static int fido_confirm_ui(const char *rp_name, bool is_register)
 	lcd_rect_text(15, 200, 115, 250, "No", C_FG, C_BTN);
 	lcd_rect_text(125, 200, 225, 250, "Yes", C_FG, C_OK);
 	int rc = 0;
-	s_ka_tick = 0;
 	for (;;) {
-		fido_ka_tick();
 		if (fido_cancel_pending())
 			break;                 /* host aborted -> deny */
 		int px, py;
@@ -298,7 +264,6 @@ static int fido_confirm_ui(const char *rp_name, bool is_register)
 		/* stable press (3 consecutive reads), honouring cancel */
 		int settle = 1;
 		while (settle < 3) {
-			fido_ka_tick();
 			if (fido_cancel_pending())
 				goto done;
 			vTaskDelay(pdMS_TO_TICKS(8));
@@ -310,7 +275,6 @@ static int fido_confirm_ui(const char *rp_name, bool is_register)
 		/* wait for release, tracking last coords, honouring cancel */
 		int rx = px, ry = py, lost = 0;
 		for (;;) {
-			fido_ka_tick();
 			if (fido_cancel_pending())
 				goto done;
 			if (ui_touch_now(&rx, &ry))

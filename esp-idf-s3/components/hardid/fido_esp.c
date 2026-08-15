@@ -292,6 +292,20 @@ static int fido_confirm_ui(const char *rp_name, bool is_register)
 	}
 done:
 	s_confirm_active = false;
+	/* Give the user visible feedback on their tap (registration success,
+	 * denial, or host-cancel) instead of leaving the Yes/No screen up as a
+	 * stale artifact; then restore the FIDO serving idle screen. */
+	lcd_fill(C_BG);
+	if (rc == 1)
+		lcd_text_wrap(2, 80, is_register ? "Registration OK" : "Login OK",
+		               C_OK, C_BG);
+	else
+		lcd_text_wrap(2, 80, "Denied", C_DIM, C_BG);
+	vTaskDelay(pdMS_TO_TICKS(700));
+	lcd_fill(C_BG);
+	lcd_line(2, 2, "FIDO serving", C_OK, C_BG);
+	lcd_line(2, 14, "plug into a browser", C_LBL, C_BG);
+	lcd_rect_text(60, 288, 180, 318, "BACK", C_FG, C_BTN);
 	ESP_LOGW(TAG, "confirm result rc=%d", rc);
 	return rc;
 }

@@ -215,45 +215,46 @@ static bool wallet_has_pin(void)
 	return set;
 }
 
-/* Ask for the wallet PIN; returns true once verified (unlocks the SE). */
-static bool wallet_unlock_gate(void)
+/* Ask for the wallet PIN and block until verified (unlocks the SE). */
+static void wallet_unlock_gate(void)
 {
 	const se_driver_t *se = se_active();
-	lcd_fill(C_BG);
-	lcd_line(2, 2, "Wallet locked", C_LBL, C_BG);
-	char pin[OS_PIN_MAX_LEN + 1];
-	int n = ui_enter_pin(pin, sizeof(pin));
-	if (n < 0)
-		return false;   /* cancelled → stay locked */
-	uint32_t wait;
-	bool duress;
-	int vr = se->verify_pin((const uint8_t *)pin, (size_t)n, &wait, &duress);
-	os_secure_bzero(pin, sizeof(pin));
-	if (vr != SE_OK) {
+	for (;;) {
+		lcd_fill(C_BG);
+		lcd_line(2, 2, "Wallet locked", C_LBL, C_BG);
+		char pin[OS_PIN_MAX_LEN + 1];
+		int n = ui_enter_pin(pin, sizeof(pin));
+		if (n < 0)
+			continue;   /* cancelled → stay on the lock screen */
+		uint32_t wait;
+		bool duress;
+		int vr = se->verify_pin((const uint8_t *)pin, (size_t)n, &wait, &duress);
+		os_secure_bzero(pin, sizeof(pin));
+		if (vr == SE_OK)
+			return;
 		lcd_fill(C_BG);
 		lcd_text_wrap(2, 40, "Wrong PIN.", C_ERR, C_BG);
 		ui_wait_ack();
-		return false;
 	}
-	return true;
 }
 
 void ui_run(void)
 {
 	screen_run_splash();
 	boot_pin_gate();
-	screen_boot_passphrase_gate();
 
-	/* Auto-lock idle timeout in ms (0 = never). A PIN-less wallet never
-	 * locks. */
-	uint32_t lock_ms = 0;
-	{
+	/* PIN gate BEFORE the brain-phrase gate: the wallet PIN is asked for
+	 * first (a PIN-less wallet skips it), then the passphrase. */
+	if (wallet_has_pin()) {
+		bool unlocked = false;
 		const se_driver_t *se = se_active();
-		uint32_t sec = 0;
-		if (se && se->get_lock_timeout)
-			se->get_lock_timeout(&sec);
-		lock_ms = sec * 1000u;
+		if (se && se->is_unlocked)
+			se->is_unlocked(&unlocked);
+		if (!unlocked)
+			wallet_unlock_gate();
 	}
+
+	screen_boot_passphrase_gate();
 
 	for (;;) {
 		/* Dynamic unlock check: a PIN that was just (re)set locks the SE
@@ -268,6 +269,17 @@ void ui_run(void)
 		if (!unlocked) {
 			wallet_unlock_gate();
 			continue;
+		}
+
+		/* Read the auto-lock timeout every pass so a change made in the
+		 * PIN menu takes effect immediately (no stale cached value). */
+		uint32_t lock_ms = 0;
+		{
+			const se_driver_t *se = se_active();
+			uint32_t sec = 0;
+			if (se && se->get_lock_timeout)
+				se->get_lock_timeout(&sec);
+			lock_ms = sec * 1000u;
 		}
 
 		int vis[MENU_COUNT];

@@ -142,8 +142,8 @@ static int kp_build(kp_cell *cells, int maxcells)
 static const char *kp_label(int kind)
 {
 	switch (kind) {
-	case KEY_BACK:   return "DEL";
-	case KEY_ENTER:  return "OK";
+	case KEY_BACK:   return os_lang_str(LKEY_DEL);
+	case KEY_ENTER:  return os_lang_str(LKEY_OK);
 	case KEY_TOGGLE:
 		/* label names the page the toggle will move TO */
 		if (s_mode == 0) return "ABC";
@@ -153,7 +153,7 @@ static const char *kp_label(int kind)
 			return "ABC";
 		}
 		return "123";
-	case KEY_SPACE:  return "SPC";
+	case KEY_SPACE:  return os_lang_str(LKEY_SPC);
 	default:
 		{
 			static char b[2];
@@ -192,8 +192,8 @@ static void kp_draw(const char *title, const char *echo, int echo_len,
 		int is_action = (cells[i].kind < 0);
 		uint16_t bg = is_action ? 0x0842 : C_BTN;
 		if (cells[i].kind == KEY_ENTER) bg = 0x03EF;
-		lcd_rect_text(cells[i].x0, cells[i].y0, cells[i].x1, cells[i].y1,
-		              lbl, C_FG, bg);
+		lcd_rect_text_utf8(cells[i].x0, cells[i].y0, cells[i].x1, cells[i].y1,
+		                   lbl, C_FG, bg);
 	}
 }
 
@@ -262,7 +262,7 @@ static void kp_paint_cell(const kp_cell *c, int highlight)
 	uint16_t bg = is_action ? 0x0842 : C_BTN;
 	if (c->kind == KEY_ENTER) bg = 0x03EF;
 	if (highlight) bg = C_FG;   /* bright box under the finger */
-	lcd_rect_text(c->x0, c->y0, c->x1, c->y1, lbl, C_FG, bg);
+	lcd_rect_text_utf8(c->x0, c->y0, c->x1, c->y1, lbl, C_FG, bg);
 }
 
 /* Render one character big, centered in the preview box. font8x16 only
@@ -429,10 +429,10 @@ static void kp_draw_phrase_area(const char *title, int nwords,
 	/* Clear only down to the top of the key grid: a full lcd_fill would
 	 * repaint every key on each keypress and visibly flicker. */
 	lcd_rect(0, 0, 240, KP_TOP, C_BG);
-	if (title) lcd_line(2, 2, title, C_LBL, C_BG);
+	if (title) lcd_utf8_str(2, 2, title, C_LBL, C_BG, 1);
 	char line[40];
-	snprintf(line, sizeof line, "WORD %d", nwords + 1);
-	lcd_line_big(2, 14, line, C_FG, C_BG);
+	snprintf(line, sizeof line, os_lang_str(LKEY_WORD_N), nwords + 1);
+	lcd_utf8_str(2, 16, line, C_FG, C_BG, 1);
 	if (ncur > 0) {
 		char p[WORD_BUF_MAX + 2];
 		int m = ncur < WORD_BUF_MAX ? ncur : WORD_BUF_MAX;
@@ -441,7 +441,7 @@ static void kp_draw_phrase_area(const char *title, int nwords,
 		lcd_line_big(100, 14, p, C_WARN, C_BG);
 	}
 	if (hint) {
-		lcd_line(2, 36, hint, C_ERR, C_BG);
+		lcd_utf8_str(2, 36, hint, C_ERR, C_BG, 1);
 		return;
 	}
 	if (pending_wi >= 0) {
@@ -470,11 +470,12 @@ static void kp_draw_phrase_area(const char *title, int nwords,
 		/* idle: nothing typed or resolved yet on this word. Show what to
 		 * do next, centred in the box, so the eye lands on an explicit
 		 * prompt rather than an empty area. */
-		const char *g = (nwords == 0) ? "enter word" : "enter next word";
-		int gw = (int)strlen(g) * FONT_CHAR_W;
+		const char *g = (nwords == 0) ? os_lang_str(LKEY_ENTER_WORD)
+		                             : os_lang_str(LKEY_ENTER_NEXT_WORD);
+		int gw = lcd_utf8_width(g, 1);
 		int gx = PREV_X0 + ((PREV_X1 - PREV_X0) - gw) / 2;
-		int gy = PREV_Y0 + ((PREV_Y1 - PREV_Y0) - FONT_CHAR_H) / 2;
-		lcd_line(gx, gy, g, C_DIM, C_BG);
+		int gy = PREV_Y0 + ((PREV_Y1 - PREV_Y0) - 16) / 2;
+		lcd_utf8_str(gx, gy, g, C_DIM, C_BG, 1);
 	}
 }
 
@@ -614,8 +615,8 @@ int kp_capture_phrase(const char *title, char *out, int max)
 						kp_draw_phrase_area(title, nwords, cur, ncur,
 							pending_wi,
 							os_dev_test_seed_enabled()
-								? "need 4/12/15/18/21/24 words"
-								: "need 12/15/18/21/24 words");
+								? os_lang_str(LKEY_NEED_WORDS_DEV)
+								: os_lang_str(LKEY_NEED_WORDS));
 						for (int i = 0; i < n; i++)
 							kp_paint_cell(&cells[i], 0);
 						goto tick;
@@ -657,9 +658,9 @@ tick:
 bool ui_confirm(const char *msg)
 {
 	lcd_fill(C_BG);
-	lcd_text_wrap(2, 10, msg, C_WARN, C_BG);
-	lcd_rect_text(15, 200, 115, 250, "Cancel", C_FG, C_BTN);
-	lcd_rect_text(125, 200, 225, 250, "Confirm", C_FG, C_ERR);
+	lcd_text_wrap_utf8(2, 10, msg, C_WARN, C_BG);
+	lcd_rect_text_utf8(15, 200, 115, 250, os_lang_str(LKEY_CANCEL), C_FG, C_BTN);
+	lcd_rect_text_utf8(125, 200, 225, 250, os_lang_str(LKEY_CONFIRM), C_FG, C_ERR);
 	for (;;) {
 		int px, py;
 		ui_wait_press(&px, &py);
@@ -676,8 +677,8 @@ bool ui_confirm(const char *msg)
 
 bool ui_confirm_overlay(void)
 {
-	lcd_rect_text(15, 200, 115, 250, "Cancel", C_FG, C_BTN);
-	lcd_rect_text(125, 200, 225, 250, "Confirm", C_FG, C_ERR);
+	lcd_rect_text_utf8(15, 200, 115, 250, os_lang_str(LKEY_CANCEL), C_FG, C_BTN);
+	lcd_rect_text_utf8(125, 200, 225, 250, os_lang_str(LKEY_CONFIRM), C_FG, C_ERR);
 	for (;;) {
 		int px, py;
 		ui_wait_press(&px, &py);
@@ -695,8 +696,8 @@ bool ui_confirm_overlay(void)
 /* Yes/No question (drawn over existing content). True if "Yes". */
 bool ui_confirm_yesno(void)
 {
-	lcd_rect_text(15, 200, 115, 250, "No", C_FG, C_BTN);
-	lcd_rect_text(125, 200, 225, 250, "Yes", C_FG, C_OK);
+	lcd_rect_text_utf8(15, 200, 115, 250, os_lang_str(LKEY_NO), C_FG, C_BTN);
+	lcd_rect_text_utf8(125, 200, 225, 250, os_lang_str(LKEY_YES), C_FG, C_OK);
 	for (;;) {
 		int px, py;
 		ui_wait_press(&px, &py);
@@ -730,10 +731,10 @@ int ui_set_pin(char *out, int out_max)
 	int rc = -1;
 	if (strlen(p1) < OS_PIN_MIN_LEN) {
 		lcd_fill(C_BG);
-		lcd_text_wrap(2, 10, "PIN too short (>=4)", C_ERR, C_BG);
+		lcd_text_wrap_utf8(2, 10, os_lang_str(LKEY_PIN_TOO_SHORT), C_ERR, C_BG);
 	} else if (strcmp(p1, p2) != 0) {
 		lcd_fill(C_BG);
-		lcd_text_wrap(2, 10, "PIN mismatch", C_ERR, C_BG);
+		lcd_text_wrap_utf8(2, 10, os_lang_str(LKEY_PIN_MISMATCH), C_ERR, C_BG);
 	} else if (out && out_max > (int)strlen(p1)) {
 		strcpy(out, p1);
 		rc = (int)strlen(p1);

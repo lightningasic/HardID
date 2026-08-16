@@ -23,6 +23,7 @@
 #include "secure_zero.h"
 #include "fido_app.h"
 #include "lang.h"
+#include "lang.h"
 #include "ui.h"
 
 #define MENU_COUNT 10
@@ -140,8 +141,8 @@ static void menu_draw(const int *vis, int vn)
 	(void)vn;
 	lcd_fill(C_BG);
 	/* header hints at 2x: the old 5x7 lines were too small to read */
-	lcd_line_big(2, 6, "HardID", C_LBL, C_BG);
-	lcd_line_big(2, 26, "OK: open", C_DIM, C_BG);
+	lcd_utf8_str(2, 6, "HardID", C_LBL, C_BG, 2);
+	lcd_utf8_str(2, 26, os_lang_str(LKEY_OK_OPEN), C_DIM, C_BG, 2);
 
 	/* the item sits in a filled selection box so it is obvious what a
 	 * tap/OK will activate (and that tapping outside does nothing) */
@@ -198,7 +199,7 @@ static void boot_pin_gate(void)
 		return;
 	/* No PIN: offer one (optional). The wallet can run PIN-less; the user
 	 * may set/change it any time from the PIN menu. */
-	if (ui_confirm("Set a PIN to protect the wallet?")) {
+	if (ui_confirm(os_lang_str(LKEY_SET_PIN_PROMPT))) {
 		char pin[OS_PIN_MAX_LEN + 1];
 		int len = ui_set_pin(pin, (int)sizeof(pin));
 		if (len >= 0) {
@@ -224,7 +225,7 @@ static void wallet_unlock_gate(void)
 	const se_driver_t *se = se_active();
 	for (;;) {
 		lcd_fill(C_BG);
-		lcd_line(2, 2, "Wallet locked", C_LBL, C_BG);
+		lcd_utf8_str(2, 2, os_lang_str(LKEY_WALLET_LOCKED), C_LBL, C_BG, 1);
 		char pin[OS_PIN_MAX_LEN + 1];
 		int n = ui_enter_pin(pin, sizeof(pin));
 		if (n < 0)
@@ -236,7 +237,7 @@ static void wallet_unlock_gate(void)
 		if (vr == SE_OK)
 			return;
 		lcd_fill(C_BG);
-		lcd_text_wrap(2, 40, "Wrong PIN.", C_ERR, C_BG);
+		lcd_text_wrap_utf8(2, 40, os_lang_str(LKEY_WRONG_PIN), C_ERR, C_BG);
 		ui_wait_ack();
 	}
 }

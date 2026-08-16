@@ -55,6 +55,7 @@
 #include "screen.h"
 #include "touch.h"
 #include "usb_desc.h"
+#include "lang.h"
 
 static const char *TAG = "fido_esp";
 
@@ -248,12 +249,13 @@ static int fido_confirm_ui(const char *rp_name, bool is_register)
 	 * the wire end-to-end. Rich RP-domain render is milestone F5. */
 	s_confirm_active = true;
 	lcd_fill(C_BG);
-	lcd_text_wrap(2, 10, rp_name ? rp_name : "(unknown RP)", C_FG, C_BG);
-	lcd_text_wrap(2, 60,
-	              is_register ? "Register new login key?" : "Confirm login?",
-	              C_LBL, C_BG);
-	lcd_rect_text(15, 200, 115, 250, "No", C_FG, C_BTN);
-	lcd_rect_text(125, 200, 225, 250, "Yes", C_FG, C_OK);
+	lcd_text_wrap_utf8(2, 10, rp_name ? rp_name : os_lang_str(LKEY_UNKNOWN_RP), C_FG, C_BG);
+	lcd_text_wrap_utf8(2, 60,
+	                   is_register ? os_lang_str(LKEY_REGISTER_NEW_KEY)
+	                               : os_lang_str(LKEY_CONFIRM_LOGIN),
+	                   C_LBL, C_BG);
+	lcd_rect_text_utf8(15, 200, 115, 250, os_lang_str(LKEY_NO), C_FG, C_BTN);
+	lcd_rect_text_utf8(125, 200, 225, 250, os_lang_str(LKEY_YES), C_FG, C_OK);
 	int rc = 0;
 	for (;;) {
 		if (fido_cancel_pending())
@@ -299,15 +301,17 @@ done:
 	 * stale artifact; then restore the FIDO serving idle screen. */
 	lcd_fill(C_BG);
 	if (rc == 1)
-		lcd_text_wrap(2, 80, is_register ? "Registration OK" : "Login OK",
-		               C_OK, C_BG);
+		lcd_text_wrap_utf8(2, 80,
+		                   is_register ? os_lang_str(LKEY_REGISTRATION_OK)
+		                               : os_lang_str(LKEY_LOGIN_OK),
+		                   C_OK, C_BG);
 	else
-		lcd_text_wrap(2, 80, "Denied", C_DIM, C_BG);
+		lcd_text_wrap_utf8(2, 80, os_lang_str(LKEY_DENIED), C_DIM, C_BG);
 	vTaskDelay(pdMS_TO_TICKS(700));
 	lcd_fill(C_BG);
-	lcd_line(2, 2, "FIDO serving", C_OK, C_BG);
-	lcd_line(2, 14, "plug into a browser", C_LBL, C_BG);
-	lcd_rect_text(60, 288, 180, 318, "BACK", C_FG, C_BTN);
+	lcd_utf8_str(2, 2, os_lang_str(LKEY_FIDO_SERVING), C_OK, C_BG, 1);
+	lcd_utf8_str(2, 14, os_lang_str(LKEY_FIDO_PLUG_BROWSER), C_LBL, C_BG, 1);
+	lcd_rect_text_utf8(60, 288, 180, 318, os_lang_str(LKEY_BACK), C_FG, C_BTN);
 	ESP_LOGW(TAG, "confirm result rc=%d", rc);
 	return rc;
 }
@@ -338,15 +342,15 @@ void screen_run_fido(void)
 		ESP_LOGE(TAG, "failed to create fido task");
 		s_fido_run = false;
 		if (s_tx_lock) { vSemaphoreDelete(s_tx_lock); s_tx_lock = NULL; }
-		lcd_text_wrap(2, 80, "FIDO task error", C_ERR, C_BG);
+		lcd_text_wrap_utf8(2, 80, os_lang_str(LKEY_FIDO_TASK_ERR), C_ERR, C_BG);
 		ui_wait_ack();
 		return;
 	}
 
 	lcd_fill(C_BG);
-	lcd_line(2, 2, "FIDO serving", C_OK, C_BG);
-	lcd_line(2, 14, "plug into a browser", C_LBL, C_BG);
-	lcd_rect_text(60, 288, 180, 318, "BACK", C_FG, C_BTN);
+	lcd_utf8_str(2, 2, os_lang_str(LKEY_FIDO_SERVING), C_OK, C_BG, 1);
+	lcd_utf8_str(2, 14, os_lang_str(LKEY_FIDO_PLUG_BROWSER), C_LBL, C_BG, 1);
+	lcd_rect_text_utf8(60, 288, 180, 318, os_lang_str(LKEY_BACK), C_FG, C_BTN);
 
 	/* Own the CDC carrier for the duration of the FIDO session so the
 	 * dev touch injector never steals HID-bound console bytes. */
@@ -369,6 +373,6 @@ void screen_run_fido(void)
 	while (!s_fido_exited)
 		vTaskDelay(pdMS_TO_TICKS(5));
 	if (s_tx_lock) { vSemaphoreDelete(s_tx_lock); s_tx_lock = NULL; }
-	lcd_line(2, 40, "session ended", C_DIM, C_BG);
+	lcd_utf8_str(2, 40, os_lang_str(LKEY_SESSION_ENDED), C_DIM, C_BG, 1);
 	ui_wait_ack();
 }

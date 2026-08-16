@@ -22,6 +22,7 @@
 #include "touch.h"
 #include "ui.h"
 #include "screen.h"
+#include "lang.h"
 #include "fido_app.h"
 
 static const char *TAG = "hardid.main";
@@ -38,6 +39,7 @@ static void ui_task(void *arg)
 	 * here to the wallet menu. */
 	if (os_fido_is_active())
 		screen_run_fido();
+	os_lang_load();   /* pick up the persisted UI language */
 	ui_run();   /* never returns */
 }
 

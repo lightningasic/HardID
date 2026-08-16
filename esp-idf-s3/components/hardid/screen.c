@@ -55,7 +55,7 @@ void screen_run_sign(void)
 	se->is_initialized(&initd);
 	if (!initd) {
 		lcd_fill(C_BG);
-		lcd_text_wrap(2, 10, "Not initialized. Run Initialize first.", C_WARN, C_BG);
+		lcd_text_wrap_utf8(2, 10, os_lang_str(LKEY_NOT_INITIALIZED), C_WARN, C_BG);
 		return;
 	}
 
@@ -77,7 +77,7 @@ void screen_run_sign(void)
 	}
 	if (usable == 0) {
 		lcd_fill(C_BG);
-		lcd_text_wrap(2, 10, "No app available.", C_WARN, C_BG);
+		lcd_text_wrap_utf8(2, 10, os_lang_str(LKEY_NO_APP), C_WARN, C_BG);
 		return;
 	}
 	screen_run_apps(false);   /* signable coin apps only, no FIDO row */
@@ -91,30 +91,30 @@ void screen_run_sign(void)
 bool screen_confirm_intent(const os_tx_intent *it)
 {
 	lcd_fill(C_BG);
-	lcd_line(2, 2, "CONFIRM", C_LBL, C_BG);
+	lcd_utf8_str(2, 2, os_lang_str(LKEY_CONFIRM), C_LBL, C_BG, 1);
 	char line[48];
 
 	if (it->kind == OS_INTENT_UNKNOWN) {
-		lcd_text_wrap(2, 18, "UNKNOWN CALL", C_ERR, C_BG);
-		lcd_text_wrap(2, 34, "Not parseable. Confirm twice to sign.", C_WARN, C_BG);
+		lcd_text_wrap_utf8(2, 18, os_lang_str(LKEY_UNKNOWN_CALL), C_ERR, C_BG);
+		lcd_text_wrap_utf8(2, 34, os_lang_str(LKEY_NOT_PARSEABLE), C_WARN, C_BG);
 		if (!ui_confirm_yesno())
 			return false;
 		return ui_confirm_yesno();
 	}
 
-	const char *kind = "transfer";
+	const char *kind = os_lang_str(LKEY_TRANSFER);
 	switch (it->kind) {
-	case OS_INTENT_TRANSFER:       kind = "transfer";  break;
-	case OS_INTENT_ERC20_TRANSFER: kind = "token transfer"; break;
-	case OS_INTENT_ERC20_APPROVE:  kind = "approve";   break;
-	case OS_INTENT_CONTRACT_CALL:  kind = "contract";  break;
-	default:                       kind = "transfer";  break;
+	case OS_INTENT_TRANSFER:       kind = os_lang_str(LKEY_TRANSFER);  break;
+	case OS_INTENT_ERC20_TRANSFER: kind = os_lang_str(LKEY_TOKEN_TRANSFER); break;
+	case OS_INTENT_ERC20_APPROVE:  kind = os_lang_str(LKEY_APPROVE);   break;
+	case OS_INTENT_CONTRACT_CALL:  kind = os_lang_str(LKEY_CONTRACT);  break;
+	default:                       kind = os_lang_str(LKEY_TRANSFER);  break;
 	}
 	snprintf(line, sizeof line, "%s %s", it->symbol, kind);
-	lcd_line(2, 16, line, C_FG, C_BG);
+	lcd_utf8_str(2, 16, line, C_FG, C_BG, 1);
 
 	snprintf(line, sizeof line, "to %.42s", it->to);
-	lcd_line(2, 30, line, C_FG, C_BG);
+	lcd_utf8_str(2, 30, line, C_FG, C_BG, 1);
 
 	if (it->amount_token[0]) {
 		/* ERC20 kinds carry raw token units — never glue the NATIVE
@@ -131,11 +131,11 @@ bool screen_confirm_intent(const os_tx_intent *it)
 		snprintf(line, sizeof line, "amount %llu %.10s",
 		         (unsigned long long)it->amount, it->symbol);
 	}
-	lcd_line(2, 44, line, C_FG, C_BG);
+	lcd_utf8_str(2, 44, line, C_FG, C_BG, 1);
 
 	if (it->method[0]) {
 		snprintf(line, sizeof line, "method %s", it->method);
-		lcd_line(2, 58, line, C_FG, C_BG);
+		lcd_utf8_str(2, 58, line, C_FG, C_BG, 1);
 	}
 	{
 		/* fee in decimal coin units (sats for BTC chains, wei for EVM) */
@@ -144,17 +144,17 @@ bool screen_confirm_intent(const os_tx_intent *it)
 		                   it->chain == OS_CHAIN_BTC ? 8 : 18);
 		snprintf(line, sizeof line, "max fee %s %.10s", fee, it->symbol);
 	}
-	lcd_line(2, 72, line, C_FG, C_BG);
+	lcd_utf8_str(2, 72, line, C_FG, C_BG, 1);
 	if (it->chain_id) {
 		snprintf(line, sizeof line, "chain id %llu",
 		         (unsigned long long)it->chain_id);
-		lcd_line(2, 86, line, C_FG, C_BG);
+		lcd_utf8_str(2, 86, line, C_FG, C_BG, 1);
 	}
 
 	/* Explicit Yes/No — a signature is NEVER granted by a stray tap on a
 	 * label that reads "tap to CONFIRM" while the only tappable control is
 	 * BACK. Confirm returns false unless the user presses Yes. */
-	lcd_line(2, 100, "sign?", C_LBL, C_BG);
+	lcd_utf8_str(2, 100, os_lang_str(LKEY_SIGN_QUESTION), C_LBL, C_BG, 1);
 	return ui_confirm_yesno();
 }
 
@@ -166,12 +166,13 @@ void screen_run_sign_for_app(const os_app *app)
 	se->is_initialized(&initd);
 	if (!initd) {
 		lcd_fill(C_BG);
-		lcd_text_wrap(2, 10, "Not initialized. Run Initialize first.", C_WARN, C_BG);
+		lcd_text_wrap_utf8(2, 10, os_lang_str(LKEY_NOT_INITIALIZED),
+		                   C_WARN, C_BG);
 		return;
 	}
 
 	lcd_fill(C_BG);
-	lcd_line(2, 2, "Unlock to sign", C_LBL, C_BG);
+	lcd_utf8_str(2, 2, os_lang_str(LKEY_UNLOCK_TO_SIGN), C_LBL, C_BG, 1);
 
 	/* DEV-ONLY: no-PIN builds skip the unlock prompt entirely. */
 	if (os_dev_no_pin_enabled()) {
@@ -180,7 +181,7 @@ void screen_run_sign_for_app(const os_app *app)
 	} else {
 		char pin[OS_PIN_MAX_LEN + 1];
 		int n = ui_enter_pin(pin, sizeof(pin));
-		if (n < 0) { lcd_text_wrap(2, 16, "cancelled", C_ERR, C_BG); return; }
+		if (n < 0) { lcd_text_wrap_utf8(2, 16, os_lang_str(LKEY_CANCELLED), C_ERR, C_BG); return; }
 
 		uint32_t wait;
 		bool duress;
@@ -188,7 +189,7 @@ void screen_run_sign_for_app(const os_app *app)
 		os_secure_bzero(pin, sizeof(pin));
 		if (vr != SE_OK) {
 			lcd_fill(C_BG);
-			lcd_text_wrap(2, 10, "wrong PIN", C_ERR, C_BG);
+			lcd_text_wrap_utf8(2, 10, os_lang_str(LKEY_WRONG_PIN), C_ERR, C_BG);
 			return;
 		}
 	}
@@ -213,8 +214,9 @@ void screen_run_sign_for_app(const os_app *app)
 	} else {
 		/* BTC: no built-in demo tx — ask host for a PSBT later. */
 		lcd_fill(C_BG);
-		lcd_text_wrap(2, 10, "BTC demo: use HOST LINK to load a PSBT.",
-		              C_WARN, C_BG);
+		lcd_text_wrap_utf8(2, 10,
+		                   "BTC demo: use HOST LINK to load a PSBT.",
+		                   C_WARN, C_BG);
 		ui_wait_ack();
 		return;
 	}
@@ -227,32 +229,35 @@ void screen_run_sign_for_app(const os_app *app)
 	switch (oc.result) {
 	case OS_SIGN_OK: {
 		if (os_evm_chain_id_for_coin(app->coin_type) != 0) {
-			lcd_line(2, 2, "Signature (r||s)", C_LBL, C_BG);
+			lcd_utf8_str(2, 2, os_lang_str(LKEY_SIGNATURE), C_LBL, C_BG, 1);
 		} else {
-			char ln[40];
-			snprintf(ln, sizeof ln, "Signed %u input(s), sig[0]:",
+			char ln[48];
+			snprintf(ln, sizeof ln, os_lang_str(LKEY_SIGNED_INPUTS),
 			         (unsigned)oc.sig_count);
-			lcd_line(2, 2, ln, C_LBL, C_BG);
+			lcd_utf8_str(2, 2, ln, C_LBL, C_BG, 1);
 		}
 		char hex[130];
 		for (int i = 0; i < 64; i++)
 			snprintf(hex + i * 2, 3, "%02x", oc.sig64[i]);
-		lcd_text_wrap(2, 16, hex, C_FG, C_BG);
+		lcd_text_wrap_utf8(2, 16, hex, C_FG, C_BG);
 		ui_wait_ack();
 		break;
 	}
 	case OS_SIGN_REJECTED:
-		lcd_text_wrap(2, 10, "Rejected by user.", C_WARN, C_BG);
+		lcd_text_wrap_utf8(2, 10, os_lang_str(LKEY_REJECTED), C_WARN, C_BG);
 		ui_wait_ack();
 		break;
 	case OS_SIGN_LOCKED:
-		lcd_text_wrap(2, 10, "Session locked. Re-enter PIN.", C_ERR, C_BG);
+		lcd_text_wrap_utf8(2, 10, os_lang_str(LKEY_SESSION_LOCKED), C_ERR, C_BG);
 		ui_wait_ack();
 		break;
-	default:
-		lcd_text_wrap(2, 10, "Sign unavailable (rc=%d).", C_ERR, C_BG);
+	default: {
+		char ln[48];
+		snprintf(ln, sizeof ln, os_lang_str(LKEY_SIGN_UNAVAILABLE), oc.result);
+		lcd_text_wrap_utf8(2, 10, ln, C_ERR, C_BG);
 		ui_wait_ack();
 		break;
+	}
 	}
 }
 
@@ -264,29 +269,29 @@ void screen_run_factory_reset(void)
 	 * device PIN (only when a PIN is set; a PIN-less device has nothing to
 	 * verify). Only then is the SE wiped. */
 	lcd_fill(C_BG);
-	lcd_text_wrap(2, 10, "Type RESET to confirm wipe.", C_WARN, C_BG);
+	lcd_text_wrap_utf8(2, 10, os_lang_str(LKEY_TYPE_RESET_HINT), C_WARN, C_BG);
 	char word[16];
-	if (kp_capture("TYPE RESET", word, (int)sizeof(word), 0, 0) != 0) {
-		lcd_text_wrap(2, 100, "cancelled", C_FG, C_BG);
+	if (kp_capture(os_lang_str(LKEY_TYPE_RESET), word, (int)sizeof(word), 0, 0) != 0) {
+		lcd_text_wrap_utf8(2, 100, os_lang_str(LKEY_CANCELLED), C_FG, C_BG);
 		return;
 	}
 	bool ok = (strcmp(word, "RESET") == 0);
 	os_secure_bzero(word, sizeof(word));
 	if (!ok) {
 		lcd_fill(C_BG);
-		lcd_text_wrap(2, 10, "Not confirmed. Wipe aborted.", C_ERR, C_BG);
+		lcd_text_wrap_utf8(2, 10, os_lang_str(LKEY_NOT_CONFIRMED), C_ERR, C_BG);
 		return;
 	}
 	/* second confirmation: type RESET again */
-	if (kp_capture("TYPE RESET AGAIN", word, (int)sizeof(word), 0, 0) != 0) {
-		lcd_text_wrap(2, 100, "cancelled", C_FG, C_BG);
+	if (kp_capture(os_lang_str(LKEY_TYPE_RESET_AGAIN), word, (int)sizeof(word), 0, 0) != 0) {
+		lcd_text_wrap_utf8(2, 100, os_lang_str(LKEY_CANCELLED), C_FG, C_BG);
 		return;
 	}
 	ok = (strcmp(word, "RESET") == 0);
 	os_secure_bzero(word, sizeof(word));
 	if (!ok) {
 		lcd_fill(C_BG);
-		lcd_text_wrap(2, 10, "Not confirmed twice. Wipe aborted.", C_ERR, C_BG);
+		lcd_text_wrap_utf8(2, 10, os_lang_str(LKEY_NOT_CONFIRMED_TWICE), C_ERR, C_BG);
 		return;
 	}
 
@@ -307,7 +312,7 @@ void screen_run_factory_reset(void)
 			char pin[OS_PIN_MAX_LEN + 1];
 			int pin_len = ui_enter_pin(pin, sizeof(pin));
 			if (pin_len < 0) {
-				lcd_text_wrap(2, 100, "cancelled", C_FG, C_BG);
+				lcd_text_wrap_utf8(2, 100, os_lang_str(LKEY_CANCELLED), C_FG, C_BG);
 				return;
 			}
 			uint32_t wait;
@@ -317,7 +322,7 @@ void screen_run_factory_reset(void)
 			os_secure_bzero(pin, sizeof(pin));
 			if (vr != SE_OK) {
 				lcd_fill(C_BG);
-				lcd_text_wrap(2, 10, "Wrong PIN. Wipe aborted.", C_ERR, C_BG);
+				lcd_text_wrap_utf8(2, 10, os_lang_str(LKEY_WRONG_PIN_WIPE), C_ERR, C_BG);
 				return;
 			}
 		}
@@ -328,7 +333,7 @@ void screen_run_factory_reset(void)
 	/* The wipe cleared the PIN; offer a fresh one before returning to the
 	 * menu (optional — the PIN menu can set/change it later). */
 	if (!os_dev_no_pin_enabled()) {
-		if (ui_confirm("Set a PIN to protect the wallet?")) {
+		if (ui_confirm(os_lang_str(LKEY_SET_PIN_PROMPT))) {
 			char pin[OS_PIN_MAX_LEN + 1];
 			int len = ui_set_pin(pin, sizeof(pin));
 			if (len >= 0)
@@ -337,7 +342,7 @@ void screen_run_factory_reset(void)
 		}
 	}
 	os_board_display_home();
-	lcd_text_wrap(2, 60, "Device wiped. Re-initialize to set a seed.", C_OK, C_BG);
+	lcd_text_wrap_utf8(2, 60, os_lang_str(LKEY_DEVICE_WIPED), C_OK, C_BG);
 }
 
 /* The most severe security warning in the product. Shown before the seed
@@ -347,16 +352,13 @@ void screen_run_factory_reset(void)
 static void screen_seed_warning(void)
 {
 	lcd_fill(C_BG);
-	lcd_line(2, 2, "WARNING", C_ERR, C_BG);
-	lcd_text_wrap(2, 22,
-	              "Your seed words are your money. They are only generated "
-	              "on and entered into this wallet.",
-	              C_WARN, C_BG);
-	lcd_text_wrap(2, 60,
-	              "Anyone asking you to reveal them - websites, emails, or "
-	              "apps - is scamming you. Never share them.",
-	              C_WARN, C_BG);
-	lcd_rect_text(60, 288, 180, 318, "I UNDERSTAND", C_FG, C_ERR);
+	lcd_utf8_str(2, 2, os_lang_str(LKEY_WARNING), C_ERR, C_BG, 1);
+	lcd_text_wrap_utf8(2, 22, os_lang_str(LKEY_SEED_WARNING_1),
+	                   C_WARN, C_BG);
+	lcd_text_wrap_utf8(2, 60, os_lang_str(LKEY_SEED_WARNING_2),
+	                   C_WARN, C_BG);
+	lcd_rect_text_utf8(60, 288, 180, 318, os_lang_str(LKEY_I_UNDERSTAND),
+	                   C_FG, C_ERR);
 	for (;;) {
 		int px, py;
 		ui_wait_press(&px, &py);
@@ -390,9 +392,9 @@ static int screen_show_words(const char *mnemonic)
 		while (*end && *end != ' ') end++;
 		int wlen = (int)(end - start);
 		lcd_fill(C_BG);
-		char title[24];
-		snprintf(title, sizeof title, "Word %d/%d", idx + 1, total);
-		lcd_line(2, 8, title, C_LBL, C_BG);
+		char title[32];
+		snprintf(title, sizeof title, os_lang_str(LKEY_WORD), idx + 1, total);
+		lcd_utf8_str(2, 8, title, C_LBL, C_BG, 1);
 
 		/* the embedded 8x16 font is A-Z only: uppercase the word */
 		char word[16];
@@ -416,8 +418,8 @@ static int screen_show_words(const char *mnemonic)
 		for (int i = 0; word[i]; i++)
 			lcd_gl8x16(x + i * adv, 120, word[i], C_FG, C_BG, scale);
 
-		lcd_rect_text(15, 240, 115, 290, "Back", C_FG, C_BTN);
-		lcd_rect_text(125, 240, 225, 290, "Next", C_FG, C_BTN);
+		lcd_rect_text_utf8(15, 240, 115, 290, os_lang_str(LKEY_BACK), C_FG, C_BTN);
+		lcd_rect_text_utf8(125, 240, 225, 290, os_lang_str(LKEY_NEXT), C_FG, C_BTN);
 		for (;;) {
 			int px, py;
 			ui_wait_press(&px, &py);
@@ -451,13 +453,13 @@ static int screen_show_words(const char *mnemonic)
 static int prompt_passphrase(char *out, size_t out_max)
 {
 	lcd_fill(C_BG);
-	lcd_text_wrap(2, 10, "Enable brain phrase?", C_WARN, C_BG);
+	lcd_text_wrap_utf8(2, 10, os_lang_str(LKEY_ENABLE_PHRASE), C_WARN, C_BG);
 	if (!ui_confirm_yesno())
 		return 0;
 
 	for (;;) {
 		lcd_fill(C_BG);
-		if (kp_capture_alpha("BRAIN PHRASE", out, (int)out_max) != 0)
+		if (kp_capture_alpha(os_lang_str(LKEY_BRAIN_PHRASE), out, (int)out_max) != 0)
 			return -1;
 		if (out[0] == '\0')
 			return 0;   /* typed nothing -> no passphrase */
@@ -465,7 +467,7 @@ static int prompt_passphrase(char *out, size_t out_max)
 		char again[OS_BIP39_MNEMONIC_MAX];
 		again[0] = '\0';
 		lcd_fill(C_BG);
-		if (kp_capture_alpha("CONFIRM BRAIN PHRASE", again,
+		if (kp_capture_alpha(os_lang_str(LKEY_CONFIRM_BRAIN_PHRASE), again,
 		                     (int)sizeof(again)) != 0) {
 			os_secure_bzero(again, sizeof(again));
 			return -1;
@@ -476,8 +478,8 @@ static int prompt_passphrase(char *out, size_t out_max)
 			return 1;
 		/* typo somewhere: tell the user and re-enter from the top */
 		lcd_fill(C_BG);
-		lcd_text_wrap(2, 10, "Passphrase mismatch!", C_ERR, C_BG);
-		lcd_text_wrap(2, 30, "Enter it again.", C_FG, C_BG);
+		lcd_text_wrap_utf8(2, 10, os_lang_str(LKEY_PHRASE_MISMATCH), C_ERR, C_BG);
+		lcd_text_wrap_utf8(2, 30, os_lang_str(LKEY_ENTER_AGAIN), C_FG, C_BG);
 		ui_wait_ack();
 	}
 }
@@ -500,8 +502,8 @@ void screen_boot_passphrase_gate(void)
 		 * would run the device on the base seed while the user believes a
 		 * passphrase session is armed. */
 		lcd_fill(C_BG);
-		lcd_text_wrap(2, 10, "SE status error — passphrase gate failed",
-		              C_ERR, C_BG);
+		lcd_text_wrap_utf8(2, 10, os_lang_str(LKEY_SE_STATUS_ERR),
+		                   C_ERR, C_BG);
 		ui_wait_ack();
 		return;
 	}
@@ -511,8 +513,8 @@ void screen_boot_passphrase_gate(void)
 		/* An initialized device whose backend cannot arm a passphrase
 		 * session must say so — never run on the base seed in silence. */
 		lcd_fill(C_BG);
-		lcd_text_wrap(2, 10, "Backend lacks passphrase support",
-		              C_ERR, C_BG);
+		lcd_text_wrap_utf8(2, 10, os_lang_str(LKEY_SE_NO_PASSPHRASE),
+		                   C_ERR, C_BG);
 		ui_wait_ack();
 		return;
 	}
@@ -531,9 +533,10 @@ void screen_run_initialize(void)
 	const se_driver_t *se = se_active();
 	bool initd;
 	se->is_initialized(&initd);
-	if (initd) {
+	if (!initd) {
 		lcd_fill(C_BG);
-		lcd_text_wrap(2, 10, "Device already initialized. Wipe to re-seed.", C_WARN, C_BG);
+		lcd_text_wrap_utf8(2, 10, os_lang_str(LKEY_NOT_INITIALIZED),
+		                   C_WARN, C_BG);
 		return;
 	}
 
@@ -545,9 +548,9 @@ void screen_run_initialize(void)
 	 * entropy always comes from the SE+MCU+host HKDF — the choice only
 	 * selects how many bytes of it feed BIP39. */
 	lcd_fill(C_BG);
-	lcd_text_wrap(2, 10, "Phrase length?", C_LBL, C_BG);
-	lcd_text_wrap(2, 30, "12 words = 128-bit", C_FG, C_BG);
-	lcd_text_wrap(2, 46, "24 words = 256-bit", C_FG, C_BG);
+	lcd_text_wrap_utf8(2, 10, os_lang_str(LKEY_PHRASE_LEN), C_LBL, C_BG);
+	lcd_text_wrap_utf8(2, 30, os_lang_str(LKEY_WORDS_12), C_FG, C_BG);
+	lcd_text_wrap_utf8(2, 46, os_lang_str(LKEY_WORDS_24), C_FG, C_BG);
 	lcd_rect_text(15, 250, 115, 300, "12", C_FG, C_BTN);
 	lcd_rect_text(125, 250, 225, 300, "24", C_FG, C_BTN);
 	const bool test_seed = os_dev_test_seed_enabled();
@@ -555,7 +558,7 @@ void screen_run_initialize(void)
 		/* DEV-ONLY: 4-word test seed (44-bit, no checksum) so the
 		 * brain-phrase flow can be exercised without transcribing a
 		 * full BIP39 phrase. Never shipped in production builds. */
-		lcd_rect_text(15, 195, 225, 240, "4 words (TEST)", C_FG, C_WARN);
+		lcd_rect_text_utf8(15, 195, 225, 240, os_lang_str(LKEY_WORDS_4), C_FG, C_WARN);
 	}
 	size_t elen = 0;
 	for (;;) {
@@ -579,13 +582,13 @@ void screen_run_initialize(void)
 	 * runs, then seed generation starts automatically — no release
 	 * needed; keeping the finger down through it maximizes samples. */
 	lcd_fill(C_BG);
-	lcd_text_wrap(2, 10, "Touch entropy (optional)", C_LBL, C_BG);
-	lcd_text_wrap(2, 30, "Press & HOLD the screen anywhere:", C_FG, C_BG);
-	lcd_text_wrap(2, 46, "your finger's micro-jitter is mixed", C_FG, C_BG);
-	lcd_text_wrap(2, 62, "into the new seed.", C_FG, C_BG);
-	lcd_text_wrap(2, 82, "Holding starts a 3-2-1-0 count,", C_FG, C_BG);
-	lcd_text_wrap(2, 98, "then the seed generates by itself.", C_FG, C_BG);
-	lcd_rect_text(15, 250, 115, 300, "SKIP", C_FG, C_BTN);
+	lcd_text_wrap_utf8(2, 10, os_lang_str(LKEY_ENTROPY), C_LBL, C_BG);
+	lcd_text_wrap_utf8(2, 30, os_lang_str(LKEY_ENTROPY_1), C_FG, C_BG);
+	lcd_text_wrap_utf8(2, 46, os_lang_str(LKEY_ENTROPY_2), C_FG, C_BG);
+	lcd_text_wrap_utf8(2, 62, os_lang_str(LKEY_ENTROPY_3), C_FG, C_BG);
+	lcd_text_wrap_utf8(2, 82, os_lang_str(LKEY_ENTROPY_4), C_FG, C_BG);
+	lcd_text_wrap_utf8(2, 98, os_lang_str(LKEY_ENTROPY_5), C_FG, C_BG);
+	lcd_rect_text_utf8(15, 250, 115, 300, os_lang_str(LKEY_SKIP), C_FG, C_BTN);
 	bool held = false;
 	{
 		TickType_t t0 = xTaskGetTickCount();
@@ -598,11 +601,11 @@ void screen_run_initialize(void)
 				} else {
 					held = true;
 					for (int s = 3; s >= 0; s--) {
-						char cd[24];
+						char cd[32];
 						snprintf(cd, sizeof cd,
-						         "Keep holding... %d", s);
+						         os_lang_str(LKEY_KEEP_HOLDING), s);
 						lcd_rect(0, 110, 240, 200, C_BG);
-						lcd_line_big(10, 140, cd, C_ERR, C_BG);
+						lcd_utf8_str(10, 130, cd, C_ERR, C_BG, 2);
 						vTaskDelay(pdMS_TO_TICKS(1000));
 					}
 				}
@@ -616,7 +619,7 @@ void screen_run_initialize(void)
 
 	esp_fill_random(host, sizeof(host));
 	if (os_seed_generate(host, sizeof(host), seed32) != 0) {
-		lcd_text_wrap(2, 10, "seed gen failed", C_ERR, C_BG);
+		lcd_text_wrap_utf8(2, 10, os_lang_str(LKEY_SEED_FAILED), C_ERR, C_BG);
 		return;
 	}
 
@@ -625,7 +628,7 @@ void screen_run_initialize(void)
 	 * not skipped. */
 	if (held) {
 		lcd_rect(0, 110, 240, 200, C_BG);
-		lcd_line_big(10, 140, "OK, release now", C_OK, C_BG);
+		lcd_utf8_str(10, 130, os_lang_str(LKEY_RELEASE), C_OK, C_BG, 2);
 	}
 	{
 		int hx, hy;
@@ -673,10 +676,10 @@ void screen_run_initialize(void)
 	 * device uninitialized), never a silent skip. */
 	for (;;) {
 		lcd_fill(C_BG);
-		lcd_text_wrap(2, 10, "Verify: re-enter the phrase", C_LBL, C_BG);
+		lcd_text_wrap_utf8(2, 10, os_lang_str(LKEY_VERIFY), C_LBL, C_BG);
 		ui_wait_ack();
 		char reenter[OS_BIP39_MNEMONIC_MAX];
-		int crc = kp_capture_phrase("CONFIRM PHRASE", reenter,
+		int crc = kp_capture_phrase(os_lang_str(LKEY_CONFIRM_PHRASE), reenter,
 		                            (int)sizeof(reenter));
 		if (crc == 0 && strcmp(reenter, mnemonic) == 0) {
 			os_secure_bzero(reenter, sizeof(reenter));
@@ -686,10 +689,10 @@ void screen_run_initialize(void)
 		/* mismatch (or aborted): tell the user, offer review-retry or a
 		 * conscious abort. Do NOT advance on a wrong phrase. */
 		lcd_fill(C_BG);
-		lcd_text_wrap(2, 10, "Phrase does NOT match.", C_ERR, C_BG);
-		lcd_text_wrap(2, 40, "Review words and retry.", C_WARN, C_BG);
-		lcd_rect_text(15, 250, 145, 300, "RETRY", C_FG, C_BTN);
-		lcd_rect_text(155, 250, 225, 300, "ABORT", C_FG, C_ERR);
+		lcd_text_wrap_utf8(2, 10, os_lang_str(LKEY_PHRASE_MISMATCH_2), C_ERR, C_BG);
+		lcd_text_wrap_utf8(2, 40, os_lang_str(LKEY_REVIEW), C_WARN, C_BG);
+		lcd_rect_text_utf8(15, 250, 145, 300, os_lang_str(LKEY_RETRY), C_FG, C_BTN);
+		lcd_rect_text_utf8(155, 250, 225, 300, os_lang_str(LKEY_ABORT), C_FG, C_ERR);
 		for (;;) {
 			int px, py;
 			ui_wait_press(&px, &py);
@@ -722,7 +725,7 @@ void screen_run_initialize(void)
 		bool pin_set = false;
 		if (se->is_pin_set)
 			se->is_pin_set(&pin_set);
-		if (!pin_set && ui_confirm("Set a PIN to protect the wallet?")) {
+		if (!pin_set && ui_confirm(os_lang_str(LKEY_SET_PIN_PROMPT))) {
 			char pin[OS_PIN_MAX_LEN + 1];
 			int pin_len = ui_set_pin(pin, sizeof(pin));
 			if (pin_len >= 0) {
@@ -735,9 +738,9 @@ void screen_run_initialize(void)
 	int rc = se->store_seed(seed64);
 	lcd_fill(C_BG);
 	if (rc != SE_OK) {
-		lcd_text_wrap(2, 10, "store seed failed", C_ERR, C_BG);
+		lcd_text_wrap_utf8(2, 10, os_lang_str(LKEY_STORE_FAILED), C_ERR, C_BG);
 	} else {
-		lcd_text_wrap(2, 10, "Initialized OK. Seed stored.", C_OK, C_BG);
+		lcd_text_wrap_utf8(2, 10, os_lang_str(LKEY_INIT_OK), C_OK, C_BG);
 		ui_wait_ack();
 	}
 	os_secure_bzero(seed32, sizeof(seed32));
@@ -753,7 +756,7 @@ void screen_run_recover(void)
 	se->is_initialized(&initd);
 	if (initd) {
 		lcd_fill(C_BG);
-		lcd_text_wrap(2, 10, "Already initialized. Factory-reset first.", C_WARN, C_BG);
+		lcd_text_wrap_utf8(2, 10, os_lang_str(LKEY_ALREADY_INIT_2), C_WARN, C_BG);
 		return;
 	}
 
@@ -763,8 +766,8 @@ void screen_run_recover(void)
 	 * already lowercase BIP39 words separated by spaces. */
 	char mnemonic[OS_BIP39_MNEMONIC_MAX];
 	screen_seed_warning();
-	if (kp_capture_phrase("RECOVER PHRASE", mnemonic, (int)sizeof(mnemonic)) != 0) {
-		lcd_text_wrap(2, 100, "cancelled", C_FG, C_BG);
+	if (kp_capture_phrase(os_lang_str(LKEY_RECOVER_PHRASE), mnemonic, (int)sizeof(mnemonic)) != 0) {
+		lcd_text_wrap_utf8(2, 100, os_lang_str(LKEY_CANCELLED), C_FG, C_BG);
 		return;
 	}
 
@@ -785,7 +788,7 @@ void screen_run_recover(void)
 			os_secure_bzero(seed32, sizeof(seed32));
 			os_secure_bzero(mnemonic, sizeof(mnemonic));
 			lcd_fill(C_BG);
-			lcd_text_wrap(2, 10, "Invalid mnemonic.", C_ERR, C_BG);
+			lcd_text_wrap_utf8(2, 10, os_lang_str(LKEY_INVALID_MNEMONIC), C_ERR, C_BG);
 			return;
 		}
 		os_secure_bzero(seed32, sizeof(seed32));
@@ -798,7 +801,7 @@ void screen_run_recover(void)
 		bool pin_set = false;
 		if (se->is_pin_set)
 			se->is_pin_set(&pin_set);
-		if (!pin_set && ui_confirm("Set a PIN to protect the wallet?")) {
+		if (!pin_set && ui_confirm(os_lang_str(LKEY_SET_PIN_PROMPT))) {
 			char pin[OS_PIN_MAX_LEN + 1];
 			int pin_len = ui_set_pin(pin, sizeof(pin));
 			if (pin_len >= 0) {
@@ -821,9 +824,9 @@ void screen_run_recover(void)
 
 	lcd_fill(C_BG);
 	if (rc != SE_OK) {
-		lcd_text_wrap(2, 10, "store seed failed", C_ERR, C_BG);
+		lcd_text_wrap_utf8(2, 10, os_lang_str(LKEY_STORE_FAILED), C_ERR, C_BG);
 	} else {
-		lcd_text_wrap(2, 10, "Recovered. Seed stored.", C_OK, C_BG);
+		lcd_text_wrap_utf8(2, 10, os_lang_str(LKEY_RECOVERED), C_OK, C_BG);
 		ui_wait_ack();
 	}
 }
@@ -831,7 +834,7 @@ void screen_run_recover(void)
 void screen_run_about(void)
 {
 	lcd_fill(C_BG);
-	lcd_line(2, 2, "ABOUT", C_LBL, C_BG);
+	lcd_utf8_str(2, 2, os_lang_str(LKEY_ABOUT), C_LBL, C_BG, 1);
 
 	esp_chip_info_t ci;
 	esp_chip_info(&ci);
@@ -840,28 +843,28 @@ void screen_run_about(void)
 	case CHIP_ESP32S3: model = "ESP32-S3"; break;
 	default: break;
 	}
-	char line[48];
-	snprintf(line, sizeof line, "Chip %s", model);
-	lcd_line(2, 22, line, C_FG, C_BG);
+	char line[64];
+	snprintf(line, sizeof line, os_lang_str(LKEY_CHIP), model);
+	lcd_utf8_str(2, 22, line, C_FG, C_BG, 1);
 
 	uint32_t flash = 0;
 	if (esp_flash_get_size(NULL, &flash) == ESP_OK)
-		snprintf(line, sizeof line, "Flash %d MB", (int)(flash >> 20));
+		snprintf(line, sizeof line, os_lang_str(LKEY_FLASH_MB), (int)(flash >> 20));
 	else
-		snprintf(line, sizeof line, "Flash unknown");
-	lcd_line(2, 36, line, C_FG, C_BG);
+		snprintf(line, sizeof line, "%s", os_lang_str(LKEY_FLASH_UNKNOWN));
+	lcd_utf8_str(2, 36, line, C_FG, C_BG, 1);
 
-	snprintf(line, sizeof line, "Cores %d", ci.cores);
-	lcd_line(2, 50, line, C_FG, C_BG);
+	snprintf(line, sizeof line, os_lang_str(LKEY_CORES), ci.cores);
+	lcd_utf8_str(2, 50, line, C_FG, C_BG, 1);
 
 	/* semantic version + git commit (from the app descriptor, so the
 	 * on-device screen can always be matched to the exact source build) */
-	snprintf(line, sizeof line, "Firmware " HARDID_FW_VERSION);
-	lcd_line(2, 64, line, C_FG, C_BG);
+	snprintf(line, sizeof line, "%s %s", os_lang_str(LKEY_FIRMWARE), HARDID_FW_VERSION);
+	lcd_utf8_str(2, 64, line, C_FG, C_BG, 1);
 
 	const esp_app_desc_t *ad = esp_app_get_description();
-	snprintf(line, sizeof line, "Build %s", ad->version);
-	lcd_line(2, 78, line, C_FG, C_BG);
+	snprintf(line, sizeof line, os_lang_str(LKEY_BUILD), ad->version);
+	lcd_utf8_str(2, 78, line, C_FG, C_BG, 1);
 
 	ui_wait_ack();
 }
@@ -872,18 +875,19 @@ static void screen_app_action(const os_app *app)
 {
 	for (;;) {
 		lcd_fill(C_BG);
-		lcd_line(2, 2, app->name, C_LBL, C_BG);
-		char line[48];
+		lcd_utf8_str(2, 2, app->name, C_LBL, C_BG, 1);
+		char line[56];
 		snprintf(line, sizeof line, "id %s coin %" PRIu32,
 		         app->app_id, app->coin_type);
-		lcd_line(2, 18, line, C_DIM, C_BG);
+		lcd_utf8_str(2, 18, line, C_DIM, C_BG, 1);
 		snprintf(line, sizeof line, "v%" PRIu32 " %s", app->version,
-		         app->is_core ? "CORE (preinstalled)" : "installed");
-		lcd_line(2, 32, line, C_DIM, C_BG);
+		         app->is_core ? os_lang_str(LKEY_CORE_PREINSTALLED)
+		                      : os_lang_str(LKEY_INSTALLED));
+		lcd_utf8_str(2, 32, line, C_DIM, C_BG, 1);
 
-		lcd_rect_text(15, 240, 225, 278, "SIGN", C_FG, C_BTN);
+		lcd_rect_text_utf8(15, 240, 225, 278, os_lang_str(LKEY_SIGN), C_FG, C_BTN);
 		if (!app->is_core)
-			lcd_rect_text(15, 288, 100, 318, "DELETE", C_FG, C_ERR);
+			lcd_rect_text_utf8(15, 288, 100, 318, os_lang_str(LKEY_DELETE), C_FG, C_ERR);
 		lcd_rect_text_utf8(140, 288, 225, 318, os_lang_str(LKEY_BACK), C_FG, C_BTN);
 
 		int px, py;
@@ -900,9 +904,9 @@ static void screen_app_action(const os_app *app)
 		}
 		if (!app->is_core && ui_pt_in(px, py, 15, 288, 100, 318)) {
 			lcd_fill(C_BG);
-			lcd_text_wrap(2, 10, "Delete this app?", C_WARN, C_BG);
-			lcd_rect_text(15, 250, 110, 300, "DELETE", C_FG, C_ERR);
-			lcd_rect_text(130, 250, 225, 300, "CANCEL", C_FG, C_BTN);
+			lcd_text_wrap_utf8(2, 10, os_lang_str(LKEY_DELETE_APP), C_WARN, C_BG);
+			lcd_rect_text_utf8(15, 250, 110, 300, os_lang_str(LKEY_DELETE), C_FG, C_ERR);
+			lcd_rect_text_utf8(130, 250, 225, 300, os_lang_str(LKEY_CANCEL), C_FG, C_BTN);
 			for (;;) {
 				int qx, qy;
 				ui_wait_press(&qx, &qy);
@@ -948,14 +952,15 @@ static void screen_app_install(void)
 		lcd_utf8_str(2, 2, os_lang_str(LKEY_INSTALL_APP), C_LBL, C_BG, 1);
 		lcd_utf8_str(2, 32, os_lang_str(LKEY_AVAILABLE_APP), C_LBL, C_BG, 1);
 		if (total == 0) {
-			lcd_text_wrap(2, 48, "All apps installed.", C_DIM, C_BG);
+			lcd_text_wrap_utf8(2, 48, os_lang_str(LKEY_ALL_INSTALLED), C_DIM, C_BG);
 		} else {
 			int y = 48;
 			for (size_t i = 0; i < total; i++) {
 				char line[48];
 				uint16_t fg = C_FG;
 				if (fido_avail && i == 0) {
-					snprintf(line, sizeof line, "FIDO (preinstalled)");
+					snprintf(line, sizeof line, "%s",
+					         os_lang_str(LKEY_FIDO_PREINSTALLED));
 					fg = C_OK;
 				} else {
 					const os_app *c = avail[i - (fido_avail ? 1 : 0)];
@@ -964,16 +969,16 @@ static void screen_app_install(void)
 				}
 				if (i == gsel) {
 					lcd_rect(0, y - 1, 240, y + 15, C_BTN);
-					lcd_line(2, y, line, C_FG, C_BTN);
+					lcd_utf8_str(2, y, line, C_FG, C_BTN, 1);
 				} else {
-					lcd_line(2, y, line, fg, C_BG);
+					lcd_utf8_str(2, y, line, fg, C_BG, 1);
 				}
 				y += 16;
 			}
 		}
 
 		lcd_rect_text(15, 288, 70, 318, "<", C_FG, C_BTN);
-		lcd_rect_text(80, 288, 160, 318, "OK", C_FG, C_BTN);
+		lcd_rect_text_utf8(80, 288, 160, 318, os_lang_str(LKEY_OK), C_FG, C_BTN);
 		lcd_rect_text(170, 288, 225, 318, ">", C_FG, C_BTN);
 
 		int px, py;
@@ -1003,18 +1008,18 @@ static void screen_app_install(void)
 					se->is_initialized(&initd);
 				if (!initd) {
 					lcd_fill(C_BG);
-					lcd_text_wrap(2, 40,
-					              "Initialize the wallet first.",
-					              C_ERR, C_BG);
+					lcd_text_wrap_utf8(2, 40,
+					                   os_lang_str(LKEY_INIT_WALLET_FIRST_SHORT),
+					                   C_ERR, C_BG);
 					ui_wait_ack();
 					continue;
 				}
-				if (ui_confirm("Install FIDO app?")) {
+				if (ui_confirm(os_lang_str(LKEY_INSTALL_FIDO))) {
 					os_fido_set_active(true);
 					lcd_fill(C_BG);
-					lcd_text_wrap(2, 40,
-					              "FIDO installed. Restart to boot into FIDO.",
-					              C_OK, C_BG);
+					lcd_text_wrap_utf8(2, 40,
+					                   os_lang_str(LKEY_FIDO_INSTALLED_RESTART),
+					                   C_OK, C_BG);
 					ui_wait_ack();
 				}
 				return;
@@ -1025,8 +1030,8 @@ static void screen_app_install(void)
 				 * wait for a FULL release and a cooldown so one press
 				 * can never cascade into installing several apps. */
 				lcd_fill(C_BG);
-				lcd_line(2, 2, "INSTALLED", C_OK, C_BG);
-				lcd_text_wrap(2, 30, pick->name, C_FG, C_BG);
+				lcd_utf8_str(2, 2, os_lang_str(LKEY_INSTALLED), C_OK, C_BG, 1);
+				lcd_text_wrap_utf8(2, 30, pick->name, C_FG, C_BG);
 				ui_wait_release(&rx, &ry);
 				vTaskDelay(pdMS_TO_TICKS(350));
 			}
@@ -1049,7 +1054,7 @@ void screen_run_apps(bool manage)
 	 * apps only — FIDO is not a signing app and must not appear here. */
 	lcd_fill(C_BG);
 	lcd_utf8_str(2, 2, os_lang_str(LKEY_APP_MARKET), C_LBL, C_BG, 1);
-	lcd_line(2, 16, "OK: manage  [+]: install", C_DIM, C_BG);
+	lcd_utf8_str(2, 16, os_lang_str(LKEY_OK_MANAGE), C_DIM, C_BG, 1);
 
 	const size_t per = 7;              /* rows on a 240x320 screen */
 	size_t gsel = 0;                   /* absolute selected row index */
@@ -1073,21 +1078,22 @@ void screen_run_apps(bool manage)
 		lcd_fill(C_BG);
 		lcd_utf8_str(2, 2, os_lang_str(LKEY_APP_MARKET), C_LBL, C_BG, 1);
 		char head[48];
-		snprintf(head, sizeof head, "page %zu/%zu", page + 1,
+		snprintf(head, sizeof head, os_lang_str(LKEY_PAGE), page + 1,
 		         pages > 0 ? pages : 1);
-		lcd_line(2, 16, head, C_DIM, C_BG);
+		lcd_utf8_str(2, 16, head, C_DIM, C_BG, 1);
 		lcd_utf8_str(2, 32, os_lang_str(LKEY_INSTALLED_APP), C_LBL, C_BG, 1);
 
 		size_t rows = 0;
 		int y = 48;
 		for (size_t i = page * per; i < total && i < (page + 1) * per; i++) {
-			char line[48];
+			char line[56];
 			uint16_t fg = C_FG;
 			/* app rows shift by one when the FIDO row is shown */
 			size_t appi = fido_installed ? (i - 1) : i;
 			if (fido_installed && i == 0) {
 				/* removable preinstalled app: FIDO (installed) */
-				snprintf(line, sizeof line, "FIDO [INSTALLED]");
+				snprintf(line, sizeof line, "%s",
+				         os_lang_str(LKEY_FIDO_INSTALLED_LIST));
 				fg = C_OK;
 			} else if (appi < n) {
 				const os_app *a = os_app_at(appi);
@@ -1099,26 +1105,27 @@ void screen_run_apps(bool manage)
 				         a->name, a->version);
 				fg = (a->state == OS_APP_SUSPENDED) ? C_ERR : C_FG;
 			} else {
-				snprintf(line, sizeof line, "+ INSTALL APP");
+				snprintf(line, sizeof line, "+ %s",
+				         os_lang_str(LKEY_INSTALL_APP));
 				fg = C_OK;
 			}
 			if (rows == sel) {
 				lcd_rect(0, y - 1, 240, y + 15, C_BTN);
-				lcd_line(2, y, line, C_FG, C_BTN);
+				lcd_utf8_str(2, y, line, C_FG, C_BTN, 1);
 			} else {
-				lcd_line(2, y, line, fg, C_BG);
+				lcd_utf8_str(2, y, line, fg, C_BG, 1);
 			}
 			y += 16;
 			rows++;
 		}
 
-		lcd_line(2, y + 4, "< > move cursor, OK select", C_DIM, C_BG);
+		lcd_utf8_str(2, y + 4, os_lang_str(LKEY_MOVE_SELECT), C_DIM, C_BG, 1);
 
 		/* bottom nav bar: < | OK | >. Left/right move the cursor across
 		 * apps AND the install row; OK opens the app action page (or the
 		 * installer). On the first row, < exits to the main menu. */
 		lcd_rect_text(15, 288, 70, 318, "<", C_FG, C_BTN);
-		lcd_rect_text(80, 288, 160, 318, "OK", C_FG, C_BTN);
+		lcd_rect_text_utf8(80, 288, 160, 318, os_lang_str(LKEY_OK), C_FG, C_BTN);
 		lcd_rect_text(170, 288, 225, 318, ">", C_FG, C_BTN);
 
 		int px, py;
@@ -1182,25 +1189,24 @@ void screen_fido_manage(void)
 
 	bool installed = os_fido_installed();
 	lcd_fill(C_BG);
-	lcd_line(2, 2, "FIDO APP", C_LBL, C_BG);
-	char st[40];
-	snprintf(st, sizeof st, "State: %s",
-	         installed ? "INSTALLED" : "DELETED");
-	lcd_line(2, 26, st, installed ? C_OK : C_ERR, C_BG);
+	lcd_utf8_str(2, 2, os_lang_str(LKEY_FIDO_APP), C_LBL, C_BG, 1);
+	char st[64];
+	snprintf(st, sizeof st, os_lang_str(LKEY_STATE),
+	         os_lang_str(installed ? LKEY_INSTALLED : LKEY_DELETED));
+	lcd_utf8_str(2, 26, st, installed ? C_OK : C_ERR, C_BG, 1);
 	if (!installed && !initd)
-		lcd_text_wrap(2, 50,
-		              "Initialize the wallet first: FIDO keys come from "
-		              "your seed, so FIDO needs it to work.",
-		              C_WARN, C_BG);
+		lcd_text_wrap_utf8(2, 50, os_lang_str(LKEY_INIT_WALLET_FIRST),
+		                   C_WARN, C_BG);
 	else
-		lcd_text_wrap(2, 50,
-		              installed
-		              ? "DELETE boots into wallet next power-on and wipes its credentials."
-		              : "ACTIVATE boots into FIDO serving next power-on.",
-		              C_DIM, C_BG);
+		lcd_text_wrap_utf8(2, 50,
+		                   installed
+		                   ? os_lang_str(LKEY_DELETE_EXPLAIN)
+		                   : os_lang_str(LKEY_ACTIVATE_EXPLAIN),
+		                   C_DIM, C_BG);
 	lcd_rect_text_utf8(15, 288, 70, 318, os_lang_str(LKEY_BACK), C_FG, C_BTN);
-	lcd_rect_text(80, 288, 160, 318, installed ? "DELETE" : "ACTIVATE",
-	              C_FG, installed ? C_ERR : (initd ? C_OK : C_DIM));
+	lcd_rect_text_utf8(80, 288, 160, 318,
+	                   os_lang_str(installed ? LKEY_DELETE : LKEY_ACTIVATE_FIDO),
+	                   C_FG, installed ? C_ERR : (initd ? C_OK : C_DIM));
 
 	for (;;) {
 		int px, py;
@@ -1214,30 +1220,30 @@ void screen_fido_manage(void)
 		if (ui_pt_in(px, py, 80, 288, 160, 318) &&
 		    ui_pt_in(rx, ry, 80, 288, 160, 318)) {
 			if (installed) {
-				if (ui_confirm("Delete FIDO app? Credentials are wiped.")) {
+				if (ui_confirm(os_lang_str(LKEY_DELETE_FIDO))) {
 					os_fido_wipe_credentials();
 					os_fido_set_active(false);
 					lcd_fill(C_BG);
-					lcd_text_wrap(2, 40,
-					              "FIDO deleted. Restart to boot into wallet.",
-					              C_OK, C_BG);
+					lcd_text_wrap_utf8(2, 40,
+					                   os_lang_str(LKEY_FIDO_DELETED),
+					                   C_OK, C_BG);
 					ui_wait_ack();
 				}
 			} else {
 				if (!initd) {
 					lcd_fill(C_BG);
-					lcd_text_wrap(2, 40,
-					              "Initialize the wallet first.",
-					              C_ERR, C_BG);
+					lcd_text_wrap_utf8(2, 40,
+					                   os_lang_str(LKEY_INIT_WALLET_FIRST_SHORT),
+					                   C_ERR, C_BG);
 					ui_wait_ack();
 					continue;
 				}
-				if (ui_confirm("Activate FIDO app?")) {
+				if (ui_confirm(os_lang_str(LKEY_ACTIVATE_FIDO))) {
 					os_fido_set_active(true);
 					lcd_fill(C_BG);
-					lcd_text_wrap(2, 40,
-					              "FIDO activated. Restart to boot into FIDO.",
-					              C_OK, C_BG);
+					lcd_text_wrap_utf8(2, 40,
+					                   os_lang_str(LKEY_FIDO_ACTIVATED),
+					                   C_OK, C_BG);
 					ui_wait_ack();
 				}
 			}
@@ -1253,9 +1259,6 @@ void screen_fido_manage(void)
 #define LOCK_TIMEOUTS_N 5
 static const uint32_t k_lock_timeouts[LOCK_TIMEOUTS_N] = {
 	30, 60, 300, 600, 0,   /* 0 = never auto-lock */
-};
-static const char *const k_lock_labels[LOCK_TIMEOUTS_N] = {
-	"30s", "1min", "5min", "10min", "Never",
 };
 
 /* Next auto-lock value (wrap-around); snaps unknown values to 5min. */
@@ -1282,10 +1285,18 @@ void screen_run_pin(void)
 	int sel = 0;   /* 0 = set/change PIN, 1 = auto-lock timeout */
 
 	for (;;) {
-		const char *lock_label = "5min";
+		const char *lock_label = os_lang_str(LKEY_LOCK_5MIN);
 		for (int i = 0; i < LOCK_TIMEOUTS_N; i++)
-			if (k_lock_timeouts[i] == lock_sec)
-				lock_label = k_lock_labels[i];
+			if (k_lock_timeouts[i] == lock_sec) {
+				switch (i) {
+				case 0: lock_label = os_lang_str(LKEY_LOCK_30S); break;
+				case 1: lock_label = os_lang_str(LKEY_LOCK_1MIN); break;
+				case 2: lock_label = os_lang_str(LKEY_LOCK_5MIN); break;
+				case 3: lock_label = os_lang_str(LKEY_LOCK_10MIN); break;
+				case 4: lock_label = os_lang_str(LKEY_LOCK_NEVER); break;
+				default: break;
+				}
+			}
 
 		lcd_fill(C_BG);
 		lcd_utf8_str(2, 2, os_lang_str(LKEY_PIN), C_LBL, C_BG, 1);
@@ -1313,7 +1324,7 @@ void screen_run_pin(void)
 		}
 
 		lcd_rect_text(15, 288, 70, 318, "<", C_FG, C_BTN);
-		lcd_rect_text(80, 288, 160, 318, "OK", C_FG, C_BTN);
+		lcd_rect_text_utf8(80, 288, 160, 318, os_lang_str(LKEY_OK), C_FG, C_BTN);
 		lcd_rect_text(170, 288, 225, 318, ">", C_FG, C_BTN);
 
 		int px, py;
@@ -1350,12 +1361,12 @@ void screen_run_pin(void)
 					int vr = se->verify_pin((const uint8_t *)old,
 					                        (size_t)n, &wait, &duress);
 					os_secure_bzero(old, sizeof(old));
-					if (vr != SE_OK) {
-						lcd_fill(C_BG);
-						lcd_text_wrap(2, 40, "Wrong PIN.", C_ERR, C_BG);
-						ui_wait_ack();
-						continue;
-					}
+				if (vr != SE_OK) {
+					lcd_fill(C_BG);
+					lcd_text_wrap_utf8(2, 40, os_lang_str(LKEY_WRONG_PIN), C_ERR, C_BG);
+					ui_wait_ack();
+					continue;
+				}
 				}
 				char pin[OS_PIN_MAX_LEN + 1];
 				int len = ui_set_pin(pin, sizeof(pin));
@@ -1365,7 +1376,7 @@ void screen_run_pin(void)
 				os_secure_bzero(pin, sizeof(pin));
 				pin_set = true;
 				lcd_fill(C_BG);
-				lcd_text_wrap(2, 40, "PIN updated.", C_OK, C_BG);
+				lcd_text_wrap_utf8(2, 40, os_lang_str(LKEY_PIN_UPDATED), C_OK, C_BG);
 				ui_wait_ack();
 			} else {
 				/* cycle the idle auto-lock timeout */
@@ -1398,7 +1409,7 @@ void screen_run_language(void)
 			}
 		}
 		lcd_rect_text(15, 288, 70, 318, "<", C_FG, C_BTN);
-		lcd_rect_text(80, 288, 160, 318, "OK", C_FG, C_BTN);
+		lcd_rect_text_utf8(80, 288, 160, 318, os_lang_str(LKEY_OK), C_FG, C_BTN);
 		lcd_rect_text(170, 288, 225, 318, ">", C_FG, C_BTN);
 
 		int px, py;

@@ -455,6 +455,46 @@ int lcd_text_wrap(int x, int y, const char *s, uint16_t fg, uint16_t bg)
 	return cur;
 }
 
+int lcd_text_wrap_utf8(int x, int y, const char *s, uint16_t fg, uint16_t bg)
+{
+	if (!s) return y;
+	int cur = y;
+	int maxw = LCD_H_RES - x;
+	const char *p = s;
+	char line[64];
+	while (*p && cur < LCD_V_RES) {
+		/* greedily fill one line: track pixel width, break at spaces */
+		int n = 0;
+		int w = 0;
+		int last_sp = -1;   /* index of last space before overflow */
+		while (p[n]) {
+			uint32_t cp;
+			int nb = utf8_decode(p + n, &cp);
+			if (nb <= 0) nb = 1;
+			int cw = (cp < 0x80) ? (F8_W + 2) : (16 + 2);
+			if (n > 0 && w + cw > maxw) break;
+			if (n + nb >= (int)sizeof line) break;
+			if (cp == ' ') last_sp = n;
+			for (int k = 0; k < nb; k++) line[n + k] = p[n + k];
+			n += nb;
+			w += cw;
+		}
+		/* prefer a space break: keep that space, drop the rest */
+		int advance;
+		if (last_sp >= 0 && last_sp < n - 1) {
+			line[last_sp] = '\0';
+			advance = last_sp + 1;
+		} else {
+			line[n] = '\0';
+			advance = n;
+		}
+		lcd_utf8_str(x, cur, line, fg, bg, 1);
+		cur += 18;   /* 16px glyph + 2px line spacing */
+		p += advance;
+	}
+	return cur;
+}
+
 void os_board_display_home(void)
 {
 	if (!s_panel) { lcd_init(); }

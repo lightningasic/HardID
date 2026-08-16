@@ -1,33 +1,27 @@
-/*
- * HardID — UI language / localization
- * Copyright (C) 2026 LightningASIC / HardID contributors
- * License: Apache License 2.0
+/* HardID — multi-language strings. Copyright (C) 2026 LightningASIC.
+ * License: Apache License 2.0.
  *
- * The device UI is multi-language (English / 中文 / 日本語 / 한국어). The
- * chosen language is persisted in its own NVS namespace ("lang"), default
- * English. Menu labels are looked up via os_lang_str(); only the main menu
- * and the language names are localized for now — the rest of the UI stays
- * English until it is progressively translated.
+ * Every user-facing string lives here so the whole UI can render in any of
+ * the four languages. Ordering must stay in sync with the s_labels table in
+ * lang.c (see static_assert there). Keys never change once shipped — add,
+ * don't renumber.
  */
 
-#ifndef HARDID_LANG_H
-#define HARDID_LANG_H
+#ifndef HARDID_UI_LANG_H
+#define HARDID_UI_LANG_H
 
 #include <stdbool.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 typedef enum {
 	LANG_EN = 0,
-	LANG_ZH = 1,
-	LANG_JA = 2,
-	LANG_KO = 3,
-	LANG_COUNT = 4,
+	LANG_ZH,
+	LANG_JA,
+	LANG_KO,
+	LANG_COUNT,
 } lang_id_t;
 
 typedef enum {
+	/* main menu */
 	LKEY_INITIALIZE = 0,
 	LKEY_RECOVER,
 	LKEY_SIGN,
@@ -38,10 +32,61 @@ typedef enum {
 	LKEY_ABOUT,
 	LKEY_FACTORY_RESET,
 	LKEY_LANGUAGE,
+	/* app market */
 	LKEY_INSTALLED_APP,
 	LKEY_AVAILABLE_APP,
 	LKEY_INSTALL_APP,
+	LKEY_OK,
+	LKEY_OK_OPEN,
+	LKEY_DEL,
+	LKEY_SPC,
+	LKEY_YES,
+	LKEY_NO,
+	LKEY_PIN_TOO_SHORT,
+	LKEY_PIN_MISMATCH,
+	LKEY_ENTER_WORD,
+	LKEY_ENTER_NEXT_WORD,
+	LKEY_WORD_N,
+	LKEY_NEED_WORDS_DEV,
+	LKEY_NEED_WORDS,
+	LKEY_FIDO_SERVING,
+	LKEY_FIDO_PLUG_BROWSER,
+	LKEY_REGISTER_NEW_KEY,
+	LKEY_CONFIRM_LOGIN,
+	LKEY_REGISTRATION_OK,
+	LKEY_LOGIN_OK,
+	LKEY_DENIED,
+	LKEY_UNKNOWN_RP,
+	LKEY_FIDO_TASK_ERR,
+	LKEY_SESSION_ENDED,
+	LKEY_HOST_LINK_SERVING,
+	LKEY_WAITING_FRAMES,
+	LKEY_DELETE,
+	LKEY_CANCEL,
+	LKEY_DELETE_APP,
 	LKEY_BACK,
+	LKEY_ALL_INSTALLED,
+	LKEY_FIDO_PREINSTALLED,
+	LKEY_INSTALL_FIDO,
+	LKEY_FIDO_INSTALLED_RESTART,
+	LKEY_INSTALLED,
+	LKEY_DELETED,
+	LKEY_OK_MANAGE,
+	LKEY_PAGE,
+	LKEY_FIDO_INSTALLED_LIST,
+	LKEY_MOVE_SELECT,
+	LKEY_FIDO_APP,
+	LKEY_STATE,
+	LKEY_INIT_WALLET_FIRST,
+	LKEY_INIT_WALLET_FIRST_SHORT,
+	LKEY_DELETE_EXPLAIN,
+	LKEY_ACTIVATE_EXPLAIN,
+	LKEY_DELETE_FIDO,
+	LKEY_FIDO_DELETED,
+	LKEY_ACTIVATE_FIDO,
+	LKEY_FIDO_ACTIVATED,
+	LKEY_CORE_PREINSTALLED,
+	/* PIN */
 	LKEY_PIN_SET,
 	LKEY_NO_PIN,
 	LKEY_SET_PIN,
@@ -49,21 +94,104 @@ typedef enum {
 	LKEY_AUTO_LOCK,
 	LKEY_ENTER_PIN,
 	LKEY_CONFIRM_PIN,
+	LKEY_WRONG_PIN,
+	LKEY_PIN_UPDATED,
+	LKEY_WALLET_LOCKED,
+	LKEY_LOCK_NEVER,
+	LKEY_LOCK_30S,
+	LKEY_LOCK_1MIN,
+	LKEY_LOCK_5MIN,
+	LKEY_LOCK_10MIN,
+	LKEY_SET_PIN_PROMPT,
+	/* sign flow */
+	LKEY_NOT_INITIALIZED,
+	LKEY_NO_APP,
+	LKEY_CONFIRM,
+	LKEY_UNKNOWN_CALL,
+	LKEY_NOT_PARSEABLE,
+	LKEY_TRANSFER,
+	LKEY_TOKEN_TRANSFER,
+	LKEY_APPROVE,
+	LKEY_CONTRACT,
+	LKEY_SIGN_QUESTION,
+	LKEY_UNLOCK_TO_SIGN,
+	LKEY_SIGNATURE,
+	LKEY_SIGNED_INPUTS,
+	LKEY_REJECTED,
+	LKEY_SESSION_LOCKED,
+	LKEY_SIGN_UNAVAILABLE,
+	LKEY_WRONG_PIN_WIPE,
+	/* factory reset */
+	LKEY_TYPE_RESET,
+	LKEY_TYPE_RESET_AGAIN,
+	LKEY_TYPE_RESET_HINT,
+	LKEY_NOT_CONFIRMED,
+	LKEY_NOT_CONFIRMED_TWICE,
+	LKEY_DEVICE_WIPED,
+	/* seed warning + initialize */
+	LKEY_WARNING,
+	LKEY_I_UNDERSTAND,
+	LKEY_SEED_WARNING_1,
+	LKEY_SEED_WARNING_2,
+	LKEY_WORD,
+	LKEY_NEXT,
+	LKEY_ENABLE_PHRASE,
+	LKEY_BRAIN_PHRASE,
+	LKEY_CONFIRM_BRAIN_PHRASE,
+	LKEY_PHRASE_MISMATCH,
+	LKEY_ENTER_AGAIN,
+	LKEY_ALREADY_INIT,
+	LKEY_SE_STATUS_ERR,
+	LKEY_SE_NO_PASSPHRASE,
+	LKEY_PHRASE_LEN,
+	LKEY_WORDS_12,
+	LKEY_WORDS_24,
+	LKEY_WORDS_4,
+	LKEY_ENTROPY,
+	LKEY_ENTROPY_1,
+	LKEY_ENTROPY_2,
+	LKEY_ENTROPY_3,
+	LKEY_ENTROPY_4,
+	LKEY_ENTROPY_5,
+	LKEY_SKIP,
+	LKEY_KEEP_HOLDING,
+	LKEY_SEED_FAILED,
+	LKEY_RELEASE,
+	LKEY_VERIFY,
+	LKEY_CONFIRM_PHRASE,
+	LKEY_PHRASE_MISMATCH_2,
+	LKEY_REVIEW,
+	LKEY_RETRY,
+	LKEY_ABORT,
+	LKEY_CANCELLED,
+	LKEY_INIT_OK,
+	LKEY_STORE_FAILED,
+	LKEY_ALREADY_INIT_2,
+	LKEY_RECOVER_PHRASE,
+	LKEY_INVALID_MNEMONIC,
+	LKEY_RECOVERED,
+	/* about */
+	LKEY_CHIP,
+	LKEY_FLASH_MB,
+	LKEY_FLASH_UNKNOWN,
+	LKEY_CORES,
+	LKEY_FIRMWARE,
+	LKEY_BUILD,
 	LKEY_COUNT,
 } lang_key_t;
 
-/* Current UI language, persisted in NVS (default English). */
+/* Current language (persisted in NVS). */
 lang_id_t os_lang_get(void);
-void os_lang_set(lang_id_t lang);
+void os_lang_set(lang_id_t id);
+void os_lang_load(void);
 
-/* Localized UTF-8 label for a menu key in the current language. */
+/* Localized string for a key in the current language. */
 const char *os_lang_str(lang_key_t key);
 
-/* The language's own name (for the language selection screen). */
-const char *os_lang_name(lang_id_t lang);
+/* A language's own name, in its own language ("中文", "English", ...). */
+const char *os_lang_name(lang_id_t id);
 
-#ifdef __cplusplus
-}
+/* Rendered width in pixels of a localized string at the menu scale (2x). */
+int os_lang_width(lang_key_t key);
+
 #endif
-
-#endif /* HARDID_LANG_H */

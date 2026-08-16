@@ -69,6 +69,11 @@ int lcd_utf8_width(const char *s, int scale);
  * (x,y). Returns the y just below the last drawn line. */
 int lcd_text_wrap(int x, int y, const char *s, uint16_t fg, uint16_t bg);
 
+/* UTF-8 word-wrap: breaks on spaces when possible, on a CJK-capable width
+ * otherwise, and renders each line at 1x scale (16px lines, +2 spacing).
+ * Returns the y just past the last rendered line. */
+int lcd_text_wrap_utf8(int x, int y, const char *s, uint16_t fg, uint16_t bg);
+
 /* Fill a rectangle with a solid 16-bit RGB565 color. Clips to panel. */
 void lcd_rect(int x0, int y0, int x1, int y1, uint16_t color);
 

@@ -10,6 +10,7 @@
 #include "display.h"
 #include "touch.h"
 #include "inter.h"
+#include "lang.h"
 
 bool ui_pt_in(int x, int y, int x0, int y0, int x1, int y1)
 {
@@ -73,7 +74,7 @@ void ui_wait_ack(void)
 {
 	/* Explicit BACK button instead of an invisible "tap anywhere": every
 	 * info screen gets a consistent, visible way back to the caller. */
-	lcd_rect_text(60, 288, 180, 318, "BACK", C_FG, C_BTN);
+	lcd_rect_text_utf8(60, 288, 180, 318, os_lang_str(LKEY_BACK), C_FG, C_BTN);
 	int x, y;
 	for (;;) {
 		ui_wait_press(&x, &y);

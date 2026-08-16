@@ -38,6 +38,7 @@
 #include "keypad.h"
 #include "screen.h"
 #include "touch.h"
+#include "lang.h"
 
 void screen_run_link_host(void)
 {
@@ -51,24 +52,24 @@ void screen_run_link_host(void)
 		/* require a successful PIN unlock before serving any request */
 		char pin[OS_PIN_MAX_LEN + 1];
 		int n = ui_enter_pin(pin, sizeof(pin));
-		if (n < 0) { lcd_text_wrap(2, 80, "cancelled", C_ERR, C_BG); return; }
+		if (n < 0) { lcd_text_wrap_utf8(2, 80, os_lang_str(LKEY_CANCELLED), C_ERR, C_BG); return; }
 		uint32_t wait; bool duress;
 		int vr = se->verify_pin((const uint8_t *)pin, (size_t)n, &wait, &duress);
 		os_secure_bzero(pin, sizeof(pin));
 		if (vr != SE_OK) {
 			lcd_fill(C_BG);
-			lcd_text_wrap(2, 10, "wrong PIN", C_ERR, C_BG);
+			lcd_text_wrap_utf8(2, 10, os_lang_str(LKEY_WRONG_PIN), C_ERR, C_BG);
 			ui_wait_ack();
 			return;
 		}
 	}
 
 	lcd_fill(C_BG);
-	lcd_line(2, 2, "Host link serving", C_OK, C_BG);
-	lcd_line(2, 14, "waiting for frames", C_LBL, C_BG);
+	lcd_utf8_str(2, 2, os_lang_str(LKEY_HOST_LINK_SERVING), C_OK, C_BG, 1);
+	lcd_utf8_str(2, 14, os_lang_str(LKEY_WAITING_FRAMES), C_LBL, C_BG, 1);
 	/* explicit BACK button to leave the session — the hint line no
 	 * longer hangs forever and stray taps do not cancel it */
-	lcd_rect_text(60, 288, 180, 318, "BACK", C_FG, C_BTN);
+	lcd_rect_text_utf8(60, 288, 180, 318, os_lang_str(LKEY_BACK), C_FG, C_BTN);
 
 	/* Own the CDC carrier: pause the dev touch injector so it cannot
 	 * steal linkproto bytes, and release it when the session ends. */
@@ -100,9 +101,9 @@ void screen_run_link_host(void)
 				 * own full-screen intent + Yes/No, so restore the waiting
 				 * view (never leave a stale confirm up) */
 				lcd_fill(C_BG);
-				lcd_line(2, 2, "Host link serving", C_OK, C_BG);
-				lcd_line(2, 14, "waiting for frames", C_LBL, C_BG);
-				lcd_rect_text(60, 288, 180, 318, "BACK", C_FG, C_BTN);
+				lcd_utf8_str(2, 2, os_lang_str(LKEY_HOST_LINK_SERVING), C_OK, C_BG, 1);
+				lcd_utf8_str(2, 14, os_lang_str(LKEY_WAITING_FRAMES), C_LBL, C_BG, 1);
+				lcd_rect_text_utf8(60, 288, 180, 318, os_lang_str(LKEY_BACK), C_FG, C_BTN);
 			} else if (rxlen >= (int)sizeof(rxbuf)) {
 				rxlen = 0;   /* overrun/dropped sync: reset */
 			}
@@ -113,7 +114,7 @@ void screen_run_link_host(void)
 		}
 	}
 	touch_inject_set_busy(false);
-	lcd_line(2, 40, "session ended", C_DIM, C_BG);
+	lcd_utf8_str(2, 40, os_lang_str(LKEY_SESSION_ENDED), C_DIM, C_BG, 1);
 	ui_wait_ack();
 	return;
 }

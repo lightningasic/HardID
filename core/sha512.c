@@ -164,6 +164,9 @@ void os_hmac_sha512_final(os_hmac_sha512_ctx *ctx, uint8_t *out64)
 	os_sha512_update(&outer, inner, 64);
 	os_sha512_final(&outer, out64);
 	os_secure_bzero(inner, 64);
+	/* ctx holds key-derived pad states; wipe after final (BIP32 master
+	 * chain code / PBKDF2 password pads must not linger on the stack) */
+	os_secure_bzero(ctx->_opaque, sizeof ctx->_opaque);
 }
 
 void os_hmac_sha512(const uint8_t *key, size_t klen,

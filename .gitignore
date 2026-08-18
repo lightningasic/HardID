@@ -8,3 +8,4 @@ fuzz_parsers
 fuzz/fuzz_parsers
 tests/adv_*
 !tests/adv_*.c
+fuzz/fuzz_full

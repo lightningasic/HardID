@@ -10,6 +10,7 @@
 #include "bip39_wordlist.h"
 #include "sha512.h"
 #include "sha256.h"
+#include "secure_zero.h"
 #include <string.h>
 
 int os_bip39_word_index(const char *word)
@@ -203,8 +204,12 @@ size_t os_bip39_mnemonic_to_entropy(const char *mnemonic,
 	uint8_t cs_stream = stream[ent_len];
 	uint8_t cs_hash = hash[0];
 	uint8_t mask = (uint8_t)(0xFF << (8 - cs_bits));
-	if ((cs_stream & mask) != (cs_hash & mask))
+	os_secure_bzero(stream, sizeof stream);
+	os_secure_bzero(hash, sizeof hash);
+	if ((cs_stream & mask) != (cs_hash & mask)) {
+		os_secure_bzero(entropy, ent_len);   /* don't leak unverified bytes */
 		return 0;
+	}
 	return ent_len;
 }
 
@@ -224,4 +229,5 @@ void os_bip39_mnemonic_to_seed(const char *mnemonic, const char *passphrase,
 	}
 	os_pbkdf2_sha512((const uint8_t *)mnemonic, strlen(mnemonic),
 	                 (const uint8_t *)salt, sl, 2048, seed64, 64);
+	os_secure_bzero(salt, sizeof salt);   /* salt holds the passphrase */
 }

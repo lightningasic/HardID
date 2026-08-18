@@ -154,8 +154,11 @@ int os_bip32_from_seed(const uint8_t *seed, size_t seed_len, os_hdnode *node)
 	node->child_num = 0;
 	node->has_priv = true;
 	os_secure_bzero(I, sizeof I);
-	if (os_secp256k1_pubkey(node->priv, node->pub) != 0)
+	if (os_secp256k1_pubkey(node->priv, node->pub) != 0) {
+		os_secure_bzero(node->priv, 32);
+		node->has_priv = false;
 		return -1;
+	}
 	return 0;
 }
 
@@ -314,5 +317,7 @@ size_t os_bip32_serialize(const os_hdnode *node, bool private,
 	} else {
 		memcpy(data + 45, node->pub, 33);
 	}
-	return os_base58_encode_check(data, 78, out, outmax);
+	size_t r = os_base58_encode_check(data, 78, out, outmax);
+	os_secure_bzero(data, sizeof data);   /* xprv path carries priv */
+	return r;
 }

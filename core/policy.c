@@ -54,7 +54,12 @@ void os_policy_schedule_change(os_policy *p, uint32_t now,
 	 * cool-down elapses. Never touches per_tx_limit/window_limit here. */
 	p->pending_per_tx = new_per_tx;
 	p->pending_window_limit = new_window_limit;
-	p->activate_after = now + OS_POLICY_COOLDOWN_S;
+	/* saturate against uint32 now-wrap (mirrors pin.c lock_until): a
+	 * wrapped activate_after would land in the past and let the next
+	 * authorize() activate the new limits immediately */
+	p->activate_after =
+		(OS_POLICY_COOLDOWN_S > 0xFFFFFFFFu - now) ? 0xFFFFFFFFu
+		                                          : now + OS_POLICY_COOLDOWN_S;
 	os_policy_persist(p);
 }
 

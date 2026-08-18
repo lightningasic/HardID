@@ -323,13 +323,27 @@ int os_clearsign_parse_evm(const uint8_t *raw, size_t len, os_tx_intent *o)
 	if (rlp_read(&body, &val) != 0) return -1;
 	if (rlp_read(&body, &dat) != 0) return -1;
 
-	if (rlp_u64(&val, &o->amount) != 0) return -1;
+	/* Native value: a >uint64 amount (>= ~18.45 ETH in wei) must not fail
+	 * the whole parse — the sighash path signs the raw bytes regardless.
+	 * Saturate the numeric field and render "MAX" so the confirm screen
+	 * stays honest instead of truncating to a small-looking number. */
+	int amount_saturated = 0;
+	if (val.is_list) return -1;
+	if (val.len > 8) {
+		o->amount = UINT64_MAX;
+		amount_saturated = 1;
+	} else if (rlp_u64(&val, &o->amount) != 0) {
+		return -1;
+	}
 
 	/* Native value in decimal coin units (wei -> "0.001"). ERC20 paths
 	 * below overwrite amount_token with the raw token units; the confirm
 	 * screen renders token kinds WITHOUT the native symbol. */
-	os_fmt_coin_amount(o->amount_token, sizeof o->amount_token,
-	                   o->amount, 18);
+	if (amount_saturated)
+		snprintf(o->amount_token, sizeof o->amount_token, "MAX");
+	else
+		os_fmt_coin_amount(o->amount_token, sizeof o->amount_token,
+		                   o->amount, 18);
 
 	if (to.len == 20) {
 		to_hex0x(to.ptr, o->to);

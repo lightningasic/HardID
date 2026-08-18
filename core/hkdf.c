@@ -151,8 +151,8 @@ void os_hmac_sha256_init(os_hmac_sha256_ctx_storage *ctx,
 	sha256_update(&h->inner, k_ipad, 64);
 	sha256_init(&h->outer);
 	sha256_update(&h->outer, k_opad, 64);
-	memset(k_ipad, 0, 64);
-	memset(k_opad, 0, 64);
+	os_secure_bzero(k_ipad, 64);   /* key-derived pads: memset could be elided */
+	os_secure_bzero(k_opad, 64);
 	os_secure_bzero(key32, 32);
 }
 
@@ -172,6 +172,9 @@ void os_hmac_sha256_final(os_hmac_sha256_ctx_storage *ctx, uint8_t *out32)
 	sha256_update(&outer, inner, 32);
 	sha256_final(&outer, out32);
 	os_secure_bzero(inner, 32);
+	/* the ctx holds key-derived pad states; wipe after final so one-shot
+	 * stack temporaries do not leave key material behind */
+	os_secure_bzero(ctx->_opaque, sizeof ctx->_opaque);
 }
 
 void os_hmac_sha256(const uint8_t *key, size_t key_len,

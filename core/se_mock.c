@@ -234,12 +234,12 @@ static int mock_set_lock_timeout(uint32_t seconds)
 static int mock_wipe(void)
 {
 	mock_seed_stored = 0;
-	memset(mock_seed, 0, sizeof(mock_seed));
-	memset(mock_session, 0, sizeof(mock_session));
+	os_secure_bzero(mock_seed, sizeof(mock_seed));
+	os_secure_bzero(mock_session, sizeof(mock_session));
 	mock_session_active = 0;
 	mock_counter = 0;
 	mock_rng_seq = 1;
-	memset(mock_pin, 0, sizeof(mock_pin));
+	os_secure_bzero(mock_pin, sizeof(mock_pin));
 	mock_pin_len = 0;
 	mock_unlocked = false;
 	mock_fido_epoch = 0;
@@ -271,6 +271,7 @@ static int mock_derive_session(const uint8_t *passphrase, size_t len)
 	os_pbkdf2_sha512(mock_seed, sizeof(mock_seed),
 	                 (const uint8_t *)salt, sl, 2048,
 	                 mock_session, sizeof(mock_session));
+	os_secure_bzero(salt, sizeof salt);   /* salt holds the passphrase */
 	mock_session_active = 1;
 	return SE_OK;
 }
@@ -390,8 +391,10 @@ static int mock_fido_cred_sign(const uint8_t credid[FIDO_CREDID_LEN],
 
 	uint8_t tag[16];
 	mock_fido_tag(rp_hash32, epoch, idx, tag);
-	if (!os_consttime_eq(tag, credid + 5, 16))
+	if (!os_consttime_eq(tag, credid + 5, 16)) {
+		os_secure_bzero(tag, sizeof tag);
 		return SE_ERR_AUTH;  /* tampered credID / wrong RP — never sign */
+	}
 	os_secure_bzero(tag, sizeof tag);
 
 	uint8_t priv[32];

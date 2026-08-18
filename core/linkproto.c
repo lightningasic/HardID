@@ -31,12 +31,13 @@ static int frame(uint8_t type, uint16_t seq, int32_t rc,
 {
 	/* Replies carry their rc as a 4-byte prefix inside the payload so the
 	 * frame layout is identical for both directions (payload always begins
-	 * at HD_LINK_HDR_LEN). */
-	uint8_t rp[4 + 512];
+	 * at HD_LINK_HDR_LEN). Sized for the largest SIGN reply (rc + sig_count
+	 * + OS_PSBT_MAX_INPUTS×65), which HD_LINK_MAX_PAYLOAD accommodates. */
+	uint8_t rp[4 + HD_LINK_MAX_PAYLOAD];
 	size_t use = 0;
 	if (with_rc) {
-		if (HD_LINK_HDR_LEN + 4u + plen + 2u > sizeof rp)
-			return -1;
+		if (4u + plen > sizeof rp)
+			return -1;   /* rc prefix + payload must fit the staging buffer */
 		rp[0] = (uint8_t)((uint32_t)rc >> 24);
 		rp[1] = (uint8_t)(rc >> 16);
 		rp[2] = (uint8_t)(rc >> 8);

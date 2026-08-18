@@ -12,7 +12,7 @@ static uint8_t se_bytes[32];
 uint32_t os_rng_hw_read_status(void) { return 1; }
 uint32_t os_rng_hw_read_data(void) { return seq++ * 2654435761u; }
 void os_rng_hw_recover(void) {}
-void os_rng_fatal(void) { printf("unexpected fatal\n"); }
+void os_rng_fatal(void) { printf("unexpected fatal\n"); for(;;){} }
 int os_seed_se_trng(uint8_t *buf, size_t len)
 {
 	memcpy(buf, se_bytes, len < 32 ? len : 32);

@@ -35,5 +35,25 @@ int main(void)
 		printf("FAIL reply\n"); return 1;
 	}
 	printf("reply roundtrip OK\n");
+
+	/* round-29 regression: the largest SIGN reply (4-byte sig_count +
+	 * OS_PSBT_MAX_INPUTS×65) must frame — the old staging buffer
+	 * (4+512) rejected replies for ≥8-input BTC PSBTs. */
+	{
+		uint8_t big[4 + 16 * 65];   /* 4 + OS_PSBT_MAX_INPUTS×65 = 1044 */
+		memset(big, 0x5A, sizeof big);
+		memset(frm, 0, sizeof frm);
+		int bn = hd_link_frame_reply(HD_REPLY_OK, 9, 0, big, sizeof big,
+		                             frm, sizeof frm);
+		if (bn <= 0) { printf("FAIL big reply framing (16-input PSBT)\n"); return 1; }
+		/* reply payload = rc(4 BE) || original payload */
+		if (hd_link_parse(frm, (size_t)bn, &type, &seq, &pl, &plen) != 0 ||
+		    plen != 4 + sizeof big || pl[0] != 0 || pl[1] != 0 ||
+		    pl[2] != 0 || pl[3] != 0 ||
+		    memcmp(pl + 4, big, sizeof big) != 0) {
+			printf("FAIL big reply roundtrip\n"); return 1;
+		}
+		printf("big reply (1044B payload) roundtrip OK\n");
+	}
 	return 0;
 }

@@ -54,8 +54,8 @@ static void stage_tx(ctaphid_t *h, uint8_t cmd, uint32_t target,
 	h->cid_target = target;
 	if (len > sizeof h->tx_buf)
 		len = sizeof h->tx_buf;
-	if (data != NULL)
-		memcpy(h->tx_buf, data, len);
+	if (data != NULL && data != h->tx_buf)
+		memcpy(h->tx_buf, data, len);   /* CBOR dispatch stages in place */
 	h->tx_len = len;
 	h->tx_sent = 0;
 	h->tx_seq = 0;
@@ -129,6 +129,26 @@ static void dispatch_message(ctaphid_t *h)
 		/* lock released immediately (no session semantics) */
 		stage_tx(h, CTAPHID_LOCK, h->cid, NULL, 0);
 		return;
+	case CTAPHID_MSG:
+		/* U2F/CTAP1 APDU. We are CTAP2-only, but Chrome probes U2F when a
+		 * RP's allow/exclude lists carry legacy U2F credentials (GitHub):
+		 * it expects a well-formed U2F status word, not a framing error —
+		 * CTAPHID_ERROR leaves its state machine retrying the probe and
+		 * the real CBOR request never arrives. A wired msg_dispatch
+		 * answers VERSION / authenticate probes with proper APDU status
+		 * words so the host falls through to CTAP2 CBOR. */
+		if (h->msg_dispatch != NULL) {
+			uint8_t *out = h->tx_buf;
+			size_t cap = sizeof h->tx_buf;
+			size_t olen = 0;
+			h->msg_dispatch(h->rx_buf, h->rx_len, out, cap, &olen);
+			if (olen > cap)
+				olen = cap;
+			stage_tx(h, CTAPHID_MSG, h->cid, h->tx_buf, (uint16_t)olen);
+		} else {
+			stage_error(h, h->cid, CTAP1_ERR_INVALID_COMMAND);
+		}
+		return;
 	case CTAPHID_CBOR:
 		if (h->dispatch != NULL) {
 			/* response message: status byte, then CBOR on success */
@@ -180,16 +200,20 @@ int ctaphid_feed(ctaphid_t *h, const uint8_t *pkt,
 			while (h->cid == CTAPHID_BROADCAST_CID || h->cid == 0)
 				h->cid++;
 			h->seed = h->cid;
-			/* 17-byte response: nonce(8) || cid(4) || proto(1) ||
-			 * major(1) || minor(1) || build(1) || caps(1) */
-			uint8_t resp[17];
-			memcpy(resp, pkt + CTAPHID_INIT_HEADER, 8);
-			put_u32(resp + 8, h->cid);
-			resp[12] = CTAPHID_PROTOCOL_VERSION;
-			resp[13] = 0;
-			resp[14] = 0;
-			resp[15] = 0;
-			resp[16] = CTAPHID_CAP_CBOR;
+		/* 17-byte response: nonce(8) || cid(4) || proto(1) ||
+		 * major(1) || minor(1) || build(1) || caps(1) */
+		uint8_t resp[17];
+		memcpy(resp, pkt + CTAPHID_INIT_HEADER, 8);
+		put_u32(resp + 8, h->cid);
+		resp[12] = CTAPHID_PROTOCOL_VERSION;
+		resp[13] = 0;
+		resp[14] = 0;
+		resp[15] = 0;
+		/* caps: WINK (acked) | CBOR | NMSG. CAP_NMSG tells hosts this is
+		 * a CTAP2-only device (CTAP2 §11.2.4): without it Chrome probes
+		 * U2F via CTAPHID_MSG, gets INVALID_COMMAND, and retries the
+		 * probe forever instead of falling through to CBOR. */
+		resp[16] = CTAPHID_CAP_WINK | CTAPHID_CAP_CBOR | CTAPHID_CAP_NMSG;
 			stage_tx(h, CTAPHID_INIT, CTAPHID_BROADCAST_CID,
 			         resp, sizeof resp);
 			return emit_tx(h, out, max_out);

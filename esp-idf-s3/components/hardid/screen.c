@@ -14,6 +14,7 @@
 #include "esp_chip_info.h"
 #include "esp_flash.h"
 #include "esp_app_desc.h"
+#include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -883,7 +884,7 @@ static void screen_app_action(const os_app *app)
 		snprintf(line, sizeof line, "v%" PRIu32 " %s", app->version,
 		         app->is_core ? os_lang_str(LKEY_CORE_PREINSTALLED)
 		                      : os_lang_str(LKEY_INSTALLED));
-		lcd_utf8_str(2, 32, line, C_DIM, C_BG, 1);
+		lcd_utf8_str(2, 36, line, C_DIM, C_BG, 1);
 
 		lcd_rect_text_utf8(15, 240, 225, 278, os_lang_str(LKEY_SIGN), C_FG, C_BTN);
 		if (!app->is_core)

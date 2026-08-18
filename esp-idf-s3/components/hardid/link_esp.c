@@ -66,7 +66,7 @@ void screen_run_link_host(void)
 
 	lcd_fill(C_BG);
 	lcd_utf8_str(2, 2, os_lang_str(LKEY_HOST_LINK_SERVING), C_OK, C_BG, 1);
-	lcd_utf8_str(2, 14, os_lang_str(LKEY_WAITING_FRAMES), C_LBL, C_BG, 1);
+	lcd_utf8_str(2, 20, os_lang_str(LKEY_WAITING_FRAMES), C_LBL, C_BG, 1);
 	/* explicit BACK button to leave the session — the hint line no
 	 * longer hangs forever and stray taps do not cancel it */
 	lcd_rect_text_utf8(60, 288, 180, 318, os_lang_str(LKEY_BACK), C_FG, C_BTN);
@@ -102,7 +102,7 @@ void screen_run_link_host(void)
 				 * view (never leave a stale confirm up) */
 				lcd_fill(C_BG);
 				lcd_utf8_str(2, 2, os_lang_str(LKEY_HOST_LINK_SERVING), C_OK, C_BG, 1);
-				lcd_utf8_str(2, 14, os_lang_str(LKEY_WAITING_FRAMES), C_LBL, C_BG, 1);
+				lcd_utf8_str(2, 20, os_lang_str(LKEY_WAITING_FRAMES), C_LBL, C_BG, 1);
 				lcd_rect_text_utf8(60, 288, 180, 318, os_lang_str(LKEY_BACK), C_FG, C_BTN);
 			} else if (rxlen >= (int)sizeof(rxbuf)) {
 				rxlen = 0;   /* overrun/dropped sync: reset */
@@ -113,6 +113,10 @@ void screen_run_link_host(void)
 				break;
 		}
 	}
+	/* Drain the BACK press so the tap that left the session does not also
+	 * satisfy the following confirmation ack (which would exit in one tap
+	 * whenever the finger is still down). */
+	ui_wait_release(&px, &py);
 	touch_inject_set_busy(false);
 	lcd_utf8_str(2, 40, os_lang_str(LKEY_SESSION_ENDED), C_DIM, C_BG, 1);
 	ui_wait_ack();

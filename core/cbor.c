@@ -71,16 +71,24 @@ int cbor_peek_type(const cbor_reader_t *r, uint8_t *type, uint8_t *info)
 
 static int enter_container(cbor_reader_t *r, size_t count)
 {
-	/* NOTE: do NOT bump r->depth here. cbor_read_* entry points (map/array
-	 * head) have no matching "leave" call, so counting nesting here would
-	 * accumulate across *sequential* containers (e.g. a pubKeyCredParams
-	 * array of N entries) and eventually trip CBOR_MAX_DEPTH. Depth is only
-	 * meaningful for the recursive cbor_skip() path, which pairs its own
-	 * ++/--. Budget guards against wide/hostile CBOR regardless. */
-	if (count > (size_t)r->budget - 1)
-		return CBOR_ERR_OVERFLOW;
+	/* Depth guard for the streaming cbor_read_* path. Nested containers are
+	 * tracked so hostile deep nesting is rejected; the caller must pair every
+	 * cbor_read_array_head/cbor_read_map_head with cbor_reader_leave() once
+	 * it has consumed the container's members (see cbor.h). Sequential
+	 * siblings no longer accumulate because leave() decrements on close. */
+	if (count >= (size_t)r->budget)
+		return CBOR_ERR_OVERFLOW;   /* count+1 > budget; budget==0 rejects
+		                               all containers (no size_t underflow) */
 	r->budget -= (uint32_t)count + 1;
+	if (++r->depth > CBOR_MAX_DEPTH)
+		return CBOR_ERR_DEPTH;
 	return CBOR_OK;
+}
+
+void cbor_reader_leave(cbor_reader_t *r)
+{
+	if (r->depth > 0)
+		r->depth--;
 }
 
 static int read_header(cbor_reader_t *r, uint8_t want_type,
@@ -261,13 +269,16 @@ int cbor_skip(cbor_reader_t *r)
 		uint64_t n;
 		if ((rc = read_argument(r, info, &n)) != CBOR_OK)
 			return rc;
-		if (n > r->budget || ++r->depth > CBOR_MAX_DEPTH)
+		if (n > r->budget || r->depth >= CBOR_MAX_DEPTH)
 			return CBOR_ERR_DEPTH;
 		r->budget -= (uint32_t)n;
+		r->depth++;
 		size_t pairs = (type == CBOR_TYPE_MAP) ? 2 * (size_t)n : (size_t)n;
 		for (size_t i = 0; i < pairs; i++) {
-			if ((rc = cbor_skip(r)) != CBOR_OK)
+			if ((rc = cbor_skip(r)) != CBOR_OK) {
+				r->depth--;   /* pair the ++ above even on the error path */
 				return rc;
+			}
 		}
 		r->depth--;
 		return CBOR_OK;

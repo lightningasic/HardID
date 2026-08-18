@@ -15,7 +15,7 @@ static size_t rlp_hdr(uint8_t *out, int is_list, size_t l)
 static size_t rlp_str(uint8_t *out, const uint8_t *d, size_t l)
 {
 	size_t h = rlp_hdr(out, 0, l);
-	memcpy(out + h, d, l);
+	if (l) memcpy(out + h, d, l);
 	return h + l;
 }
 static size_t rlp_u(uint8_t *out, uint64_t v)
@@ -120,9 +120,11 @@ int main(void)
 	if (os_clearsign_parse_evm((const uint8_t *)"\x01\x02", 2, &it) == 0) { printf("FAIL t6\n"); return 1; }
 	printf("PASS t6 malformed rejected\n");
 
-	/* 7 H1: a >8-byte scalar (9-byte value) must be REFUSED, never
-	 * silently truncated to a fake small amount. Build a legacy tx whose
-	 * value field is a 9-byte integer. */
+	/* 7 H1 (round-29 revised): a >8-byte scalar (9-byte value ≈ 18.45 ETH)
+	 * must NEVER be silently truncated to a fake small amount. The parser
+	 * now saturates: amount=UINT64_MAX and the confirm screen shows "MAX",
+	 * so a legitimate >18.45 ETH transfer can still be signed (the sighash
+	 * path hashes raw bytes, unaffected) with an honest display. */
 	{
 		uint8_t val9[9] = { 0x01, 0,0,0,0, 0,0,0,0 }; /* 1 followed by 8 zeros */
 		uint8_t tmp[1024]; size_t o = 0;
@@ -130,13 +132,19 @@ int main(void)
 		o += rlp_u(tmp + o, 20);
 		o += rlp_u(tmp + o, 21000);
 		o += rlp_str(tmp + o, to, 20);
-		o += rlp_str(tmp + o, val9, 9);    /* 9-byte value → must reject */
+		o += rlp_str(tmp + o, val9, 9);    /* 9-byte value → saturate */
 		o += rlp_str(tmp + o, NULL, 0);
 		size_t h = rlp_hdr(buf, 1, o);
 		memcpy(buf + h, tmp, o);
-		if (os_clearsign_parse_evm(buf, h + o, &it) == 0) {
-			printf("FAIL t7 oversized integer not refused\n"); return 1; }
-		printf("PASS t7 oversized scalar refused (no truncating)\n");
+		if (os_clearsign_parse_evm(buf, h + o, &it) != 0) {
+			printf("FAIL t7 oversized value rejected (should saturate)\n"); return 1; }
+		if (it.amount != UINT64_MAX) {
+			printf("FAIL t7 amount not saturated: %llu\n",
+			       (unsigned long long)it.amount); return 1; }
+		if (strcmp(it.amount_token, "MAX") != 0) {
+			printf("FAIL t7 amount_token=%s (must show MAX, never a fake small number)\n",
+			       it.amount_token); return 1; }
+		printf("PASS t7 oversized value saturates to MAX (no truncating)\n");
 	}
 
 	/* 8 M3: transferFrom(from,to,value) — recipient is the SECOND word,

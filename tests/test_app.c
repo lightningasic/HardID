@@ -29,7 +29,7 @@ static size_t rlp_hdr(uint8_t *out, int is_list, size_t l)
 static size_t rlp_str(uint8_t *out, const uint8_t *d, size_t l)
 {
 	size_t h = rlp_hdr(out, 0, l);
-	memcpy(out + h, d, l);
+	if (l) memcpy(out + h, d, l);
 	return h + l;
 }
 static size_t rlp_u(uint8_t *out, uint64_t v)

@@ -128,6 +128,22 @@ int main(void)
 	r = cbor_write_uint(&w, 0);
 	CHECK(r == CBOR_ERR_OVERFLOW, "t8 write overflow");
 
+	/* ---- t9 budget exact-exhaustion must not underflow (round-29):
+	 * budget 2, container count 1 consumes count+1=2 leaving budget==0;
+	 * the next container head MUST be rejected (was: budget-1 underflowed
+	 * to SIZE_MAX, silently disabling the budget guard). ---- */
+	uint8_t nest[] = {0x81, 0x80};   /* [ [] ] */
+	cbor_reader_init(&rd, nest, sizeof nest, 2);
+	CHECK(cbor_read_array_head(&rd, &mm) == CBOR_OK && mm == 1,
+	      "t9 outer array ok (budget -> 0)");
+	rc = cbor_read_array_head(&rd, &mm);
+	CHECK(rc == CBOR_ERR_OVERFLOW, "t9 inner container rejected at budget 0");
+	/* and a wide first container that exactly spends the budget: [0] */
+	uint8_t spend[] = {0x82, 0x00, 0x00};   /* [0,0] count 2 > budget 2? */
+	cbor_reader_init(&rd, spend, sizeof spend, 2);
+	rc = cbor_read_array_head(&rd, &mm);
+	CHECK(rc == CBOR_ERR_OVERFLOW, "t9 count == budget rejected");
+
 	printf("\nCBOR: %d pass, %d fail\n", npass, nfail);
 	return nfail ? 1 : 0;
 }

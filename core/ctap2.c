@@ -107,6 +107,15 @@ static int read_map_key(cbor_reader_t *r, uint64_t *key)
 			*key = 0x10;   /* pseudo-key: never collides with K_CRED_ID etc */
 		else if (n == 3 && !memcmp(s, "alg", 3))
 			*key = 3;
+		/* options map keys (Firefox serializes them as text): without these
+		 * an explicit up:false probe was treated as up:true, forcing a
+		 * spurious user confirmation on every silent credential probe. */
+		else if (n == 2 && !memcmp(s, "up", 2))
+			*key = 0x01;
+		else if (n == 2 && !memcmp(s, "uv", 2))
+			*key = 0x02;
+		else if (n == 2 && !memcmp(s, "rk", 2))
+			*key = 0x03;
 		else
 			*key = 0;
 		return CBOR_OK;
@@ -137,6 +146,7 @@ static int parse_rp(cbor_reader_t *r, char *rp_id, size_t rp_id_cap,
 			return rc;
 		}
 	}
+	cbor_reader_leave(r);
 	if (rp_id[0] == '\0')
 		return CTAP2_ERR_MISSING_PARAMETER;
 	return CBOR_OK;
@@ -170,9 +180,11 @@ static int parse_pkcp(cbor_reader_t *r, bool *has_es256)
 				return rc;
 			}
 		}
+		cbor_reader_leave(r);
 		if (seen_alg && alg == COSE_ALG_ES256)
 			*has_es256 = true;
 	}
+	cbor_reader_leave(r);
 	if (n == 0)
 		return CTAP2_ERR_MISSING_PARAMETER;
 	return CBOR_OK;
@@ -202,6 +214,7 @@ static int parse_options(cbor_reader_t *r, bool *up)
 		}
 		/* key 0x02 (uv) accepted and ignored (A2) */
 	}
+	cbor_reader_leave(r);
 	return CBOR_OK;
 }
 
@@ -224,6 +237,7 @@ static int parse_user(cbor_reader_t *r, char *name, size_t name_cap)
 			return rc;
 		}
 	}
+	cbor_reader_leave(r);
 	return CBOR_OK;
 }
 
@@ -291,21 +305,30 @@ static int handle_make_credential(const uint8_t *req, size_t req_len,
 						 * excludeCredentials carries 80/96-byte legacy
 						 * U2F keys); only a FIDO_CREDID_LEN id can
 						 * match ours, shorter ones are ignored so the
-						 * request proceeds to confirm (was 0x11). */
-						uint8_t cidbuf[256];
-						size_t clen = sizeof cidbuf;
-						if (cbor_read_bytes(&rd, cidbuf, &clen) == CBOR_OK &&
-						    clen == FIDO_CREDID_LEN) {
-							memcpy(mcr.exclude_credid[mcr.exclude_count],
-							       cidbuf, FIDO_CREDID_LEN);
-							mcr.exclude_count++;
+						 * request proceeds to confirm (was 0x11).
+						 * A non-bytes id is skipped to keep the
+						 * stream aligned (was: read error silently
+						 * ignored, leaving the value unconsumed). */
+						const uint8_t *cidp;
+						size_t clen;
+						if (cbor_read_bytes_head(&rd, &cidp, &clen) == CBOR_OK) {
+							if (clen == FIDO_CREDID_LEN &&
+							    mcr.exclude_count < FIDO_MAX_EXCLUDE) {
+								memcpy(mcr.exclude_credid[mcr.exclude_count],
+								       cidp, FIDO_CREDID_LEN);
+								mcr.exclude_count++;
+							}
+						} else if ((rc = cbor_skip(&rd)) != CBOR_OK) {
+							return rc;
 						}
 					} else {
 						if ((rc = cbor_skip(&rd)) != CBOR_OK)
 							return rc;
 					}
 				}
+				cbor_reader_leave(&rd);
 			}
+			cbor_reader_leave(&rd);
 			break;
 		}
 		case K_EXTENSIONS:
@@ -326,6 +349,7 @@ static int handle_make_credential(const uint8_t *req, size_t req_len,
 			break;
 		}
 	}
+	cbor_reader_leave(&rd);
 
 	if (!have_cdh)
 		return CTAP2_ERR_MISSING_PARAMETER;
@@ -387,27 +411,34 @@ static int handle_get_assertion(const uint8_t *req, size_t req_len,
 				size_t mm;
 				if ((rc = cbor_read_map_head(&rd, &mm)) != CBOR_OK)
 					return rc;
-				uint8_t idbuf[256];
-				size_t idlen = 0;
 				for (size_t jj = 0; jj < mm; jj++) {
 					uint64_t k;
 					if ((rc = read_map_key(&rd, &k)) != CBOR_OK)
 						return rc;
 					if (k == K_CRED_ID) {
-						size_t clen = sizeof idbuf;
-						if (cbor_read_bytes(&rd, idbuf, &clen) == CBOR_OK)
-							idlen = clen;
+						/* Read via head (always consumes a bytes value,
+						 * any length); skip a non-bytes value so the
+						 * stream stays aligned (was: read error silently
+						 * ignored, leaving the value unconsumed). */
+						const uint8_t *idp;
+						size_t clen;
+						if (cbor_read_bytes_head(&rd, &idp, &clen) == CBOR_OK) {
+							if (clen == FIDO_CREDID_LEN &&
+							    gar.allowlist_credid_len == 0) {
+								memcpy(gar.allowlist_credid, idp,
+								       FIDO_CREDID_LEN);
+								gar.allowlist_credid_len = FIDO_CREDID_LEN;
+							}
+						} else if ((rc = cbor_skip(&rd)) != CBOR_OK) {
+							return rc;
+						}
 					} else if ((rc = cbor_skip(&rd)) != CBOR_OK) {
 						return rc;
 					}
 				}
-				/* keep the first id of exactly FIDO_CREDID_LEN; always
-				 * consume the whole array so later CBOR stays aligned */
-				if (idlen == FIDO_CREDID_LEN && gar.allowlist_credid_len == 0) {
-					memcpy(gar.allowlist_credid, idbuf, FIDO_CREDID_LEN);
-					gar.allowlist_credid_len = FIDO_CREDID_LEN;
-				}
+				cbor_reader_leave(&rd);
 			}
+			cbor_reader_leave(&rd);
 			break;
 		}
 		case K_GA_OPTIONS:
@@ -425,6 +456,7 @@ static int handle_get_assertion(const uint8_t *req, size_t req_len,
 			break;
 		}
 	}
+	cbor_reader_leave(&rd);
 
 	if (!have_rpid)
 		return CTAP2_ERR_MISSING_PARAMETER;

@@ -22,7 +22,7 @@ static void mk_init(uint32_t cid, uint8_t cmd, uint16_t bcnt,
 	p[0] = cid >> 24; p[1] = cid >> 16; p[2] = cid >> 8; p[3] = cid;
 	p[4] = cmd | 0x80;
 	p[5] = bcnt >> 8; p[6] = bcnt;
-	memcpy(p + 7, data, dlen < 57 ? dlen : 57);
+	if (dlen) memcpy(p + 7, data, dlen < 57 ? dlen : 57);
 }
 
 static void mk_cont(uint32_t cid, uint8_t seq, const uint8_t *data,
@@ -31,7 +31,7 @@ static void mk_cont(uint32_t cid, uint8_t seq, const uint8_t *data,
 	memset(p, 0, 64);
 	p[0] = cid >> 24; p[1] = cid >> 16; p[2] = cid >> 8; p[3] = cid;
 	p[4] = seq & 0x7f;
-	memcpy(p + 5, data, dlen < 59 ? dlen : 59);
+	if (dlen) memcpy(p + 5, data, dlen < 59 ? dlen : 59);
 }
 
 /* Init exchange: reset state machine, run INIT on broadcast, return the
@@ -63,7 +63,7 @@ int main(void)
 	CHECK(h.cid == cid, "t1 cid stored");
 	/* payload: nonce(8)||cid(4)||proto(1)||major(1)||minor(1)||build(1)||caps(1) */
 	CHECK(out[0][19] == CTAPHID_PROTOCOL_VERSION, "t1 protocol version");
-	CHECK(out[0][23] == CTAPHID_CAP_CBOR, "t1 capabilities");
+	CHECK(out[0][23] == (CTAPHID_CAP_WINK | CTAPHID_CAP_CBOR | CTAPHID_CAP_NMSG), "t1 capabilities");
 	uint16_t bcnt = (uint16_t)((out[0][5] << 8) | out[0][6]);
 	CHECK(bcnt == 17, "t1 init response length 17");
 

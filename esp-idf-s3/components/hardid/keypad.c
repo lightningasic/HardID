@@ -703,7 +703,7 @@ bool ui_confirm_yesno(void)
 		ui_wait_press(&px, &py);
 		int rx = px, ry = py;
 		ui_wait_release(&rx, &ry);
-		ESP_LOGW("keypad", "confirm touch: press=%d,%d release=%d,%d",
+		ESP_LOGD("keypad", "confirm touch: press=%d,%d release=%d,%d",
 		         px, py, rx, ry);
 		if (ui_pt_in(px, py, 125, 200, 225, 250) &&
 		    ui_pt_in(rx, ry, 125, 200, 225, 250))

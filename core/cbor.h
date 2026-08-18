@@ -82,6 +82,11 @@ int cbor_read_bytes(cbor_reader_t *r, uint8_t *out, size_t *len);
 int cbor_read_text_head(cbor_reader_t *r, const uint8_t **ptr, size_t *len);
 int cbor_read_array_head(cbor_reader_t *r, size_t *count);
 int cbor_read_map_head(cbor_reader_t *r, size_t *count);
+/* Close the container opened by the most recent cbor_read_array_head/
+ * cbor_read_map_head after its members have been consumed. Pairs the depth
+ * increment done in enter_container() so sequential sibling containers do
+ * not accumulate depth. Nested depth is still bounded by CBOR_MAX_DEPTH. */
+void cbor_reader_leave(cbor_reader_t *r);
 int cbor_read_bool(cbor_reader_t *r, bool *out);
 int cbor_read_null(cbor_reader_t *r);
 

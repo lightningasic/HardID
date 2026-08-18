@@ -13,6 +13,7 @@
 #define HARDID_SCREEN_H
 
 #include "app.h"
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -54,6 +55,12 @@ void screen_run_link_host(void);
  * TinyUSB HID interface (usb_desc.c / fido_esp.c). Per-request confirm
  * screen is F5. Returns on tap. */
 void screen_run_fido(void);
+
+/* True when CTAPHID traffic arrived while no FIDO session is running
+ * (device in the main menu). The menu loop polls this and auto-enters
+ * screen_run_fido() so a browser WebAuthn call reaches the confirm screen
+ * without the user opening the FIDO app first. */
+bool fido_host_wake_pending(void);
 
 /* About: show hardware and firmware version, tap to return. */
 void screen_run_about(void);

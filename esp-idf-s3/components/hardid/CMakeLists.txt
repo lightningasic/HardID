@@ -45,6 +45,7 @@ idf_component_register(
         "${HARDID_ROOT}/core/linksvc.c"
         "${HARDID_ROOT}/core/cbor.c"
         "${HARDID_ROOT}/core/fido_core.c"
+        "${HARDID_ROOT}/core/fido_u2f.c"
         "${HARDID_ROOT}/core/ctap2.c"
         "${HARDID_ROOT}/core/fido_ctaphid.c"
         ${HARDID_SE_SRCS}

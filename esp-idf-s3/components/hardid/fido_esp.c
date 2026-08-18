@@ -43,6 +43,7 @@
 #include "ctap2.h"
 #include "fido_ctaphid.h"
 #include "fido_core.h"
+#include "fido_u2f.h"
 #include "fido.h"
 #include "se_driver.h"
 #include "secure_zero.h"
@@ -75,6 +76,27 @@ static volatile bool s_fido_exited;
  * two tasks makes the confirm dialog's ui_wait_press() miss presses. */
 static volatile bool s_confirm_active;
 
+/* Set by fido_usb_rx (TinyUSB task) when a CTAPHID packet arrives while NO
+ * FIDO session is running (device sitting in the main menu). The menu loop
+ * polls this and auto-enters the FIDO session so a browser WebAuthn call
+ * started while the device is in the menu still reaches the confirm
+ * screen. The pending packet(s) stay in the ring and are processed by the
+ * freshly started fido_task, so the host's first INIT gets an answer. */
+static volatile bool s_fido_wake;
+
+/* Set once screen_run_fido has finished ALL session setup (LCD idle draw,
+ * touch-injector pause, mutex). fido_task waits for this before pumping:
+ * on an auto-wake entry the ring already holds a pending makeCredential,
+ * so without the gate the confirm dialog would draw/touch the LCD and I2C
+ * concurrently with the menu task's own setup — a startup race that
+ * reboots the device. */
+static volatile bool s_fido_ready;
+
+bool fido_host_wake_pending(void)
+{
+	return s_fido_wake;
+}
+
 /* TinyUSB HID report ids: the descriptor in usb_desc.c has NO report id
  * (report = 64-byte CTAPHID packet exactly, matching the 64-byte endpoint
  * and CFG_TUD_HID_EP_BUFSIZE). tud_hid_report(0, ...) sends the raw
@@ -98,6 +120,8 @@ static inline unsigned ring_next(unsigned i) { return (i + 1) % RX_RING_N; }
 
 static void fido_usb_rx(const uint8_t *report, uint16_t len)
 {
+	if (!s_fido_run)
+		s_fido_wake = true;   /* host talking while we sit in the menu */
 	if (ring_next(s_rx.tail) == s_rx.head) {
 		ESP_LOGW(TAG, "rx ring full, dropping HID packet");
 		return;
@@ -180,6 +204,11 @@ static void fido_task(void *arg)
 	uint8_t inpkt[CTAPHID_PACKET_SIZE];
 	uint8_t out[2][CTAPHID_PACKET_SIZE];
 
+	/* wait for the session owner to finish LCD/touch setup before pumping;
+	 * otherwise an auto-wake entry races the menu task on the LCD/I2C bus */
+	while (!s_fido_ready && s_fido_run)
+		vTaskDelay(pdMS_TO_TICKS(2));
+
 	while (s_fido_run) {
 		/* process each queued host packet, then drain staged responses */
 		unsigned cur;
@@ -226,12 +255,13 @@ static void fido_task(void *arg)
  * create()/get(). */
 #define CTAPHID_CANCEL 0x11
 
-static bool fido_cancel_pending(void)
+static bool fido_cancel_pending(unsigned since)
 {
-	/* packet layout: cid(4) | cmd(1) | ... */
-	/* The host always sets the CTAPHID bit7 on the wire (CANCEL=0x91);
-	 * the ring stores the raw bytes, so match either representation. */
-	unsigned i = s_rx.head;
+	/* packet layout: cid(4) | cmd(1) | ... Only packets that arrived AFTER
+	 * this confirm started count: a stale CANCEL from an aborted earlier
+	 * ceremony (e.g. the browser cancelled while the device was rebooting)
+	 * must not deny a fresh confirmation. */
+	unsigned i = since;
 	while (i != s_rx.tail) {
 		if ((s_rx.data[i][4] & 0x7f) == CTAPHID_CANCEL) {
 			/* drop the cancel and any stale packets before it */
@@ -248,6 +278,7 @@ static int fido_confirm_ui(const char *rp_name, bool is_register)
 	/* F3: transport-only build keeps a plain Yes/No so RPs can exercise
 	 * the wire end-to-end. Rich RP-domain render is milestone F5. */
 	s_confirm_active = true;
+	unsigned cancel_from = s_rx.head;   /* only fresh cancels count */
 	lcd_fill(C_BG);
 	lcd_text_wrap_utf8(2, 10, rp_name ? rp_name : os_lang_str(LKEY_UNKNOWN_RP), C_FG, C_BG);
 	lcd_text_wrap_utf8(2, 60,
@@ -258,7 +289,7 @@ static int fido_confirm_ui(const char *rp_name, bool is_register)
 	lcd_rect_text_utf8(125, 200, 225, 250, os_lang_str(LKEY_YES), C_FG, C_OK);
 	int rc = 0;
 	for (;;) {
-		if (fido_cancel_pending())
+		if (fido_cancel_pending(cancel_from))
 			break;                 /* host aborted -> deny */
 		int px, py;
 		if (!ui_touch_now(&px, &py)) {
@@ -268,7 +299,7 @@ static int fido_confirm_ui(const char *rp_name, bool is_register)
 		/* stable press (3 consecutive reads), honouring cancel */
 		int settle = 1;
 		while (settle < 3) {
-			if (fido_cancel_pending())
+			if (fido_cancel_pending(cancel_from))
 				goto done;
 			vTaskDelay(pdMS_TO_TICKS(8));
 			if (ui_touch_now(&px, &py))
@@ -279,7 +310,7 @@ static int fido_confirm_ui(const char *rp_name, bool is_register)
 		/* wait for release, tracking last coords, honouring cancel */
 		int rx = px, ry = py, lost = 0;
 		for (;;) {
-			if (fido_cancel_pending())
+			if (fido_cancel_pending(cancel_from))
 				goto done;
 			if (ui_touch_now(&rx, &ry))
 				lost = 0;
@@ -291,7 +322,7 @@ static int fido_confirm_ui(const char *rp_name, bool is_register)
 		    ui_pt_in(rx, ry, 125, 200, 225, 250)) { rc = 1; break; }
 		if (ui_pt_in(px, py, 15, 200, 115, 250) &&
 		    ui_pt_in(rx, ry, 15, 200, 115, 250)) { rc = 0; break; }
-		ESP_LOGW(TAG, "confirm touch ignored: press=%d,%d release=%d,%d",
+		ESP_LOGD(TAG, "confirm touch ignored: press=%d,%d release=%d,%d",
 		         px, py, rx, ry);
 	}
 done:
@@ -310,7 +341,7 @@ done:
 	vTaskDelay(pdMS_TO_TICKS(700));
 	lcd_fill(C_BG);
 	lcd_utf8_str(2, 2, os_lang_str(LKEY_FIDO_SERVING), C_OK, C_BG, 1);
-	lcd_utf8_str(2, 14, os_lang_str(LKEY_FIDO_PLUG_BROWSER), C_LBL, C_BG, 1);
+	lcd_utf8_str(2, 20, os_lang_str(LKEY_FIDO_PLUG_BROWSER), C_LBL, C_BG, 1);
 	lcd_rect_text_utf8(60, 288, 180, 318, os_lang_str(LKEY_BACK), C_FG, C_BTN);
 	ESP_LOGW(TAG, "confirm result rc=%d", rc);
 	return rc;
@@ -327,34 +358,53 @@ void screen_run_fido(void)
 	/* Wire the framer to the CTAP2 dispatcher exactly as host-verified. */
 	ctaphid_init(&s_ctaphid);
 	s_ctaphid.dispatch = ctap2_handle;
+	s_ctaphid.msg_dispatch = fido_u2f_handle;   /* U2F probe answers (Chrome) */
 	fido_set_confirm_handler(fido_confirm_ui);
 
 	s_tx_lock = xSemaphoreCreateMutex();
-	s_rx.head = s_rx.tail = 0;
+	/* Auto-entered on host traffic: keep the pending packet(s) so the
+	 * browser's in-flight INIT/getAssertion is answered. Manual menu entry
+	 * starts clean (drops any stale ring bytes). */
+	if (s_fido_wake) {
+		s_fido_wake = false;
+	} else {
+		s_rx.head = s_rx.tail = 0;
+	}
 	s_fido_run = true;
 	s_fido_exited = false;
+	s_fido_ready = false;
+
+	/* Draw the idle screen BEFORE spawning the transport task: on an
+	 * auto-wake entry the ring already holds a pending getAssertion, so the
+	 * task can open the confirm dialog within milliseconds — an idle draw
+	 * after xTaskCreate would clobber the Yes/No screen while
+	 * s_confirm_active simultaneously blocks the BACK poll (dead UI). */
+	lcd_fill(C_BG);
+	lcd_utf8_str(2, 2, os_lang_str(LKEY_FIDO_SERVING), C_OK, C_BG, 1);
+	lcd_utf8_str(2, 20, os_lang_str(LKEY_FIDO_PLUG_BROWSER), C_LBL, C_BG, 1);
+	lcd_rect_text_utf8(60, 288, 180, 318, os_lang_str(LKEY_BACK), C_FG, C_BTN);
+
+	/* Own the CDC carrier for the duration of the FIDO session so the
+	 * dev touch injector never steals HID-bound console bytes. Must happen
+	 * BEFORE the transport task starts pumping (auto-wake entries can
+	 * reach the confirm dialog within milliseconds). */
+	touch_inject_set_busy(true);
 
 	/* run the transport task for the duration of the session; it is stopped
-	 * and torn down on exit so re-entering FIDO starts clean. */
+	 * and torn down on exit so re-entering FIDO starts clean. The task
+	 * waits for s_fido_ready before touching the ring/LCD/I2C. */
 	BaseType_t ok = xTaskCreate(fido_task, "fido", 16384, NULL,
 	                            tskIDLE_PRIORITY + 2, NULL);
 	if (ok != pdPASS) {
 		ESP_LOGE(TAG, "failed to create fido task");
 		s_fido_run = false;
+		touch_inject_set_busy(false);
 		if (s_tx_lock) { vSemaphoreDelete(s_tx_lock); s_tx_lock = NULL; }
 		lcd_text_wrap_utf8(2, 80, os_lang_str(LKEY_FIDO_TASK_ERR), C_ERR, C_BG);
 		ui_wait_ack();
 		return;
 	}
-
-	lcd_fill(C_BG);
-	lcd_utf8_str(2, 2, os_lang_str(LKEY_FIDO_SERVING), C_OK, C_BG, 1);
-	lcd_utf8_str(2, 14, os_lang_str(LKEY_FIDO_PLUG_BROWSER), C_LBL, C_BG, 1);
-	lcd_rect_text_utf8(60, 288, 180, 318, os_lang_str(LKEY_BACK), C_FG, C_BTN);
-
-	/* Own the CDC carrier for the duration of the FIDO session so the
-	 * dev touch injector never steals HID-bound console bytes. */
-	touch_inject_set_busy(true);
+	s_fido_ready = true;   /* all setup done: release the pump */
 
 	/* Session loop: stay until BACK tapped (paused while the fido_task is
 	 * showing a confirm dialog so the two tasks never contend for the
@@ -366,6 +416,10 @@ void screen_run_fido(void)
 		    ui_pt_in(px, py, 60, 288, 180, 318))
 			break;
 	}
+	/* Drain the BACK press so the tap that left the session does not also
+	 * satisfy the following confirmation ack (which would exit in one tap
+	 * whenever the finger is still down). */
+	ui_wait_release(&px, &py);
 	touch_inject_set_busy(false);
 	/* Stop the transport task and release its resources before returning to
 	 * the menu, so re-entering FIDO does not stack duplicate tasks/locks. */

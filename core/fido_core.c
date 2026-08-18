@@ -31,6 +31,11 @@ void fido_set_confirm_handler(fido_confirm_fn fn)
 	confirm_handler = fn;
 }
 
+fido_confirm_fn fido_confirm_get(void)
+{
+	return confirm_handler;
+}
+
 static const se_driver_t *se(void)
 {
 	return se_active();
@@ -49,7 +54,13 @@ int fido_getinfo(uint8_t *resp, size_t resp_cap, size_t *resp_len)
 {
 	cbor_writer_t w;
 	cbor_writer_init(&w, resp, resp_cap);
-	if (cbor_write_map_head(&w, 10) != CBOR_OK)
+	/* 9 members (no pinUvAuthProtocols): the device supports neither
+	 * clientPin nor built-in UV (options.clientPin=false, uv=false), so
+	 * per CTAP2 §6.4 pinUvAuthProtocols MUST be OMITTED — an empty array
+	 * crashed Chrome ("No supported PIN/UV Auth Protocol") and a non-empty
+	 * [1] misled the platform into the PIN flow (was e0836bb's workaround,
+	 * which broke GitHub's getAssertion login). */
+	if (cbor_write_map_head(&w, 9) != CBOR_OK)
 		return CTAP1_ERR_OTHER;
 
 	/* 0x01 versions: ["FIDO_2_0"] */
@@ -72,10 +83,7 @@ int fido_getinfo(uint8_t *resp, size_t resp_cap, size_t *resp_len)
 	/* 0x05 maxMsgSize */
 	if (cbor_write_uint(&w, 5) || cbor_write_uint(&w, FIDO_GETINFO_MAX_MSG_SIZE))
 		return CTAP1_ERR_OTHER;
-	/* 0x06 pinUvAuthProtocols: [1] */
-	if (cbor_write_uint(&w, 6) || cbor_write_array_head(&w, 1) ||
-	    cbor_write_uint(&w, 1))
-		return CTAP1_ERR_OTHER;
+	/* 0x06 pinUvAuthProtocols omitted (no PIN/UV support) */
 	/* 0x07 maxCredentialCountInList */
 	if (cbor_write_uint(&w, 7) || cbor_write_uint(&w, FIDO_GETINFO_MAX_CRED_COUNT))
 		return CTAP1_ERR_OTHER;
@@ -210,8 +218,8 @@ int fido_make_credential(const fido_make_cred_req_t *req,
 /* Encode an ES256 (P-256) signature from raw r||s (64 bytes) into an
  * ASN.1 DER Ecdsa-Sig-Value. WebAuthn §6.5.5: for COSEAlgorithmIdentifier
  * -7 (ES256) the signature MUST be DER-encoded. */
-static void der_encode_ecdsa(const uint8_t sig64[64], uint8_t *out,
-                             size_t *out_len)
+void fido_der_encode_ecdsa(const uint8_t sig64[64], uint8_t *out,
+                           size_t *out_len)
 {
 	const uint8_t *r = sig64, *s = sig64 + 32;
 	size_t rlen = 32, slen = 32;
@@ -241,14 +249,28 @@ int fido_get_assertion(const fido_get_assert_req_t *req,
 	if (!fido_se_available())
 		return CTAP2_ERR_UNSUPPORTED_ALGORITHM;  /* design A5 */
 
-	/* User presence confirm BEFORE signing (design A3: no silent pulls). */
-	if (!confirm_handler)
-		return CTAP2_ERR_OPERATION_DENIED;
-	if (!confirm_handler(req->rp_name, false))
-		return CTAP2_ERR_OPERATION_DENIED;
-
 	if (req->allowlist_credid_len == 0)
 		return CTAP2_ERR_NO_CREDENTIALS;
+
+	/* Credential-tag check BEFORE any user interaction: a probe for a
+	 * credential we cannot sign (wrong RP, stale epoch, tampered id) must
+	 * never pop a confirmation screen. */
+	if (se()->fido_cred_exists(req->allowlist_credid,
+	                           req->rp_id_hash) != SE_OK)
+		return CTAP2_ERR_INVALID_CREDENTIAL;  /* tag/epoch mismatch */
+
+	/* User presence. up:true (the default) requires the on-device confirm
+	 * (design A3). An explicit up:false is the platform's SILENT probe
+	 * (CTAP2 §6.2): answer without user interaction and with the UP flag
+	 * clear — every certified authenticator behaves this way, and only the
+	 * RP that issued this credID can trigger it (tag is RP-bound), so the
+	 * leak is limited to "your key is currently plugged in". */
+	if (req->up_required) {
+		if (!confirm_handler)
+			return CTAP2_ERR_OPERATION_DENIED;
+		if (!confirm_handler(req->rp_name, false))
+			return CTAP2_ERR_OPERATION_DENIED;
+	}
 
 	/* authData: flags UP, signCount (SE-internal counter, §4.3) */
 	uint32_t sc = 0;
@@ -284,7 +306,7 @@ int fido_get_assertion(const fido_get_assert_req_t *req,
 	/* WebAuthn §6.5.5: ES256 assertion signature MUST be DER-encoded. */
 	uint8_t sig_der[72];
 	size_t sig_der_len = 0;
-	der_encode_ecdsa(sig64, sig_der, &sig_der_len);
+	fido_der_encode_ecdsa(sig64, sig_der, &sig_der_len);
 	os_secure_bzero(sig64, sizeof sig64);
 
 	/* response: {1:credential{"id":...,"type":...}, 2:authData, 3:signature}.

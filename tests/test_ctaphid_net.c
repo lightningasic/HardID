@@ -56,7 +56,7 @@ static void mk_init_pkt(uint32_t cid, uint8_t cmd, const uint8_t *data,
 	p[4] = cmd | 0x80;
 	p[5] = bcnt >> 8; p[6] = bcnt;
 	if (dlen > 57) dlen = 57;
-	memcpy(p + 7, data, dlen);
+	if (dlen) memcpy(p + 7, data, dlen);
 }
 
 static void mk_cont_pkt(uint32_t cid, uint8_t seq, const uint8_t *data,
@@ -66,7 +66,7 @@ static void mk_cont_pkt(uint32_t cid, uint8_t seq, const uint8_t *data,
 	p[0] = cid >> 24; p[1] = cid >> 16; p[2] = cid >> 8; p[3] = cid;
 	p[4] = seq & 0x7f;
 	if (dlen > 59) dlen = 59;
-	memcpy(p + 5, data, dlen);
+	if (dlen) memcpy(p + 5, data, dlen);
 }
 
 /* Send a full CTAPHID message: first INIT packet, then CONTs. Runs the feed
@@ -233,7 +233,7 @@ int main(void)
 	uint32_t cid = ((uint32_t)out[0][15] << 24) | ((uint32_t)out[0][16] << 16) |
 	               ((uint32_t)out[0][17] << 8) | out[0][18];
 	CHECK(cid != 0 && cid != 0xffffffff, "t1 cid allocated");
-	CHECK(out[0][23] == CTAPHID_CAP_CBOR, "t1 caps CBOR");
+	CHECK(out[0][23] == (CTAPHID_CAP_WINK | CTAPHID_CAP_CBOR | CTAPHID_CAP_NMSG), "t1 caps CBOR+NMSG+WINK");
 
 	/* ---- t2 GetInfo via the wire ---- */
 	{
@@ -312,9 +312,20 @@ int main(void)
 		                  resp, sizeof resp, &rlen, out, 16);
 		CHECK(st == CTAP2_OK, "t5 getAssertion status 0");
 		CHECK(resp[1] == 0xa3, "t5 assertion map head");
-		/* signature: {3: bstr(64)} */
-		uint8_t *sig = memmem(resp, rlen + 1, (void*)"\x03\x58\x40", 3);
-		CHECK(sig != NULL, "t5 64-byte signature present");
+		/* signature: {3: bstr(DER-encoded ECDSA)}. WebAuthn §6.5.5 requires
+		 * ES256 assertions to be DER (ASN.1) encoded, so the value is a
+		 * variable-length 64..72-byte byte string whose first byte is 0x30
+		 * (SEQUENCE), not a fixed 64-byte raw r||s. */
+		uint8_t *sig = memmem(resp, rlen + 1, (void*)"\x03\x58", 2);
+		CHECK(sig != NULL, "t5 signature member (key 3) present");
+		if (sig != NULL) {
+			size_t off = (size_t)(sig - resp);
+			uint8_t dlen = resp[off + 2];
+			int ok = off + 3 + dlen <= rlen + 1 &&
+			         dlen >= 64 && dlen <= 72 &&
+			         resp[off + 3] == 0x30;
+			CHECK(ok, "t5 DER-encoded 64-72 byte signature");
+		}
 	}
 
 	/* ---- t6 denied confirm blocks signing at the wire level ---- */

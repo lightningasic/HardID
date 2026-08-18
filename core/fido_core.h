@@ -72,6 +72,14 @@ int fido_make_credential(const fido_make_cred_req_t *req,
 int fido_get_assertion(const fido_get_assert_req_t *req,
                        uint8_t *resp, size_t resp_cap, size_t *resp_len);
 
+/* Current confirm hook, or NULL when unwired (everything denied). */
+fido_confirm_fn fido_confirm_get(void);
+
+/* DER-encode a raw 64-byte r||s P-256 signature into out (max 72 bytes).
+ * Used for both WebAuthn assertion signatures and U2F (X9.62) signatures. */
+void fido_der_encode_ecdsa(const uint8_t sig64[64], uint8_t *out,
+                           size_t *out_len);
+
 #ifdef __cplusplus
 }
 #endif

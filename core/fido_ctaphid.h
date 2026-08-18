@@ -70,6 +70,14 @@ typedef struct {
 	 * sets *out_len. NULL means "no dispatcher wired" (invalid command). */
 	int (*dispatch)(const uint8_t *msg, size_t msg_len,
 	                uint8_t *out, size_t out_cap, size_t *out_len);
+
+	/* msg_dispatch: called with a complete CTAPHID_MSG (U2F/CTAP1 APDU).
+	 * Writes the APDU response (data || SW1SW2) to out, sets *out_len;
+	 * return value unused (the APDU status word carries the outcome).
+	 * NULL falls back to CTAP1_ERR_INVALID_COMMAND, preserving the
+	 * CTAP2-only behavior for builds that do not wire a U2F handler. */
+	void (*msg_dispatch)(const uint8_t *apdu, size_t apdu_len,
+	                     uint8_t *out, size_t out_cap, size_t *out_len);
 } ctaphid_t;
 
 void ctaphid_init(ctaphid_t *h);

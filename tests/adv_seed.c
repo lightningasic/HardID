@@ -7,6 +7,7 @@ static uint8_t g_se[32];
 static int g_se_fail = 0;
 int os_seed_se_trng(uint8_t *buf, size_t len){ if(g_se_fail) return -1; memcpy(buf,g_se,len<32?len:32); return 0; }
 int os_seed_se2_trng(uint8_t *buf, size_t len){ os_rng_fill(buf,len); return 0; }
+int os_seed_phys_extra(uint8_t *buf, size_t len){ (void)buf; (void)len; return 1; }
 static uint32_t g_r=99;
 uint32_t os_rng_hw_read_status(void){return 1;}
 uint32_t os_rng_hw_read_data(void){g_r=g_r*1103515245u+12345u;return g_r;}
@@ -16,7 +17,7 @@ void os_rng_hw_recover(void){}
 #include "../core/hkdf.c"
 #define OS_SEED_NO_DEFAULT_HOOK
 #include "../core/seed.c"
-void os_rng_fatal(void){}
+void os_rng_fatal(void){ for(;;){} }
 int main(void){
     uint8_t s1[32],s2[32];
     memset(g_se,0x5A,32);

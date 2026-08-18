@@ -13,6 +13,9 @@
 
 #include <string.h>
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
 #include "devcfg.h"
 #include "display.h"
 #include "inter.h"
@@ -142,7 +145,7 @@ static void menu_draw(const int *vis, int vn)
 	lcd_fill(C_BG);
 	/* header hints at 2x: the old 5x7 lines were too small to read */
 	lcd_utf8_str(2, 6, "HardID", C_LBL, C_BG, 2);
-	lcd_utf8_str(2, 26, os_lang_str(LKEY_OK_OPEN), C_DIM, C_BG, 2);
+	lcd_utf8_str(2, 42, os_lang_str(LKEY_OK_OPEN), C_DIM, C_BG, 2);
 
 	/* the item sits in a filled selection box so it is obvious what a
 	 * tap/OK will activate (and that tapping outside does nothing) */
@@ -292,7 +295,38 @@ void ui_run(void)
 			s_sel = 0;
 		menu_draw(vis, vn);
 		int px, py;
-		if (!ui_wait_press_to(&px, &py, lock_ms)) {
+		/* Wait in short slices so host FIDO traffic (browser WebAuthn
+		 * started while we sit in the menu) can pull us into the FIDO
+		 * session automatically — the pending INIT stays in the ring and
+		 * gets answered there, so the confirm screen appears without the
+		 * user opening the FIDO app first. */
+		bool got_press = false;
+		bool auto_fido = false;
+		TickType_t wait_start = xTaskGetTickCount();
+		for (;;) {
+			if (fido_host_wake_pending()) {
+				auto_fido = true;
+				break;
+			}
+			uint32_t slice = 100;
+			if (lock_ms > 0) {
+				uint32_t elapsed = (uint32_t)
+					((xTaskGetTickCount() - wait_start) * portTICK_PERIOD_MS);
+				if (elapsed >= lock_ms)
+					break;              /* auto-lock below */
+				if (slice > lock_ms - elapsed)
+					slice = lock_ms - elapsed;
+			}
+			if (ui_wait_press_to(&px, &py, slice)) {
+				got_press = true;
+				break;
+			}
+		}
+		if (auto_fido) {
+			screen_run_fido();
+			continue;
+		}
+		if (!got_press) {
 			/* idle timeout: auto-lock the wallet (FIDO stays PIN-less) */
 			const se_driver_t *se = se_active();
 			if (se && se->lock)

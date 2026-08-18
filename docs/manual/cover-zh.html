@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<style>
+  @page { size: 210mm 297mm; margin: 0; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { width: 210mm; height: 297mm; background: #0A0F1E; color: #fff;
+         font-family: "Noto Sans CJK SC", "Helvetica Neue", Helvetica, Arial, sans-serif;
+         display: flex; flex-direction: column; }
+  .frame { flex: 1; padding: 20mm; display: flex; flex-direction: column; }
+
+  .mark { width: 20mm; height: 20mm; }
+  .title { margin-top: 14mm; }
+  .title h1 { font-size: 44pt; font-weight: 800;
+              background: linear-gradient(90deg,#fff,#7FC4FF);
+              -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .title .doc { margin-top: 4mm; font-size: 10pt; letter-spacing: 4px; color: #8FA3C4; }
+
+  .cards { margin-top: 18mm; display: flex; flex-direction: column; gap: 4mm; }
+  .card { display: flex; align-items: center; gap: 5mm;
+          border: 1px solid #232E4D; border-radius: 3mm;
+          padding: 5mm 6mm; background: linear-gradient(180deg,#101730,#0C1426); }
+  .card .n { font-size: 9pt; color: #00E5FF; font-weight: 700; min-width: 8mm; }
+  .card h3 { font-size: 12pt; font-weight: 700; min-width: 52mm; }
+  .card p { font-size: 9pt; color: #8FA3C4; }
+
+  .warn { margin-top: auto; border: 1.5px solid #E04F4F; border-radius: 3mm;
+          padding: 6mm; background: rgba(224,79,79,.07); }
+  .warn .t { font-size: 11pt; font-weight: 800; color: #FF7B7B; letter-spacing: 2px; }
+  .warn p { font-size: 9.5pt; color: #D9C7C7; margin-top: 2mm; line-height: 1.6; }
+  .warn b { color: #fff; }
+</style>
+</head>
+<body>
+  <div class="frame">
+    <svg class="mark" viewBox="0 0 480 480" xmlns="http://www.w3.org/2000/svg">
+      <defs><linearGradient id="b" x1="120" y1="20" x2="360" y2="460" gradientUnits="userSpaceOnUse">
+        <stop offset="0" stop-color="#00E5FF"/><stop offset=".45" stop-color="#0A84FF"/>
+        <stop offset="1" stop-color="#0047E1"/>
+      </linearGradient></defs>
+      <path d="M292 40 L128 256 L222 256 L160 440 L356 212 L252 212 L306 40 Z" fill="url(#b)"/>
+    </svg>
+    <div class="title">
+      <h1>HardID</h1>
+      <div class="doc">硬件钱包使用说明书 · v0.2.0</div>
+    </div>
+
+    <div class="cards">
+      <div class="card">
+        <span class="n">01</span>
+        <h3>完全开源</h3>
+        <p>固件、原理图、主机工具全部开源，支持可复现构建。</p>
+      </div>
+      <div class="card">
+        <span class="n">02</span>
+        <h3>私钥永不出设备</h3>
+        <p>密钥只在 EAL6+ 安全芯片内生成与签名，主控零密钥材料。</p>
+      </div>
+      <div class="card">
+        <span class="n">03</span>
+        <h3>所见即所签</h3>
+        <p>签名前屏幕显示人类可读的交易意图，无法解析一律警告。</p>
+      </div>
+    </div>
+
+    <div class="warn">
+      <div class="t">⚠ 最重要告警</div>
+      <p>你的<b>助记词</b>只在钱包本机生成、也只应在钱包本机输入。任何其他要求你提供助记词的（网页、邮件、APP、自称"客服"的人）都是<b>诈骗</b>，一律不要给。<br>
+      助记词是你资产的<b>唯一备份</b>——得到它的人就能取走你的资产；请离线、私密、亲手抄写，绝不外泄。</p>
+    </div>
+  </div>
+</body>
+</html>

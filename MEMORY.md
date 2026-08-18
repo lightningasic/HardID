@@ -1,5 +1,345 @@
 # MEMORY.md
 
+## 经验教训 (2026-08-18, 用户要求沉淀)
+**调试协议/兼容性错误的第一动作：先读错误相关的官方手册与官方源代码，再动手改代码。**
+- 本次 U2F 签名问题：多轮基于"自洽验证"的调试（host 测试全过但 Chrome 失败），
+  直到读 Chrome 源码 `device/fido/authenticator_get_assertion_response.cc` 才发现
+  它用 `ECDSA_SIG_from_bytes`（只认 DER）解析 U2F 签名——一次查源码秒杀。
+- 配套方法：(1) 官方源码 > 二手博客；(2) 用标准实现（dongle）抓 golden 流量对照；
+  (3) 自洽测试会固化错误假设——验证必须对着真实客户端（官方源码/golden 流量）做；
+  (4) 协议字节级问题先取证（usbmon）再改码。
+- 推荐顺序：取证（抓包）→ 官方文档/源码 → 标准实现对照 → 改码 → 真实客户端复测。
+
+## FIDO 全平台打通 (2026-08-18 04:45, 用户确认全部成功)
+- **验证**: Firefox + Chrome × GitHub + localhost:8443, 注册/登录全部成功。
+- **最终根因 (U2F 签名编码)**: U2F 规范要求签名用 **X9.62 编码 = DER Ecdsa-Sig-Value**,
+  初版误用 raw r||s。证据链:
+  1. Chrome 源码 `authenticator_get_assertion_response.cc::CreateFromU2fSignResponse`
+     用 `ECDSA_SIG_from_bytes` (BoringSSL, 只认 DER) 解析, raw 64B 直接拒收
+     ("Rejecting U2F assertion response with invalid signature")。
+  2. Feitian dongle golden 流量中 U2F 签名 = `30 45 02 20...` (DER SEQUENCE)。
+  3. host 测试曾验证同一错误假设 (raw r||s 自洽验证) —— 教训: 测试要对着
+     真实客户端 (Chrome 源码/golden 流量) 验证, 不能只做自洽验证。
+- **修复**: core/fido_core.c `fido_der_encode_ecdsa` 导出 (原 static
+  der_encode_ecdsa), core/fido_u2f.c register attestation 与 authenticate
+  签名均改 DER; 测试 t11v 改 DER 校验 (65/65 绿, 48 套件绿, 固件零警告)。
+- **本轮 U2F 全功能**: core/fido_u2f.c — U2F_REGISTER (创建凭证+attestation
+  DER 签名, DEV 自签名证书) + U2F_AUTHENTICATE (check-only 6985/enforce
+  confirm+DER 签名), keyHandle 复用 CTAP2 credID (U2F/CTAP2 凭证互通),
+  CTAPHID_MSG 经 msg_dispatch 接线 (fido_esp.c)。
+
+## 待办 (FIDO 完成后): LIGHTNINGASIC 官网添加 HardID 钱包
+- 站点: /home/jackliao/文档/LIGHTNINGASIC/website/ (git, 现有 index.html +
+  bitexchange-wallet.html + cryospring.html 产品页模式, llms.txt/sitemap 已有)
+- 任务: 添加 HardID 硬件钱包产品内容 (参照现有产品页结构)
+- 触发: 用户指定 "完成 FIDO 后"
+
+## FIDO 自动唤醒系列问题 — 全部解决 (2026-08-17 晚, 已实机验证)
+- **最终状态**: 菜单态自动唤醒 → Yes/No → GitHub 注册成功。Chrome/Firefox/localhost 均正常。
+- **本轮修复的三个设备侧 bug** (esp-idf-s3/components/hardid/fido_esp.c + core/fido_ctaphid.c):
+  1. **启动竞态崩溃** (唤醒进入即重启): ring 有积压包时 fido_task 在 menu 任务画
+     待机屏/暂停触摸注入器之前就开 confirm (LCD/I2C 并发) → 重启。修复:
+     `s_fido_ready` 门控 (设置全部完成后才放行 fido_task) + 待机屏绘制/
+     touch_inject_set_busy 移到 xTaskCreate 之前。
+  2. **过期 CANCEL 误判拒绝** (0x27 phantom deny): 上次崩溃时浏览器发的 CANCEL
+     留在 ring, 下次会话 confirm 误扫到 → 自动拒绝。修复: fido_cancel_pending(since)
+     只认 confirm 开始后到达的包。
+  3. **Chrome 卡 U2F 探测循环** (无 Yes/No): INIT caps 只有 CAP_CBOR, 缺 CAP_NMSG
+     → Chrome 探测 CTAPHID_MSG 报错后循环重试, 不走 CBOR。修复: caps = WINK|CBOR|
+     NMSG (0x0d)。CTAP2 §11.2.4 要求 CTAP2-only 设备必须声明 NMSG。
+- **GitHub 注册偶发失败 = RP 侧 challenge 过期** (非设备): 清除 cookie 或失败后
+  立刻重试即成功。已取证: 失败/成功的 attestation 除 credid+pubkey 外逐字节相同。
+- **诊断残留已清理**: screen.c splash 的 RST 复位码显示已移除 (下次构建生效;
+  当前已烧录固件含该显示, 无害)。
+- **取证工具**: tcpdump usbmon 常驻 /tmp/usbmon.log + /tmp/decode_ctap.py
+  <log> <offset> <bus:dev>。设备重枚举地址递增 (1:69 等)。
+- 测试: test_ctaphid/test_ctaphid_net caps 断言已更新 (0x0d), 全套件绿。
+
+## (已归档) FIDO 自动唤醒复位问题 → 见上方解决记录
+- **现象**: 菜单自动唤醒进 FIDO 后, 注册点 Yes 时设备自动重启 (开机 logo 闪现 =
+  完整重启)。手动进 FIDO 再注册正常。
+- **诊断**: 已在 screen.c splash 加 `RST:<n>` 显示 esp_reset_reason (1=poweron
+  3=sw 4=panic 5=intwdt 6=taskwdt 9=brownout), 固件已构建 (05:49, 零警告)
+  **未烧录**。烧录后复现注册复位, 读 RST 数字定位。
+- **注意**: 该诊断显示是临时的, 定位后需移除。
+- 自动唤醒实现: fido_esp.c s_fido_wake (fido_usb_rx 置位) + ui.c 菜单 100ms
+  切片轮询 + screen_run_fido 唤醒进入时保留 rx ring。
+- **候选怀疑**: 唤醒进入时 fido_task 与 menu 任务 LCD/触摸竞态窗口
+  (xTaskCreate 后 menu 任务仍画 idle 屏, 可能覆盖 confirm 屏); INT_WDT 300ms;
+  或确认路径在 ring 有积压包时的时序问题。
+
+## BitcoinBall 官网首页重写 (2026-08-17)
+- web/index.html + style.css + main.js 全部重写, 依据 PRD V2.0 + 05-UI 设计
+  系统 V2.0。深空底 #0D0D1A + 比特币橙 #F7931A, Inter 字体。
+- 实现: H-01 标语 (Not a miner / digital draw machine), H-02 三 SKU 卡片
+  (规格与黄皮书 §4 一致, 音箱款 Pre-order 置灰), H-03 10 分钟倒计时环 +
+  今日开奖计数, H-04 收益模拟器 (黄皮书 §5 公式, 基线 30TH/s+$0.12+400W+
+  $60k+600EH/s → +$0.27 已验证), H-05 彩票对比表, 合规页脚。
+- 合规: 移除旧稿 "Guaranteed profit" 等红线文案; 收益数字旁固定免责声明。
+- 验证: browse 截图桌面+移动端均正常, 无 console 错误。旧 lucky.html 等保留。
+
+## FIDO 多次确认问题修复 (2026-08-17 05:20, 已实机验证)
+- **问题**: Firefox GitHub 登录需点 3 次 Yes（标准 dongle 仅 1 次触摸）。
+- **usbmon 取证**（/tmp/decode_ctap.py 解码 tcpdump usbmon 流）:
+  1. GetAssertion rpId="https://github.com/u2f/trusted_facets" (U2F AppID 探测,
+     up:false) → 设备**先弹确认再校验 tag** → 0x22 INVALID_CREDENTIAL
+  2. GetAssertion rpId=github.com, options **{"up": false}** (文本键!) 静默探测 →
+     read_map_key 不识别 "up" 文本键 → 按 up:true 处理 → 弹确认
+  3. 真实登录 up:true → 第 3 次确认
+- **修复 (core/)**:
+  - ctap2.c read_map_key: 增加 "up"/"uv"/"rk" 文本键映射 (Firefox options 用文本键)
+  - fido_core.c fido_get_assertion: tag 校验 (fido_cred_exists) 移到 confirm 之前;
+    up_required=false 时跳过确认、UP 标志置 0 (CTAP2 §6.2 静默探测语义, 与
+    YubiKey/Ledger 一致; 只有持有有效 credid 的 RP 能触发, 泄露面="签发方得知
+    密钥在线")
+- **回归测试**: test_fido t14 (文本键 up:false 无确认+UP=0)、t15 (整数键同)、
+  t16 (错 rpId 先拒答不弹屏) — 48/48 通过, ASan 干净。
+- **实机验证** (烧录后 usbmon): U2F 探测 0x22 立即拒答 (2ms, 无弹屏) →
+  静默探测 146ms 无触摸签名 → 真实登录 1 次触摸成功。**与标准 dongle 一致**。
+- **问题 1 结论** (删除后注册失败): 非设备 bug。流量证明设备两次均返回合法
+  attestation (0x00 OK)；首次失败是 GitHub 页面缓存 challenge 过期, 失败后前端
+  取新 challenge, 第二次即成功。清 cookie=强制新会话。
+- 工具: tcpdump -i usbmon1 常驻捕获 /tmp/usbmon.log; /tmp/decode_ctap.py
+  <log> <offset> <bus:dev> 解码 CTAPHID/CTAP2。注意设备重枚举后地址会变。
+
+## 第 29 轮安全审计 (kimi k3, 2026-08-17) — 完成
+- **范围**: core/ 全模块精读 + 48 套件 -Werror + 48 套件 ASan/UBSan + fuzz 各 50 万
+  迭代 + S3 固件零警告构建。详见 docs/SECURITY_AUDIT.md 第 29 轮。
+- **关键发现（已修复）**:
+  - 29.1 高危: ctap2 excludeCredentials 重复 id 键 → exclude_credid[4] 栈溢出
+    （恶意 RP/本地进程可触发）。已加 exclude_count 边界 + t12 回归。
+  - 29.2 cbor budget 精确耗尽后防护失效（budget-1 无符号回绕）。t9 回归。
+  - 29.3/29.4 cbor_skip 深度泄漏、exclude/allowlist 流错位。已修。
+  - 29.5 linkproto 回复缓冲 516B < SIGN 最大回复 1044B → ≥8 输入 BTC 无法组帧。
+    扩至 4+HD_LINK_MAX_PAYLOAD，大回复回归测试。
+  - 29.6 EVM value > 2^64 wei（≈18.45 ETH）无法签名 → 饱和显示 "MAX"。t7 改契约。
+  - 29.7 敏感数据清零缺口 7 处（hkdf/sha512 ctx、pads、bip39 stream/salt、
+    bip32 xprv、se_mock wipe/salt/tag）→ 全部 os_secure_bzero。
+  - 29.8 policy 冷静期 uint32 回绕防御（饱和）。
+- **测试漂移修复**: adv_seed 缺 phys 桩、noreturn 桩、adv_int 未用变量、5 个测试
+  memcpy(NULL,0) UBSan。
+- **固件状态**: 工作区 = V4 PRO 深度防护 + GetInfo head 9 + 第 29 轮全部修复。
+  S3 固件已重新构建 (02:46, 零警告), 未烧录, 未提交 git。
+- **已知限制** (记录于 29.11): ECC 非常数时间（生产签名在 SE）、k1 sqrt carry、
+  evm_sig_assemble v uint32、FIDO mock 私钥派生不含 rp_hash。
+
+## FIDO GitHub 注册失败 — 结论: 固件正常, 根因为旧凭证 exclude 残留 (2026-08-16 23:xx)
+- **最终结论**: 固件完全正常。现象全部用 Chrome 和 Firefox 验证:
+  - Chrome + GitHub: 注册/登录成功
+  - localhost:8443 + Firefox/Chrome: 注册/登录成功
+  - 标准 FIDO dongle + Firefox + GitHub: 注册成功
+  - Firefox + GitHub (旧状态): 注册失败 → **在 GitHub → Settings → Passwords and
+    authentication 删除旧安全密钥后, 普通 Firefox 注册成功 (用户已确认此操作即修复);
+    MOZ_LOG 启动的 Firefox 注册也成功; 退出 GitHub 重新登录也成功**。
+- **根因机制**: 昨天(8/15)用 Chrome 在 GitHub 注册过凭证, 设备端 seed/epoch 未变,
+  该 credid 仍可通过 mock_fido_tag 校验。GitHub 账号残留旧凭证时, 注册请求的
+  excludeCredentials 携带旧 credid → 设备 fido_cred_exists 命中 →
+  返回 CTAP2_ERR_CREDENTIAL_EXCLUDED (0x19) → Firefox 报 "Authentication failed"
+  (而设备 confirm 屏已显示过 "Registration OK", 造成"设备成功浏览器失败"假象)。
+  删除旧凭证/exclude 为空后即成功。Chrome 可能因隐私保护不传 exclude 或降级处理,
+  所以 Chrome 一直成功。
+- **固件状态**: core/cbor.c cbor.h ctap2.c = V4 PRO 版 (cbor 深度防护 ++r->depth +
+  cbor_reader_leave, 已 Chrome 复测无害); fido_core.c = HEAD 版 (pinUvAuthProtocols
+  [1], 与 Chrome 成功版本一致)。
+- **遗留**: test_ctaphid_net t5 在 git HEAD 就 fail (测试期望 raw 64B 签名但
+  fido_core 已改 DER) —— 仓库既有测试漂移, 待清理。
+- **可选改进**: 考虑在 GitHub 这类 RP 再次注册时, 若返回 CREDENTIAL_EXCLUDED,
+  设备 confirm 屏应显示"已注册"而非"Registration OK", 避免误导。
+- **待明天继续 (2026-08-17)**: 用户不确定失败根因是"浏览器缓存"还是"服务端旧凭证",
+  需复现验证: 重新在 GitHub 注册一个新凭证(不要删除旧的), 再用 Firefox 注册第二个,
+  观察是否报 CREDENTIAL_EXCLUDED(0x19)。若报 → 服务端旧凭证为因; 若不报 → 之前是
+  浏览器缓存/旧进程状态问题。同时可检查 /tmp/ff_webauthn.log.moz_log 是否为空
+  (MOZ_LOG 的 Rust 模块未编译进发布版, 日志为空属正常)。
+- **最终结论**: 固件完全正常。用 Chrome 访问 GitHub, 注册 + 登录都成功。
+  失败的只是 **Firefox + GitHub** 组合。昨天(8/15) Chrome GitHub 成功记录在
+  01_HardID_PRD (makeCredential fmt=none / getAssertion DER 均真机验证通过)。
+- **误判过程**: 用户今天用 Firefox 测 GitHub 失败, 以为 V4 PRO 审核(工作区
+  cbor/ctap2 深度防护 + 多语言 UI)引入回归。实测:
+  - Chrome + GitHub: 注册/登录成功
+  - localhost:8443 + Firefox/Chrome: 注册/登录成功
+  - Firefox + GitHub: 失败 (浏览器报 Authentication failed, 设备 confirm 屏显示
+    "Registration OK" —— 注意这是 confirm UI 反馈, 不代表协议返回 CTAP2_OK)
+- **最终状态 (2026-08-16 22:5x)**: cbor 深度防护已恢复 (cbor.c/cbor.h/ctap2.c
+  为 V4 PRO 版含 ++r->depth + cbor_reader_leave; fido_core.c 为 HEAD 版含
+  pinUvAuthProtocols [1])。用户 Chrome 复测 GitHub 注册 + 登录 **均成功**,
+  确认深度防护无害。test_ctaphid_net t5 在 git HEAD 就 fail (测试期望 raw 64B
+  签名但 fido_core 已改 DER) —— 仓库既有测试漂移, 后续清理。
+- **下一步**: 排查 Firefox + GitHub 注册失败原因, 使固件兼容 Firefox。
+
+## FIDO 注册失败 — 回滚 V4 PRO 深度防护 (2026-08-16 21:06)
+- **用户报告**: "V4 PRO 做代码审核导致 fido 功能在 github 注册失败, 昨天是成功的".
+  昨天成功 → 今天(8/16 凌晨起) V4 PRO 审核提交多语言 UI (b11e297..c34f360) + 工作区
+  未提交的 cbor/ctap2 深度防护改动 → 注册失败。
+- **关键历史**: `e0836bb` (8/15) 提交原文警告 "enter_container no longer bumps
+  r->depth ... Sequential containers (e.g. Chrome's 7-alg pubKeyCredParams array)
+  were accumulating depth to CBOR_MAX_DEPTH, returning 0x11 ... making Chrome mark
+  the device unusable in the 'create passkey' dialog"。V4 PRO 审核把 `++r->depth`
+  加回 + cbor_reader_leave 配对, 重新引入了 e0836bb 特意修复的回归。
+- **已做**: 回滚 core/cbor.c cbor.h ctap2.c fido_core.c + tests/test_fido.c
+  test_ctaphid_net.c 到 git HEAD (昨天成功状态)。多语言 UI 提交 c34f360 保留。
+  idf.py build 通过 (bin 21:07)。
+- **备份**: 回滚前的 V4 PRO 版本在 `/tmp/fido_rollback_backup/` (cbor.c cbor.h
+  ctap2.c fido_core.c test_fido.c test_ctaphid_net.c)。
+- **测试注意**: 回滚后 test_cbor t6 "depth guard trips past 8" 和 test_ctaphid_net
+  t5 "64-byte signature present" 各 1 fail —— 这两个断言是 V4 PRO 配套的
+  (期待 depth 防护 + DER 签名), 回滚后不匹配, 属预期。
+- **待验证**: 烧录回滚固件后测 GitHub 注册。若恢复 → V4 PRO 深度防护确认元凶;
+  若仍失败 → 元凶在多语言 UI 提交或 fido_esp 逻辑。
+
+## FIDO GitHub 登录失败 (未解决, 用户决定后续处理, 2026-08-16 晚)
+- **现象**: GitHub 添加 passkey 第一步注册成功(设备显示 "Register new login key?"→
+  "Registration OK"); 第二步 "Confirm access" 浏览器报 "Authentication failed", 设备
+  却显示 "注册 OK"(makeCredential 文案, 而非 "Confirm login?"/getAssertion)。
+- **核心矛盾**: 设备走 makeCredential 流程, 但浏览器期望 getAssertion 响应。
+- **已排除的假设** (均有 host 测试/脚本验证):
+  1. cbor 深度防护 (host 测试: getAssertion 文本 key allowList 正确返回 login is_reg=0)
+  2. 签名链路 (host 测试: 注册→登录→verify 返回 1=PASS; 注意 os_secp256r1_verify 返回
+     **1=成功**, 非 0)
+  3. lang.c 错位 (Python 脚本: 149 键枚举↔数组 0 错位)
+  4. pinUvAuthProtocols=[1] 矛盾 (已修复为省略字段, 符合 CTAP2 规范; 但登录仍失败)
+- **已做的代码改动** (保留):
+  - `core/fido_core.c` `fido_getinfo`: 删除 `pinUvAuthProtocols:[1]`, 省略该字段
+    (map head 10→9)。理由: clientPin=false 时按 CTAP2 §6.4 应省略; [1] 是 e0836bb
+    为绕过 Chrome 空数组崩溃的错误修复, 会误导平台走 PIN 流程。
+  - `tests/test_fido.c` t1: GetInfo 断言 10→9 字段 (0xaa→0xa9)。
+- **下一步排查方向** (后续处理):
+  1. **设备端 mbedtls 签名 vs host 纯软件签名差异** — 设备用 secp256r1_mbedtls.c,
+     host 用 secp256r1.c。需真机验证 mbedtls 签名正确 (设备 console=NONE 无法看日志)。
+  2. **getAssertion 的 allowList 是否为空** — rk=false 非 resident key, Chrome 需本地
+     credential 构造 allowList; 若 Chrome 未保存第一步 credential, allowList 空→
+     NO_CREDENTIALS→GitHub 报 Authentication failed。需 USB HID 抓包确认。
+  3. **USB HID 多包接收** — GitHub getAssertion 可能多包, host 测试 t5 只测了单包。
+  4. 设备日志无法输出 (sdkconfig CONFIG_ESP_CONSOLE_NONE=y), 需临时改 console 到 USB
+     CDC 或 UART 才能调试。
+- 环境: 无 clang/afl; 设备 /dev/ttyACM0; 烧录需手动进下载模式 (BOOT+RESET)。
+
+## 进行中 (三个任务, 2026-08-16 晚间)
+- **任务1 已完成**: lang.c 错位 + BACK 时序修复已补进 PRD §10 / 工程文档 §11 / 清单 06 /
+  MEMORY (见下方最新条目)。
+- **任务3 已完成 (V4 Flash 恢复执行)**: 依据当前 v0.2.0 固件代码重写使用说明书。
+  - `docs/07_HardID_使用说明书.md` 从 v0.1 (7 项菜单/mock 固件, 已过时) 全面重写为
+    v0.2.0: 14 章, 含 10 项主菜单显隐规则、初始化(选词长度 12/24 + 熵收集按住屏幕
+    3-2-1-0 + 强制二次确认)、RECOVER、SIGN (app 中介 + WYSIWYS + UNKNOWN 双确认)、
+    HOST LINK、FIDO (免 PIN + **开机即入 serving** + 删除清凭证)、PIN/自动锁定
+    (30s/1min/5min/10min/Never, 默认 5min, 修改 PIN 后立即锁定)、APP MARKET (Installed/
+    Available 两页)、LANGUAGE 四语持久化、ABOUT (FW 0.2.0)、FACTORY RESET (两次 RESET
+    + PIN 验证)、FAQ、功能矩阵。
+  - `docs/manual/` 四语 (中文/EN/日本語/한국어) 初始化流程补齐两步: 选助记词长度
+    12/24 + 熵收集屏 (按住屏幕/SKIP), 与 v0.2.0 一致; 其余章节核对无误未动。
+  - **关键核对结论**: 四语 manual v1.2 原本已较准; 主要过时处是 docs/07。已确认
+    PIN 长度 4-16 (`core/pin.h`)、自动锁定 5 档 (screen.c:1260)、FIDO 出厂=捆绑未安装
+    (fido_app.c NVS)、开机 FIDO 分支 (main.c:40)。
+  - **使用说明书封面 (已确认已加入)**: 用户要求封面含品牌/LOGO/警告/核心优势, 反复迭代
+    后定稿为**极简中文单语**: 深底 #0A0F1E + 闪电 LOGO (SVG 重绘) + HardID 渐变字标 +
+    副标题 "硬件钱包使用说明书 · v0.2.0" + 三个卡片 (01 完全开源 / 02 私钥永不出设备 /
+    03 所见即所签) + 完整安全警告 (助记词只在本机生成输入, 任何人索取一律诈骗 + 唯一
+    备份, **警告语不可缩减**)。已存 `docs/manual/cover-zh.html` (源) + `cover-zh.png`
+    (渲染), docs/07 开头已引用图片。渲染命令: chrome headless --window-size=794,1123。
+- **Clear Sign (WYSIWYS) 实现确认 (2026-08-16 代码走查, 已写入工程文档 §11)**: 双入口
+  (本机 SIGN + HOST LINK) 共用 `os_signsvc_delegate` (core/signsvc.c), 实现完整:
+  ① App parse() 产出候选 intent → 固件独立 clean-room 解析器 fw_reparse 重派生逐字段
+  比对 (signsvc.c:137-150), 固件无解析器的链拒签; ② NULL confirm 钩子=硬中止无绕过
+  (signsvc.c:233); ③ 屏显结构体=签名消费同一结构体, sighash 从同批字节派生; ④ UNKNOWN
+  强制连续两次 Yes + data_hash 匹配 (screen.c:97-103); ⑤ BIP44 隔离 44'/49'/84'/86'
+  (signsvc.c:162-186); ⑥ 签名前必须 PIN 解锁。
+  - **待核实点全部通过**: EVM RLP 读取器减法防回绕 (clearsign.c:61) + 尾部垃圾拒绝
+    (:254) + >8 字节标量拒绝 (:76-87); BTC 依赖 os_psbt_parse (审计第1轮修复) + 多输出
+    强制 HIGH 风险 (clearsign.c:567-575); decode_erc20 越界读修复在位 (dlen<4 先行,
+    :169); UNKNOWN 仍算 data_hash。测试 t6 畸形拒绝/t7 超大标量拒绝在基线内 PASS。
+- **任务2 已完成 (两个 FAIL 修复 + 专项安全审查, V4 PRO)**: 根因与修复如下。
+  - **cbor 深度防护失效 (真实安全缺口, 已修复)**: 提交 `e0836bb` 为修 Chrome 7-alg
+    pubKeyCredParams 误报 (顺序兄弟容器被当嵌套累积 depth 到 8 上限, 返回 0x11 使 Chrome
+    判定设备不可用), **彻底移除** `enter_container` 的 depth++。但没同步改 test_cbor t6。
+    真实攻击路径中深嵌套最终落到 `cbor_skip` (未知字段/扩展), 而 cbor_skip 的 ++/-- 配对
+    防护仍在 (已验证 40 层返回 CBOR_ERR_DEPTH=17); 但流式 read_* 完全无深度防护是纵深防御
+    缺口 (未来新命令用流式 API 做数据驱动递归会漏防)。
+    - **修复**: 恢复 `enter_container` 的 depth 检查, 新增 `cbor_reader_leave()` 配对
+      (区分嵌套 vs 顺序兄弟); CTAP2 全部 11 处容器循环后加 leave。漏配 leave 后果是
+      fail-closed (误报拒绝, 测试能抓), 非安全漏洞。
+    - **验证**: 7 顺序 alg map + leave 后 depth 正确回 0; 40 层嵌套 cbor_skip 仍拒;
+      流式 9 次 array_head 仍触发深度防护。test_cbor 26 pass。
+  - **ctaphid_net t5 (测试过时, 已修复)**: 提交 `b4e1ffa` 按 WebAuthn §6.5.5 把 getAssertion
+    签名从原始 64 字节 r||s 改为 **DER 编码** (变长 64-72 字节), 但测试仍断言 `\x03\x58\x40`
+    (固定 64 字节)。实现正确, 测试过时。
+    - **修复**: 改断言为 `\x03\x58` + 长度字节 ∈[64,72] + 首字节 0x30。test_ctaphid_net 27 pass。
+  - **基线**: 32 套测试全 PASS。
+- **全量模糊测试 (2026-08-16, V4 PRO)**: 新增 `fuzz/fuzz_full.c`, 覆盖 13 个不可信输入入口
+  (psbt/evm/cbor/eip712/bip39/bip32/linkproto/ctap2/ctaphid/txasm/secp256r1+256k1/base58),
+  gcc ASan/UBSan, 确定性 PRNG 可复现。**400k 迭代 (2 种子) 干净**。
+  - 2 处 ASan 报告均**在 fuzz 驱动自身** (bip39 误把 32B 当 64B seed; secp parse 传 NULL
+    point_out), 核心代码无问题——已修驱动。
+  - 诚实记录: `os_secp256k1_parse_pubkey`/`os_secp256r1_parse_pubkey` 对 point_out 无 NULL
+    检查 (内部 API, 调用方信任), 非当前攻击面, 未加防御。
+  - 环境无 clang/afl (仅 gcc), 无法做覆盖率引导; PBKDF2 是性能瓶颈已降频 1/64。
+  - Makefile 加 `fuzz_full` target; README 更新 13 target 表 + 结果。
+- **硬件侧信道实测 (2026-08-16, 软件层预审完成, 真机实测受阻)**: 环境无示波器/功耗采集/
+  ChipWhisperer, **无法实测**。已做软件层预审 (写入 SECURITY_AUDIT「侧信道实测预审」):
+  - 钱包签名 mock_sign_digest 是占位 XOR (非真 ECDSA), 非攻击面; 真实 SE 须硬件内抗 DPA。
+  - FIDO ES256 签名用 mbedtls 确定性 ECDSA (RFC6979), 非ce 正确, 但 MCU 软签有 DPA 风险 (开发态)。
+  - PIN 比较已 os_consttime_eq 恒定时间; secp256k1 标量乘有数据依赖分支 (审计第4轮已文档级处置: 禁走 MCU)。
+  - 结论: 设计上私钥签名应全下沉 EAL6+ SE; 接入真实 SE 前必须真机实测抗 DPA。
+  - 已列出实测需求清单 (示波器≥500MHz/功耗探头/屏蔽盒/SPA+DPA+TVLA)。
+- **第 27 轮审查 (配置/存储/日志/重置安全面, V4 PRO)**: 写入 SECURITY_AUDIT。
+  - **27.1 低危已修复**: 确认对话框触摸坐标日志 (keypad.c:706 + fido_esp.c:294) 用 ESP_LOGW
+    输出, 生产日志级别 INFO 下会经 UART 泄漏授权确认坐标。改 ESP_LOGD (DEBUG, 生产不输出)。
+  - **27.2 通过项**: DEV 开关 (Kconfig default n + 依赖 mock)、敏感存储 (mock NVS 是 DEV-only,
+    真实 SE 硬件存钥)、脑口令不持久化、wipe 彻底、FIDO reset 默认拒绝 (fail-closed)、RNG 自检
+    fail-closed、日志无 PIN/seed 泄漏——均确认正确。
+  - **27.3 遗留记录**: ① VID 0x1209 占位 (需真实 VID + 正品验证); ② 生产日志级别 INFO 应降
+    ERROR/NONE; ③ SE 后端默认 mock (发布须切 ACL16, 否则占位签名)。
+- **第 28 轮审查 (SE 生产驱动/FIDO/linkproto/boot, V4 PRO)**: 写入 SECURITY_AUDIT。
+  - **28.1 高危发现 (状态一致性缺口)**: 生产 `se_composite.c` 的 `composite_driver` 缺失
+    5 个接口 (lock/is_unlocked/get_lock_timeout/set_lock_timeout/derive_session 均 NULL),
+    导致自动锁定失效 + 重启后不要求 PIN 解锁 + brain phrase 在真实 SE 不可用。最关键:
+    `se_acl16_sign_digest` 不检查解锁状态 (mock 却检查 mock_unlocked, 审计第16轮修复的
+    不变量)。**签名是否要求 PIN 完全取决于 ACL16 芯片硬件是否在 INS_SIGN 内强制 VERIFY_PIN,
+    必须与芯片厂商确认**——若否则生产固件有"签名无需 PIN"致命缺口, 须在 composite 层补
+    软件解锁门。已列入 SECURITY_AUDIT 28.1 处置清单 + 28.3 遗留。
+  - **28.2 通过项**: FIDO GetInfo/makeCredential 边界 + COSE EC2 规范 + linkproto 帧边界 +
+    se_acl16 APDU 敏感数据清零 + boot fail-closed + 双 TRNG 熵源——均正确。
+  - **28.4 中危 (SPI read 契约不匹配)**: `hal/se_transport_esp32.c` `esp32_read` 忽略
+    timeout_ms + SPI 全双工满读从不返回 0, 但 `se_acl16_apdu` 读循环依赖 r==0 表示超时来
+    break。真实 SPI 硬件上 APDU 响应读取必然读到 buffer 满报 IO 错。当前 S3 用 mock 不受
+    影响 (hal/ 未编进 S3 镜像), 仅影响未来 ACL16 SPI 生产构建。host 测试用 stub 分支
+    测不出 (stub_read 正确实现 timeout 返回 0)。修复方向已记 SECURITY_AUDIT 28.4。
+  - **28.5 通过项**: SPI write 无溢出 + se_mock NVS 明文 seed 是 DEV-only + wipe 擦除 +
+    双 SE 职责分离 (SE1 vault / SE2 guard) + FIDO attestation fmt:none。
+- 工作区未提交: lang.c + fido_esp.c + link_esp.c + screen.c + ui.c + keypad.c + core/cbor.c +
+  core/cbor.h + core/ctap2.c + tests/test_cbor.c + tests/test_ctaphid_net.c +
+  fuzz/fuzz_full.c + fuzz/Makefile + fuzz/README.md + 文档 (PRD/工程文档/清单/07/四语
+  manual×4 初始化节) + cover-zh.html + cover-zh.png + MEMORY.md。
+- 工作区未提交: lang.c + fido_esp.c + link_esp.c + screen.c + ui.c + core/cbor.c +
+  core/cbor.h + core/ctap2.c + tests/test_cbor.c + tests/test_ctaphid_net.c + 文档
+  (PRD/工程文档/清单/07/四语 manual×4 初始化节) + cover-zh.html + cover-zh.png + MEMORY.md。
+
+## 已完成 (多语言 UI 真机走查 + CJK 行距修复 + lang.c 错位 + BACK 时序修复, commit `c34f360` + 工作区 7 文件, 2026-08-16)
+- **自动锁定标签可见性 bug 修复已真机验证**: 进入 PIN 二级菜单确认"自动锁定已经可以
+  显示时间选项了"——§3.3.1 原缺陷修复通过 (commit `c34f360`)。
+- **语言切换真机验证**: LANGUAGE 屏四选项正确, 手指切换各语言基本正确, CJK/假名/谚文
+  渲染无缺字 (设备 NVS 语言当前为日语)。
+- **CJK 行距重叠缺陷根因 + 修复**: 5×7→8×16/16×16 UTF-8 字体替换后多处 y 坐标沿用旧
+  行距; scale=1 字形高 16px、scale=2 高 32px, 间距不足即重叠。
+  - `ui.c menu_draw`「OK: 打开」y=26→**42** (HardID 2x 占 y6-37) —— 真机确认修复。
+  - `screen.c screen_app_action` 版本行 y=32→**36** (id/coin 行占 y18-33)。
+  - `fido_esp.c`×2 + `link_esp.c`×2 serving 屏第二行 y=14→**20** (标题占 y2-17) —— 已烧录复核。
+- **语言字符串顺序错位 (关键 bug, 已修复已烧录)**: `lang.c s_labels` 里 `LKEY_DELETE`
+  误置于 `LKEY_NEED_WORDS` 之后 (枚举应在 `LKEY_WAITING_FRAMES` 之后), 致索引 26–37 共
+  12 键整体错位一个位置。症状: FIDO serving 标题错显 `DELETE`、第二行错显 `FIDO serving`、
+  退出 `session ended` 错显 `FIDO task error`; 之前 Host Link 屏 "session ended 与 serving
+  重叠" 也是它。根因: `_Static_assert` 只校验行数不校验顺序。已移回正确位置, 149 键脚本
+  比对 `ORDER MATCH`。**教训: 新增 lang 字符串务必保持 lang.h 枚举与 lang.c 数组顺序一致**。
+- **BACK 退出时序 bug (已修复已烧录)**: serving 屏退出循环 break 后未排干手指释放, 同一
+  按压被 `ui_wait_ack` 复用 → 一次点击即退出 (跳过 session ended 确认), 与语言无关, 手指
+  按得稍长必现。修复: break 后加 `ui_wait_release(&px,&py)`。真机验证通过。
+- **触摸注入走查**: 主菜单 y=260 / PIN 屏底栏 y=303 均可靠 (PIN 屏左键 `P 42 303`
+  退出二级菜单验证通过); **语言屏底栏 y=303 不命中** (用户手指可操作), 疑坐标偏移待查。
+- **文档更新 (待提交)**: PRD §10 快照 + 工程文档 §11 + 清单 06 增加 2026-08-16 段,
+  均补入 lang.c 错位 + BACK 时序两项。
+- **待办/已知**: ① FIDO 管理屏红色 DELETE 与蓝色 BACK 视觉重叠 (源码坐标 BACK x15-70 /
+  DELETE x80-160 不相交, 疑 `lcd_rect_text_utf8` 标签溢出按钮矩形, 用户已暂缓, 需照片
+  复现后定); ② 提交工作区 (lang.c + fido_esp.c + link_esp.c + screen.c + ui.c + 3 份文档
+  + MEMORY.md); ③ 语言屏底栏注入坐标排查。
+
 ## 已完成 (无板会话: WebAuthn RP 服务搭建 + COSE key 二修, commit `b6f47de`/`5ee4b57`, 2026-08-15)
 - **重要纠错: 此前 `dd7615d` 的 "COSE key 修复" 本身是错的!** 当时以为 RFC 8152
   EC2 key 是 `{1:kty, 3:crv, -1:x, -2:y}`。实际标准是 **`{1:kty=2, 3:alg=-7,

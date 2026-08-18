@@ -47,11 +47,13 @@ Main menu (10 items; INITIALIZE / RECOVER are hidden once the device is initiali
 ## 3. Initialize a Wallet
 
 1. Choose **INITIALIZE** from the menu.
-2. A **seed-word security warning** appears first — read it, then tap **I UNDERSTAND**.
-3. The recovery phrase is shown one word at a time. **Write every word down by hand.** Tap Next for the next word.
-4. A **second confirmation** asks you to re-enter the phrase word by word; it must match or the flow will not proceed.
-5. You are asked **whether to set a PIN** (optional): Yes → set a 4–16 digit PIN twice; No → run PIN-less.
-6. Done; return to the menu.
+2. Choose the **phrase length**: tap **12** (128-bit entropy) or **24** (256-bit entropy). (Dev builds add a 4-word test option; production firmware does not.)
+3. **Entropy screen** (optional, recommended): **hold a finger on the screen**, and the device samples touch jitter as extra entropy — a 3–2–1–0 countdown runs, then generation starts automatically; or tap SKIP. The longer you hold, the more randomness is collected.
+4. A **seed-word security warning** appears first — read it, then tap **I UNDERSTAND**.
+5. The recovery phrase is shown one word at a time. **Write every word down by hand.** Tap Next for the next word.
+6. A **second confirmation** asks you to re-enter the phrase word by word; it must match or the flow will not proceed.
+7. You are asked **whether to set a PIN** (optional): Yes → set a 4–16 digit PIN twice; No → run PIN-less.
+8. Done; return to the menu.
 
 ---
 

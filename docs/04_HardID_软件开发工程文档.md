@@ -340,5 +340,100 @@ sha256sum hardid-v1.0.0.bin
 
 ---
 
-*关联文档：`01_PRD`、`02_ERD`、`03_时序图`、`安全核心审核报告.md`、`../MEMORY.md`*
+## 11. 实现进展（2026-08-16，多语言 UI 真机走查 + CJK 行距修复）
+
+本日提交 `c34f360`（i18n 全屏本地化 + 自动锁定标签可见性修复），并用 DEV 触摸注入器
+（`HARDID_DEV_TOUCH_INJECT`）对多语言 UI 逐屏真机走查。核心产出是定位并修复 UTF-8/CJK
+字体替换引入的**文本行距重叠**类缺陷。
+
+**缺陷根因（§3.4/display 字体切换遗留）**
+
+- 字体由 5×7 `lcd_line_big` 切换为 8×16（ASCII）/ 16×16（CJK）UTF-8 字体后，多处
+  `lcd_utf8_str` 的 y 坐标仍沿用旧 5×7 行距习惯：scale=1 字形高 16px（占用 y..y+15），
+  scale=2 高 32px（占用 y..y+31）。相邻两行若 y 间距 <16px（1x）或 <32px（2x）即文字重叠。
+  旧 5×7 字形高 7px，仅需 7px 行距，故原布局无问题。
+
+**修复清单（工作区未提交）**
+
+| 文件 | 位置 | 改动 | 说明 |
+|------|------|------|------|
+| `ui.c` | `menu_draw` | 「OK: 打开」提示 y=26 → **y=42** | HardID 2x 标题占 y6-37，原 26 起重叠；ITEM_Y0=134 无碰撞 |
+| `screen.c` | `screen_app_action` | 版本行 y=32 → **y=36** | id/coin 行占 y18-33，原 32 起重叠 32-33 |
+| `fido_esp.c` | serving 屏 ×2 | 第二行 y=14 → **y=20** | 标题占 y2-17，原 14 起重叠 14-17 |
+| `link_esp.c` | serving 屏 ×2 | 第二行 y=14 → **y=20** | 同上（「等待数据帧」行） |
+| `lang.c` | `s_labels` 数组 | `LKEY_DELETE` 移至 `LKEY_WAITING_FRAMES` 之后 | 见下方「语言字符串顺序错位」 |
+| `fido_esp.c` | `screen_run_fido` 退出 | break 后加 `ui_wait_release` | 见下方「BACK 退出时序」 |
+| `link_esp.c` | `screen_run_link_host` 退出 | break 后加 `ui_wait_release` | 同上 |
+
+**语言字符串顺序错位（lang.c vs lang.h，关键 bug）**
+
+- `s_labels` 为 `[LKEY_COUNT][LANG_COUNT]` 二维表，`os_lang_str(key)` 直接 `s_labels[key][s_lang]`
+  按**枚举值**索引。`lang.h` 枚举要求 `LKEY_DELETE` 位于 `LKEY_WAITING_FRAMES` 之后，但 `lang.c`
+  里它被误放到 `LKEY_NEED_WORDS` 之后，造成索引 26–37 共 12 个键整体错位一个位置。
+- 症状：FIDO serving 屏标题 `LKEY_FIDO_SERVING(26)` 错显 `DELETE`、`LKEY_FIDO_PLUG_BROWSER(27)`
+  错显 `FIDO serving`；退出时 `LKEY_SESSION_ENDED(35)` 错显 `FIDO task error`。之前 Host Link 屏
+  的「session ended 与 serving 重叠」同样是错位所致（`LKEY_HOST_LINK_SERVING(36)` 错显 `session ended`）。
+- 漏拦原因：`lang.c:259` 的 `_Static_assert(LKEY_COUNT == sizeof s_labels / ...)` 只校验**行数**，
+  不校验顺序。修复后已用脚本逐一比对 149 个键，`ORDER MATCH` 全部对齐。**后续新增字符串务必
+  保持 `lang.h` 枚举与 `lang.c` 数组顺序一致**（或引入编译期顺序断言）。
+
+**BACK 退出时序（fido_esp.c / link_esp.c）**
+
+- serving 屏退出循环 `if (ui_touch_now(...) && ui_pt_in(BACK)) break;` 在检测到**按下**瞬间即 break，
+  未排干释放。随后 `ui_wait_ack()` 内部的 `ui_wait_press` 需要连续 3 次读到触摸才算一次新按压，
+  若手指在进入 ack 时仍按住，settle 计数复用同一按压、`ui_wait_release` 一抬手即判定命中 BACK
+  → **一次点击即退出**（跳过 `session ended` 确认）。手指按得稍长（>~60ms）必现，与语言无关。
+- 修复：break 后、`touch_inject_set_busy(false)` 前插入 `ui_wait_release(&px, &py)` 排干本次按压。
+
+**真机走查验证**
+
+- 自动锁定时间档位标签可见（原 bug 修复，提交 `c34f360`）；语言切换正确、四语无缺字。
+- 触摸注入走查：菜单左右/OK 连续导航可靠；PIN 屏底栏 `<`/`OK`/`>` 命中（`P 42 303` 左键退出 PIN 二级菜单验证通过）。语言屏底栏 y=303 注入不命中（用户手指可操作），疑坐标偏移待查。
+- FIDO serving 屏文案、退出「点一次 → `session ended` → 再点一次退出」均已真机验证（中文界面）。
+
+**待确认**
+
+- FIDO 管理屏（`screen_fido_manage`）用户报告红色 DELETE 与蓝色 BACK 视觉重叠；源码坐标
+  （BACK x15-70 / DELETE x80-160）不相交，疑 `lcd_rect_text_utf8` 标签文字溢出按钮矩形，
+  暂挂起待照片复现。
+
+**Clear Sign（WYSIWYS）实现确认（2026-08-16 代码走查）**
+
+对签名链路的 Clear Sign 承诺做了逐文件核对，结论：**已实现且设计完整**，双入口（设备本机
+SIGN 与 HOST LINK）共用同一条签名服务。
+
+1. **双解析（独立重派生，WYSIWYS 锚点）**：`core/signsvc.c` `os_signsvc_delegate` 先用 App
+   的 `parse()` 产出候选 intent，再用**固件自己 clean-room 解析器** `fw_reparse`
+   （signsvc.c:80-103，按 coin_type 派发 BTC/PSBT 或 EVM 解析器）从原始字节独立重派生，
+   逐字段比对 kind/risk/chain/amount/fee_limit/chain_id/to/method/symbol/amount_token/
+   data_hash（signsvc.c:137-150）。恶意/buggy App 无法让用户确认与所签字节不一致的意图。
+   **固件无解析器的链一律拒签**（`fw_reparse` 返回 -1），官方市场模型要求固件解析器先落地。
+2. **确认钩子不可绕过**：`if (!confirm) → OS_SIGN_ABORT`（signsvc.c:233-236）——NULL 确认
+   钩子是硬中止，无测试绕过、无编译配置可跳过屏上确认。
+3. **屏显=所签（by construction）**：确认屏渲染的 `os_tx_intent` 与签名消费的是**同一结构体**，
+   且签名摘要（EIP-155 legacy/1559/2930，BIP143）从**同一批 tx 字节**派生（signsvc.c:242-303）。
+4. **UNKNOWN 风险升级**：无法解析的交易强制**连续两次 Yes**（screen.c:97-103），且 data_hash
+   必须匹配，杜绝"显示良善哈希却签恶意字节"。ERC20 unlimited approve 标记
+   `unlimited_approval` 并升 HIGH（clearsign.c:214-217）。
+5. **BIP44 隔离**：路径须 44'/49'/84'/86' + 硬化 coin 分支匹配 App + 硬化账户（signsvc.c:162-186），
+   路径无法逃逸 App 的币种/账户隔离。
+6. **签名前必须 PIN 解锁**（screen.c:182-194），SE 未解锁返回 `OS_SIGN_LOCKED`。
+
+**待核实点结论（解析器畸形输入安全，已核实全部防护在位）**
+
+- `os_clearsign_parse_evm_coin`：RLP 读取器 `rlp_read` 用**减法比较防 32 位长度回绕**
+  （clearsign.c:61 `l > r->len || hdr > r->len - l`）；非规范尾部字节拒绝（clearsign.c:254-256，
+  尾部字节会进 digest 却不上屏）；`rlp_u64` 标量 >8 字节拒绝，不截断成伪造小金额
+  （clearsign.c:76-87）。对抗用例：test_clearsign t6 畸形拒绝、t7 超大标量拒绝。
+- `os_clearsign_parse_btc_coin`：依赖 `os_psbt_parse`（SECURITY_AUDIT 第 1 轮高危修复：精确
+  nin 输入映射，防输出映射污染 fee）；**多输出强制 HIGH 风险**（clearsign.c:567-575）——后续
+  输出不在屏上逐条显示，绝不静默放行防拖库。
+- `decode_erc20` 越界读：SECURITY_AUDIT 第 6 轮高危修复已在位——`dlen < 4` 先于任何 memcmp
+  （clearsign.c:169），transferFrom 分支要求 `dlen < 4+96`（clearsign.c:179）。
+- UNKNOWN 意图仍算 `os_keccak256(data, dlen, data_hash)`（clearsign.c:172/182/200），signsvc
+  比对 data_hash 保持"屏上哈希=所签字节"。
+
+---
+
+*关联文档：`01_PRD`、`02_ERD`、`03_时序图`、`安全核心审核报告.md`、`SECURITY_AUDIT.md`、`../MEMORY.md`*
 *文档结束*

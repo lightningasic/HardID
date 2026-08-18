@@ -314,5 +314,33 @@ HardID 从 BitExchange Wallet 进化而来，坚持三条原始原则：**完全
 
 ---
 
+## 10. 实现进展快照（2026-08-16，多语言 UI 真机走查 + CJK 行距修复）
+
+本日提交 `c34f360`（i18n 全屏本地化 + 自动锁定标签可见性修复，未提交工作区另含 4 文件行距修复），对多语言 UI 做逐屏真机走查，定位并修复 UTF-8/CJK 字体替换后的**文本行距重叠**类缺陷。以下为已落地的需求项与偏差说明：
+
+**走查覆盖（四语全过）**
+- 主菜单导航逐项核对：INITIALIZE / RECOVER / SIGN / HOST LINK / APP MARKET / PIN / ABOUT / LANGUAGE / FACTORY RESET，触摸注入器驱动左右/OK 连续走查可靠（PIN 屏底栏、菜单 OK 键均命中）。
+- 自动锁定（PIN 二级菜单）时间档位标签**真机可见**——§3.3.1 原"看不到自动锁定时间"缺陷修复验证通过。
+- 语言切换真机验证：LANGUAGE 屏四选项显示正确，手指切换各语言基本正确，CJK/假名/谚文渲染无缺字。
+- App MARKET → 已安装 app 详情、FIDO/Host Link serving 屏均进入走查范围。
+
+**行距重叠缺陷根因（CJK 字体替换引入）**
+- 字体由 5×7 `lcd_line_big` 切换为 8×16/16×16 UTF-8 字体后，多处 `lcd_utf8_str` 的 y 坐标仍按旧行距布局：scale=1 字形高 16px（占用 y..y+15），scale=2 高 32px（占用 y..y+31）。间距 <16px（1x）或 <32px（2x）即产生相邻行文字重叠。
+
+**已修复（真机确认）**
+- 主菜单标题区（`ui.c menu_draw`）：「OK: 打开」提示由 y=26 → **y=42**（HardID 2x 标题占 y6-37，原 26 起重叠；ITEM_Y0=134 无碰撞）——修复"OK: 打开 挡住一半 HardID"。
+- App 详情页（`screen.c screen_app_action`）：版本行由 y=32 → **y=36**（id/coin 行占 y18-33）。
+- FIDO serving 屏（`fido_esp.c` ×2）与 Host Link serving 屏（`link_esp.c` ×2）：第二行（插入浏览器 / 等待数据帧）由 y=14 → **y=20**（标题占 y2-17）。
+- **语言字符串顺序错位（`lang.c`）**：`s_labels` 数组里 `LKEY_DELETE` 被误插到 `LKEY_NEED_WORDS` 之后（`lang.h` 枚举中它应在 `LKEY_WAITING_FRAMES` 之后），导致索引 26–37 共 12 个字符串整体错位——FIDO serving 屏标题错显为 `DELETE`、第二行错显为 `FIDO serving`、退出时 `session ended` 错显为 `FIDO task error`。已把 `LKEY_DELETE` 移到正确位置，149 个键的枚举↔数组顺序经脚本校验 `ORDER MATCH`。`_Static_assert` 只校验数量未校验顺序，是漏拦根因（见工程文档 §11）。
+- **serving 屏 BACK 退出时序（`fido_esp.c`/`link_esp.c`）**：退出循环检测到 BACK **按下**即 break，未排干手指释放；若手指在进入 `ui_wait_ack` 时仍按住，同一按压被 ack 复用 → **一次点击即退出**（不显示 `session ended` 确认）。修复：break 后先 `ui_wait_release` 排干本次按压再进 ack。
+
+**待确认（真机未完全定位）**
+- FIDO APP 管理屏（`screen_fido_manage`）用户报告红色 DELETE 文字与蓝色 BACK 按钮视觉重叠；源码坐标（BACK x15-70 / DELETE x80-160）不相交，疑按钮标签文字溢出按钮矩形——暂挂起，待照片复现后再定。
+
+**遗留红线（真实资金前必修，见 MEMORY.md）**
+- 在 §9 遗留基础上追加：FIDO 管理屏 DELETE/BACK 重叠定位。
+
+---
+
 *关联文档：`安全核心审核报告.md`、`SECURITY_AUDIT.md`、`09_FIDO设计文档.md`、`../MEMORY.md`*
 *文档结束*
